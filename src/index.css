@@ -462,11 +462,29 @@ p {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 16px;
+  align-items: start;
+}
+
+@media (min-width: 1201px) {
+  .board-grid {
+    grid-template-rows: repeat(6, auto);
+  }
+
+  .quadrant {
+    display: grid;
+    grid-template-rows: subgrid;
+    grid-row: 1 / span 6;
+  }
 }
 
 @media (max-width: 1200px) {
   .board-grid {
     grid-template-columns: repeat(2, 1fr);
+  }
+
+  .quadrant {
+    display: flex;
+    flex-direction: column;
   }
 }
 
@@ -479,11 +497,18 @@ p {
 .quadrant {
   background: var(--surface);
   border-radius: 12px;
-  border-top: 6px solid transparent;
+  border-top: 6px solid #cbd5e1;
   overflow: hidden;
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+}
+
+.quadrant-section {
   display: flex;
   flex-direction: column;
+}
+
+.quadrant-section-fill {
+  flex: 1;
 }
 
 .quadrant-hero {
@@ -492,6 +517,7 @@ p {
   align-items: center;
   gap: 10px;
   padding: 26px 14px 18px;
+  background: #eef2f7;
 }
 
 .letter-grid-svg {
@@ -514,41 +540,31 @@ p {
   font-size: 14px;
   letter-spacing: 1.5px;
   text-transform: uppercase;
+  color: #334155;
 }
 
-.quadrant-hero-kpi {
-  font-size: 11.5px;
-  font-weight: 600;
-  opacity: 0.75;
-  margin-top: -4px;
-}
-
-.kpi-tabs {
+.kpi-pills {
   display: flex;
-  gap: 4px;
+  gap: 6px;
   flex-wrap: wrap;
   padding: 10px 14px 0;
+  align-content: flex-start;
 }
 
-.kpi-tab {
-  border: 1px solid var(--border);
-  background: #f8fafc;
+.kpi-pill {
+  border: 2px solid transparent;
   border-radius: 999px;
-  padding: 4px 10px;
-  font-size: 11px;
-  font-weight: 600;
+  padding: 5px 12px;
+  font-size: 11.5px;
+  font-weight: 700;
   cursor: pointer;
-  color: var(--muted);
-}
-
-.kpi-tab-active {
   background: white;
-  border-width: 2px;
+  transition: background 0.12s ease, color 0.12s ease;
 }
 
 .kpi-headline {
   display: flex;
-  align-items: flex-end;
+  align-items: flex-start;
   justify-content: space-between;
   padding: 12px 14px 0;
   gap: 10px;
@@ -558,17 +574,38 @@ p {
   font-size: 14px;
 }
 
+.headline-values {
+  display: flex;
+  gap: 14px;
+  align-items: flex-end;
+}
+
+.headline-shift {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.headline-shift-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--muted);
+  margin-bottom: 1px;
+}
+
 .headline-value {
-  font-size: 30px;
+  font-size: 26px;
   font-weight: 800;
   line-height: 1;
   white-space: nowrap;
 }
 
 .headline-unit {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
-  margin-left: 4px;
+  margin-left: 3px;
   color: var(--muted);
 }
 
@@ -578,6 +615,10 @@ p {
 
 .value-bad {
   color: var(--bad);
+}
+
+.value-nodata {
+  color: #94a3b8;
 }
 
 .quadrant-block-title {
@@ -595,6 +636,25 @@ p {
 
 .quadrant .table-scroll {
   padding: 0 14px 14px;
+}
+
+/* ---------------- Action status badges/select ---------------- */
+.status-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.status-select {
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: none;
+  cursor: pointer;
 }
 
 /* ---------------- Forward Looking (kanban) ---------------- */

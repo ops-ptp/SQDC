@@ -60,11 +60,20 @@ export interface ActionItem {
   action: string;
   owner_name: string;
   deadline: string | null; // yyyy-mm-dd
-  done: boolean;
+  status: ActionStatus;
   completed_at: string | null;
   created_by: string | null;
   created_at: string;
 }
+
+export type ActionStatus = 'not_started' | 'in_progress' | 'dropped' | 'completed';
+
+export const ACTION_STATUS_META: Record<ActionStatus, { label: string; color: string; bg: string }> = {
+  not_started: { label: 'Not started', color: '#475569', bg: '#e2e8f0' },
+  in_progress: { label: 'In progress', color: '#1d4ed8', bg: '#dbeafe' },
+  dropped: { label: 'Dropped', color: '#991b1b', bg: '#fee2e2' },
+  completed: { label: 'Completed', color: '#166534', bg: '#dcfce7' },
+};
 
 export interface ForecastCard {
   id: string;
@@ -88,6 +97,15 @@ export const PILLAR_COLORS: Record<string, { base: string; soft: string; text: s
   Q: { base: '#2563eb', soft: '#dbeafe', text: '#1e3a8a' },
   D: { base: '#16a34a', soft: '#dcfce7', text: '#14532d' },
   C: { base: '#d97706', soft: '#fef3c7', text: '#78350f' },
+};
+
+export type PerformanceStatus = 'met' | 'missed' | 'nodata' | 'future';
+
+export const PERFORMANCE_COLORS: Record<PerformanceStatus, string> = {
+  met: '#16a34a',
+  missed: '#dc2626',
+  future: '#e2e8f0',
+  nodata: '#94a3b8',
 };
 
 export function metTarget(kpi: Pick<Kpi, 'is_higher_better'>, target: number, actual: number): boolean {

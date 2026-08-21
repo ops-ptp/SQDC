@@ -258,26 +258,33 @@ begin
 end $$;
 
 -- ---- Demo actions ----------------------------------------------------------
-insert into actions (pillar_id, kpi_id, related_issue, action, owner_name, deadline, done)
+insert into actions (pillar_id, kpi_id, related_issue, action, owner_name, deadline, status)
 select p.id, k.id, 'PPE not worn correctly',
   'Run a surprise PPE compliance walk on night shift and log findings', 'Nasser',
-  current_date + 5, false
+  current_date + 5, 'not_started'
 from pillars p join kpis k on k.pillar_id = p.id and k.name = 'Accident During Operation (Night)'
 where p.code = 'S';
 
-insert into actions (pillar_id, kpi_id, related_issue, action, owner_name, deadline, done)
+insert into actions (pillar_id, kpi_id, related_issue, action, owner_name, deadline, status)
 select p.id, k.id, 'CHE breakdown',
   'Escalate CHE preventive maintenance backlog with the workshop', 'Zaid',
-  current_date - 2, true
+  current_date - 2, 'completed'
 from pillars p join kpis k on k.pillar_id = p.id and k.name = 'Delay – Waiting for CHE (L&D) (Day)'
 where p.code = 'Q';
 
-insert into actions (pillar_id, kpi_id, related_issue, action, owner_name, deadline, done)
+insert into actions (pillar_id, kpi_id, related_issue, action, owner_name, deadline, status)
 select p.id, k.id, 'Truck arrival bunching (peak hour)',
   'Trial a second gate lane during peak hours (12pm-2pm)', 'Hassan',
-  current_date + 10, false
+  current_date + 10, 'in_progress'
 from pillars p join kpis k on k.pillar_id = p.id and k.name = 'Gate Truck Waiting Time >1 hour (Day)'
 where p.code = 'D';
+
+insert into actions (pillar_id, kpi_id, related_issue, action, owner_name, deadline, status)
+select p.id, k.id, 'Excess overtime',
+  'Evaluated overtime driver report — one-off due to vessel delay, no recurring pattern found', 'Zaid',
+  current_date - 5, 'dropped'
+from pillars p join kpis k on k.pillar_id = p.id and k.name = 'QC Preventive Maintenance & Service'
+where p.code = 'C';
 
 -- ---- Demo Forward Looking cards (leading KPIs, next 3 days) ---------------
 insert into forecast_cards (kpi_id, pillar_id, target_date, note, owner_name)

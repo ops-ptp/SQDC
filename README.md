@@ -127,28 +127,64 @@ A few modeling decisions worth knowing about:
 | Who's responsible for updating a KPI | `kpi_assignments` (lagging KPIs only) |
 | Daily Value vs. Target, one row per KPI per day | `daily_entries` |
 | Curated reasons feeding the Pareto, picked when a daily entry misses target | `reasons` |
-| Action list (Related reason/issue, Action, Owner, Deadline, Done?) | `actions` |
+| Action list (Related reason/issue, Action, Owner, Deadline, Status) | `actions` (`status`: not_started / in_progress / dropped / completed) |
 | Forward Looking forecast cards (+1/+2/+3 days, leading KPIs only) | `forecast_cards` |
 
-The Pareto chart on the dashboard is computed **per KPI**, not mashed together for
-the whole pillar. Since most pillars now have several KPIs, use the tabs at the top
-of each quadrant to switch which KPI's run chart and Pareto are shown.
+Most lagging KPIs are still stored as two DB rows — e.g. `kpis` rows named
+`"Moves (Day)"` and `"Moves (Night)"` — but the **Board only shows one pill per
+KPI**: `PillarQuadrant` groups any `"X (Day)"` / `"X (Night)"` pair client-side
+into a single pill labeled `"X"`, with the Day and Night numbers shown split out
+in the headline (never as separate pills/tabs). KPIs with no shift split (e.g.
+"QC Preventive Maintenance & Service") are their own single-member group.
+
+The Pareto chart is computed **per KPI** (i.e. per pill, combining its Day+Night
+entries), not mashed together for the whole pillar, over the same window as the
+trend chart (see below).
+
+## The S/Q/D/C letter mosaic
+
+Each quadrant's hero is the pillar's letter (S/Q/D/C) made of **exactly as many
+cells as there are days in the current month** (28–31), each labeled with its
+date. A cell's color is the combined Day+Night average for that KPI on that
+date, compared to target — so unlike a typical dot-mosaic, every cell maps to a
+specific real day rather than an arbitrary decorative pixel. This always shows
+the full current calendar month regardless of the Daily/Weekly toggle below (the
+toggle only changes the trend chart's window).
+
+`PillarLetterGrid` samples the glyph at a resolution that comfortably exceeds
+the day count, then trims down to the exact count by removing the most
+"interior" cells first (so what's left still reads as an outline of the
+letter) — or grows outward from the sampled shape in the rare case sampling
+comes up short. This was unit-tested in isolation for exactness (no
+over/under-count, no duplicate cells) but the actual glyph-sampling step uses
+`<canvas>`, which only runs in a real browser — worth a visual check once
+you're running this against Supabase.
 
 ## App structure
 
-- **`/` — Board (Dashboard)**: the 4-quadrant SQDC view of **lagging** KPIs, no login
-  required (meant to be left open on a shared screen/TV, like the physical board). A
-  **Daily / Weekly** toggle switches the letter mosaic and run chart between this
-  calendar month (daily) and a trailing ~6-month view bucketed by ISO week (weekly).
-- **`/forward-looking` — Forward Looking**: a kanban-style board for **leading** KPIs
-  with three columns (+1 Day, +2 Days, +3 Days). Requires an Employee ID. Add, edit,
-  or delete a forecast card per column, or use the ←/→ buttons on a card to shift it
-  a day earlier/later. Requires at least one KPI with `is_leading = true`.
-- **`/entry` — Enter KPI Data**: requires an Employee ID. Shows only the (lagging)
-  KPIs assigned to that employee for today. If a value misses target, a reason is
-  required before it can be saved (feeds the Pareto chart).
-- **`/actions` — Action Log**: view/add actions across all pillars, filter by pillar,
-  and check items off as done.
+- **`/` — Board (Dashboard)**: the 4-quadrant SQDC view of **lagging** KPIs, no
+  login required (meant to be left open on a shared screen/TV, like the
+  physical board). Deliberately monochrome — the hero background and Pareto
+  chart are neutral grey, so the only color on the board is each KPI pill's
+  green/red **outline** (today's pass/fail) and the selected pill's reverse
+  fill. A **Daily / Weekly** toggle switches the trend chart between the last
+  7 days and the last 4 work weeks (Mon–Fri only) — it does *not* affect the
+  letter mosaic, which always shows the current month. Each quadrant's
+  hero/pills/headline/trend/Pareto/actions sections align row-by-row across
+  all 4 pillars (CSS subgrid) regardless of how much content is in each.
+- **`/forward-looking` — Forward Looking**: a kanban-style board for **leading**
+  KPIs with three columns (+1 Day, +2 Days, +3 Days). Requires an Employee ID.
+  Add, edit, or delete a forecast card per column, or use the ←/→ buttons on a
+  card to shift it a day earlier/later. Requires at least one KPI with
+  `is_leading = true`.
+- **`/entry` — Enter KPI Data**: requires an Employee ID. Shows only the
+  (lagging) KPIs assigned to that employee for today — Day and Night variants
+  still appear as separate cards here, since staff enter them separately. If a
+  value misses target, a reason is required before it can be saved (feeds the
+  Pareto chart).
+- **`/actions` — Action Log**: view/add actions across all pillars, filter by
+  pillar, and change each action's status (Not started / In progress /
+  Dropped / Completed) from a dropdown.
 
 ## Administering KPIs, targets, and assignments (MVP — via SQL)
 
@@ -186,7 +222,10 @@ to the logged-in person.
   correction just re-saves that day).
 - A day-by-day editable target for "Moves" — currently tracked against a fixed
   representative target rather than the sheet's daily-changing Projected figure.
-- A `is_weekly_tracked`-style flag to limit the Weekly toggle to a curated KPI subset —
-  right now Weekly applies uniformly to whichever lagging KPI tab is selected.
+- Not yet verified in a real browser this session — the letter-grid glyph sampling
+  uses `<canvas>`, which this sandbox can't render outside a browser (no network
+  access to download a headless Chromium). The trim/grow algorithm that hits the
+  exact day count was unit-tested standalone and is correct, but the actual visual
+  output (letter recognizability, digit legibility) is worth a look once deployed.
 - Multi-site / multi-board support (one board, one Supabase project).
 - Push notifications, email digests, or export.

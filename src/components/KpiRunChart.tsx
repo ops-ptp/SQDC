@@ -1,67 +1,63 @@
-import { format, parseISO } from 'date-fns';
 import {
   CartesianGrid,
   ComposedChart,
+  Legend,
   Line,
   ReferenceLine,
   ResponsiveContainer,
-  Scatter,
   Tooltip,
   XAxis,
   YAxis,
 } from 'recharts';
-import type { DailyEntry, Kpi } from '../types';
 
-interface Props {
-  kpi: Kpi;
-  entries: DailyEntry[];
-  color: string;
-  /** 'weekly' shows week-of dates on the x-axis instead of day-of-month numbers. */
-  granularity?: 'daily' | 'weekly';
+export interface RunPoint {
+  label: string;
+  date: string;
+  dayActual: number | null;
+  nightActual: number | null;
+  avgActual: number | null;
+  target: number;
 }
 
-export default function KpiRunChart({ kpi, entries, color, granularity = 'daily' }: Props) {
-  const data = entries.map((e) => ({
-    date: e.entry_date,
-    day: format(parseISO(e.entry_date), granularity === 'weekly' ? 'd MMM' : 'd'),
-    actual: e.actual,
-    target: e.target,
-    met: e.met_target,
-  }));
+interface Props {
+  points: RunPoint[];
+  unit: string;
+  /** false for KPIs with no Day/Night split — only the average line is shown. */
+  showDayNight: boolean;
+}
+
+const DAY_COLOR = '#0ea5e9';
+const NIGHT_COLOR = '#7c3aed';
+const AVG_COLOR = '#0f172a';
+
+export default function KpiRunChart({ points, unit, showDayNight }: Props) {
+  const target = points[0]?.target ?? 0;
+  const hasData = points.some((p) => p.dayActual !== null || p.nightActual !== null || p.avgActual !== null);
+
+  if (!hasData) {
+    return <div className="empty-state" style={{ height: 180 }}>No data logged for this period yet.</div>;
+  }
 
   return (
-    <div>
-      <ResponsiveContainer width="100%" height={180}>
-        <ComposedChart data={data} margin={{ top: 8, right: 12, left: -12, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="var(--grid-line)" />
-          <XAxis dataKey="day" tick={{ fontSize: 11, fill: 'var(--muted)' }} />
-          <YAxis tick={{ fontSize: 11, fill: 'var(--muted)' }} width={40} />
-          <Tooltip
-            contentStyle={{ fontSize: 12, borderRadius: 8 }}
-            labelFormatter={(_, payload) => (payload?.[0]?.payload?.date ? payload[0].payload.date : '')}
-            formatter={(value, name) => [`${value} ${kpi.unit}`, name === 'actual' ? 'Actual' : 'Target']}
-          />
-          <ReferenceLine y={kpi.target} stroke="#94a3b8" strokeDasharray="4 4" label={{ value: 'Target', fontSize: 10, fill: '#64748b', position: 'insideTopLeft' }} />
-          <Line type="monotone" dataKey="actual" stroke={color} strokeWidth={2.5} dot={false} isAnimationActive={false} />
-          <Scatter
-            dataKey="actual"
-            isAnimationActive={false}
-            shape={(props: unknown) => {
-              const p = props as { cx: number; cy: number; payload: { met: boolean } };
-              return (
-                <circle
-                  cx={p.cx}
-                  cy={p.cy}
-                  r={4}
-                  fill={p.payload.met ? '#16a34a' : '#dc2626'}
-                  stroke="#fff"
-                  strokeWidth={1}
-                />
-              );
-            }}
-          />
-        </ComposedChart>
-      </ResponsiveContainer>
-    </div>
+    <ResponsiveContainer width="100%" height={190}>
+      <ComposedChart data={points} margin={{ top: 8, right: 12, left: -12, bottom: 0 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="var(--grid-line)" />
+        <XAxis dataKey="label" tick={{ fontSize: 11, fill: 'var(--muted)' }} />
+        <YAxis tick={{ fontSize: 11, fill: 'var(--muted)' }} width={40} />
+        <Tooltip
+          contentStyle={{ fontSize: 12, borderRadius: 8 }}
+          formatter={(value, name) => [`${value} ${unit}`, String(name)]}
+        />
+        <Legend wrapperStyle={{ fontSize: 11 }} iconSize={10} />
+        <ReferenceLine y={target} stroke="#94a3b8" strokeDasharray="4 4" label={{ value: 'Target', fontSize: 10, fill: '#64748b', position: 'insideTopLeft' }} />
+        {showDayNight && (
+          <Line type="monotone" dataKey="dayActual" name="Day" stroke={DAY_COLOR} strokeWidth={2} dot={{ r: 3 }} connectNulls isAnimationActive={false} />
+        )}
+        {showDayNight && (
+          <Line type="monotone" dataKey="nightActual" name="Night" stroke={NIGHT_COLOR} strokeWidth={2} dot={{ r: 3 }} connectNulls isAnimationActive={false} />
+        )}
+        <Line type="monotone" dataKey="avgActual" name={showDayNight ? 'Average' : 'Actual'} stroke={AVG_COLOR} strokeWidth={2.5} dot={{ r: 3 }} connectNulls isAnimationActive={false} />
+      </ComposedChart>
+    </ResponsiveContainer>
   );
 }

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useEmployee } from '../context/EmployeeContext';
-import { createAction, fetchActions, fetchKpis, fetchPillars, setActionDone } from '../lib/data';
-import { PILLAR_COLORS, type ActionItem, type Kpi, type Pillar } from '../types';
+import { createAction, fetchActions, fetchKpis, fetchPillars, setActionStatus } from '../lib/data';
+import { PILLAR_COLORS, type ActionItem, type ActionStatus, type Kpi, type Pillar } from '../types';
 import ActionTable from '../components/ActionTable';
 
 export default function ActionLog() {
@@ -56,13 +56,13 @@ export default function ActionLog() {
     return byPillar;
   }, [actions, filterPillar]);
 
-  async function handleToggle(a: ActionItem) {
-    const nextDone = !a.done;
-    setActions((prev) => prev.map((x) => (x.id === a.id ? { ...x, done: nextDone } : x)));
+  async function handleStatusChange(a: ActionItem, status: ActionStatus) {
+    const prevStatus = a.status;
+    setActions((prev) => prev.map((x) => (x.id === a.id ? { ...x, status } : x)));
     try {
-      await setActionDone(a.id, nextDone);
+      await setActionStatus(a.id, status);
     } catch {
-      setActions((prev) => prev.map((x) => (x.id === a.id ? { ...x, done: a.done } : x)));
+      setActions((prev) => prev.map((x) => (x.id === a.id ? { ...x, status: prevStatus } : x)));
     }
   }
 
@@ -196,7 +196,7 @@ export default function ActionLog() {
         .map((p) => (
           <section key={p.id} className="card action-section" style={{ borderTopColor: PILLAR_COLORS[p.code].base }}>
             <h2 style={{ color: PILLAR_COLORS[p.code].text }}>{p.name}</h2>
-            <ActionTable actions={grouped.get(p.id) ?? []} onToggleDone={handleToggle} />
+            <ActionTable actions={grouped.get(p.id) ?? []} onStatusChange={handleStatusChange} />
           </section>
         ))}
     </div>

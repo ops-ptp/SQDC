@@ -63,6 +63,14 @@ export async function fetchEntriesForKpi(kpiId: string, sinceDate: string): Prom
   return data as DailyEntry[];
 }
 
+/** All entries for a set of KPIs on one specific date — used to color KPI pills by "today's" status. */
+export async function fetchEntriesForKpisOnDate(kpiIds: string[], date: string): Promise<DailyEntry[]> {
+  if (kpiIds.length === 0) return [];
+  const { data, error } = await supabase.from('daily_entries').select('*').in('kpi_id', kpiIds).eq('entry_date', date);
+  if (error) throw error;
+  return data as DailyEntry[];
+}
+
 export async function fetchEntryForKpiAndDate(kpiId: string, date: string): Promise<DailyEntry | null> {
   const { data, error } = await supabase
     .from('daily_entries')
@@ -96,7 +104,7 @@ export async function upsertDailyEntry(input: UpsertEntryInput): Promise<DailyEn
 }
 
 export async function fetchActions(filters?: { pillarId?: string; kpiId?: string }): Promise<ActionItem[]> {
-  let query = supabase.from('actions').select('*').order('done').order('deadline', { ascending: true, nullsFirst: false });
+  let query = supabase.from('actions').select('*').order('deadline', { ascending: true, nullsFirst: false });
   if (filters?.pillarId) query = query.eq('pillar_id', filters.pillarId);
   if (filters?.kpiId) query = query.eq('kpi_id', filters.kpiId);
   const { data, error } = await query;
@@ -120,10 +128,10 @@ export async function createAction(input: NewActionInput): Promise<ActionItem> {
   return data as ActionItem;
 }
 
-export async function setActionDone(id: string, done: boolean): Promise<void> {
+export async function setActionStatus(id: string, status: ActionItem['status']): Promise<void> {
   const { error } = await supabase
     .from('actions')
-    .update({ done, completed_at: done ? new Date().toISOString() : null })
+    .update({ status, completed_at: status === 'completed' ? new Date().toISOString() : null })
     .eq('id', id);
   if (error) throw error;
 }

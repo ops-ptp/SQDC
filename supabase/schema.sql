@@ -220,3 +220,21 @@ alter table forecast_cards enable row level security;
 
 drop policy if exists anon_all_forecast_cards on forecast_cards;
 create policy anon_all_forecast_cards on forecast_cards for all using (true) with check (true);
+
+-- ============================================================================
+-- MIGRATION (2026-08-22): action status (not_started/in_progress/dropped/completed)
+-- ============================================================================
+-- Replaces the old actions.done boolean with a 4-state status, matching the
+-- board's status dropdown. Safe to re-run.
+-- ----------------------------------------------------------------------------
+
+alter table actions add column if not exists status text not null default 'not_started';
+
+do $$ begin
+  alter table actions add constraint actions_status_check
+    check (status in ('not_started', 'in_progress', 'dropped', 'completed'));
+exception
+  when duplicate_object then null;
+end $$;
+
+alter table actions drop column if exists done;
