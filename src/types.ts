@@ -23,6 +23,7 @@ export interface Kpi {
   info: string | null;
   active: boolean;
   sort_order: number;
+  is_leading: boolean;
 }
 
 export interface KpiWithPillar extends Kpi {
@@ -63,6 +64,23 @@ export interface ActionItem {
   completed_at: string | null;
   created_by: string | null;
   created_at: string;
+}
+
+export interface ForecastCard {
+  id: string;
+  kpi_id: string;
+  pillar_id: string;
+  target_date: string; // yyyy-mm-dd
+  note: string;
+  owner_name: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ForecastCardWithRefs extends ForecastCard {
+  kpi: Pick<Kpi, 'name' | 'unit'>;
+  pillar: Pick<Pillar, 'code' | 'name'>;
 }
 
 export const PILLAR_COLORS: Record<string, { base: string; soft: string; text: string }> = {

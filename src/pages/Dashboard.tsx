@@ -2,13 +2,14 @@ import { useEffect, useState } from 'react';
 import { format } from 'date-fns';
 import { fetchKpis, fetchPillars } from '../lib/data';
 import type { Kpi, Pillar } from '../types';
-import PillarQuadrant from '../components/PillarQuadrant';
+import PillarQuadrant, { type Granularity } from '../components/PillarQuadrant';
 
 export default function Dashboard() {
   const [pillars, setPillars] = useState<Pillar[]>([]);
   const [kpis, setKpis] = useState<Kpi[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [granularity, setGranularity] = useState<Granularity>('daily');
 
   useEffect(() => {
     Promise.all([fetchPillars(), fetchKpis()])
@@ -26,12 +27,33 @@ export default function Dashboard() {
   return (
     <div className="board-page">
       <div className="board-page-header">
-        <h1>SQDC Board</h1>
-        <span className="muted">{format(new Date(), 'EEEE, d MMMM yyyy')}</span>
+        <div>
+          <h1>SQDC Board</h1>
+          <span className="muted">{format(new Date(), 'EEEE, d MMMM yyyy')}</span>
+        </div>
+        <div className="segmented">
+          <button
+            className={`segmented-btn ${granularity === 'daily' ? 'segmented-btn-active' : ''}`}
+            onClick={() => setGranularity('daily')}
+          >
+            Daily
+          </button>
+          <button
+            className={`segmented-btn ${granularity === 'weekly' ? 'segmented-btn-active' : ''}`}
+            onClick={() => setGranularity('weekly')}
+          >
+            Weekly
+          </button>
+        </div>
       </div>
       <div className="board-grid">
         {pillars.map((p) => (
-          <PillarQuadrant key={p.id} pillar={p} kpis={kpis.filter((k) => k.pillar_id === p.id)} />
+          <PillarQuadrant
+            key={p.id}
+            pillar={p}
+            kpis={kpis.filter((k) => k.pillar_id === p.id)}
+            granularity={granularity}
+          />
         ))}
       </div>
     </div>

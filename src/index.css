@@ -142,6 +142,17 @@ p {
   color: white;
 }
 
+.btn-ghost-light {
+  background: #f1f5f9;
+  color: var(--text);
+  padding: 7px 12px;
+  font-size: 13px;
+}
+
+.btn-ghost-light:hover:not(:disabled) {
+  background: #e2e8f0;
+}
+
 .btn-lg {
   padding: 12px 20px;
   font-size: 15px;
@@ -414,9 +425,37 @@ p {
 
 .board-page-header {
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
+  justify-content: space-between;
   gap: 12px;
-  margin-bottom: 16px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+/* ---------------- Segmented toggle (Daily / Weekly) ---------------- */
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  padding: 3px;
+  gap: 2px;
+}
+
+.segmented-btn {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 7px 18px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.segmented-btn-active {
+  background: var(--text);
+  color: white;
 }
 
 .board-grid {
@@ -451,8 +490,8 @@ p {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  padding: 18px 14px 14px;
+  gap: 10px;
+  padding: 26px 14px 18px;
 }
 
 .letter-grid-svg {
@@ -464,7 +503,8 @@ p {
   align-items: center;
   justify-content: center;
   width: 100%;
-  font-size: 48px;
+  height: 208px;
+  font-size: 84px;
   font-weight: 900;
   color: #cbd5e1;
 }
@@ -555,4 +595,170 @@ p {
 
 .quadrant .table-scroll {
   padding: 0 14px 14px;
+}
+
+/* ---------------- Forward Looking (kanban) ---------------- */
+.fl-page {
+  max-width: 1320px;
+}
+
+.fl-board {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .fl-board {
+    grid-template-columns: 1fr;
+  }
+}
+
+.fl-column {
+  background: #eef2f7;
+  border-radius: 12px;
+  padding: 12px;
+  min-height: 160px;
+}
+
+.fl-column-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 4px 4px 12px;
+}
+
+.fl-column-title {
+  font-weight: 800;
+  font-size: 15px;
+  color: var(--text);
+}
+
+.fl-column-date {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.fl-column-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.fl-empty {
+  text-align: center;
+  color: var(--muted);
+  font-size: 12.5px;
+  padding: 18px 8px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.fl-card {
+  background: var(--surface);
+  border-radius: 10px;
+  border-left: 4px solid transparent;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  padding: 12px 12px 10px;
+}
+
+.fl-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.fl-card-menu {
+  display: flex;
+  gap: 4px;
+}
+
+.fl-icon-btn {
+  border: 1px solid var(--border);
+  background: white;
+  color: var(--muted);
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.fl-icon-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.fl-icon-btn:hover:not(:disabled) {
+  background: #f1f5f9;
+}
+
+.fl-card-kpi {
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.fl-card-note {
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.4;
+  margin-bottom: 8px;
+  white-space: pre-wrap;
+}
+
+.fl-card-owner {
+  font-size: 11.5px;
+  color: var(--muted);
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.fl-card-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.fl-btn-danger {
+  color: var(--bad);
+}
+
+.fl-card-form {
+  display: flex;
+  flex-direction: column;
+}
+
+.fl-card-form .input {
+  margin-bottom: 8px;
+}
+
+.fl-textarea {
+  resize: vertical;
+  font-family: inherit;
+}
+
+.fl-card-new {
+  border-left-color: var(--primary);
+}
+
+.fl-add-btn {
+  border: 1px dashed var(--border);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 10px;
+  padding: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.fl-add-btn:hover {
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--text);
 }

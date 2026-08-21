@@ -120,7 +120,11 @@ create table if not exists actions (
 -- ----------------------------------------------------------------------------
 -- Convenience view: today's board = latest entry per KPI per day, with pillar
 -- ----------------------------------------------------------------------------
-create or replace view v_kpi_with_pillar as
+-- Dropped first (not just CREATE OR REPLACE) because `k.*` means this view's
+-- column list changes whenever a column is added to kpis — and Postgres
+-- won't let CREATE OR REPLACE VIEW change an existing column list/order.
+drop view if exists v_kpi_with_pillar;
+create view v_kpi_with_pillar as
   select k.*, p.code as pillar_code, p.name as pillar_name, p.sort_order as pillar_sort_order
   from kpis k
   join pillars p on p.id = k.pillar_id;
@@ -174,3 +178,45 @@ create policy anon_all_daily_entries on daily_entries for all using (true) with 
 
 drop policy if exists anon_all_actions on actions;
 create policy anon_all_actions on actions for all using (true) with check (true);
+
+-- ============================================================================
+-- MIGRATION (2026-08-21): leading/lagging KPIs + Forward Looking board
+-- ============================================================================
+-- Safe to re-run. Adds:
+--   * kpis.is_leading — marks a KPI as a "leading" indicator. The Forward
+--     Looking kanban only lets you forecast against leading KPIs (lagging
+--     KPIs measure results after the fact, so they don't belong on a
+--     +1/+2/+3-day forecast board).
+--   * forecast_cards — one card = one forecast/commitment for a specific
+--     future date, tied to a leading KPI. The kanban's three columns
+--     (+1 day, +2 days, +3 days) are computed in the app from
+--     target_date - current_date, so cards naturally roll from "+3" toward
+--     "+1" as days pass without any batch job.
+-- ----------------------------------------------------------------------------
+
+alter table kpis add column if not exists is_leading boolean not null default false;
+
+create table if not exists forecast_cards (
+  id           uuid primary key default gen_random_uuid(),
+  kpi_id       uuid not null references kpis(id) on delete cascade,
+  pillar_id    uuid not null references pillars(id) on delete cascade,
+  target_date  date not null,          -- the day being forecast (usually today+1..today+3)
+  note         text not null,          -- the forecast / what's expected / what to watch
+  owner_name   text,
+  created_by   uuid references employees(id),
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now()
+);
+
+create index if not exists idx_forecast_cards_target_date on forecast_cards(target_date);
+create index if not exists idx_forecast_cards_kpi on forecast_cards(kpi_id);
+
+drop trigger if exists trg_forecast_cards_updated_at on forecast_cards;
+create trigger trg_forecast_cards_updated_at
+  before update on forecast_cards
+  for each row execute function set_updated_at();
+
+alter table forecast_cards enable row level security;
+
+drop policy if exists anon_all_forecast_cards on forecast_cards;
+create policy anon_all_forecast_cards on forecast_cards for all using (true) with check (true);

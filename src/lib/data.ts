@@ -1,5 +1,5 @@
 import { supabase } from './supabaseClient';
-import type { ActionItem, DailyEntry, Employee, Kpi, KpiWithPillar, Pillar, Reason } from '../types';
+import type { ActionItem, DailyEntry, Employee, ForecastCardWithRefs, Kpi, KpiWithPillar, Pillar, Reason } from '../types';
 
 export async function fetchPillars(): Promise<Pillar[]> {
   const { data, error } = await supabase.from('pillars').select('*').order('sort_order');
@@ -7,14 +7,28 @@ export async function fetchPillars(): Promise<Pillar[]> {
   return data as Pillar[];
 }
 
+/** Lagging KPIs only — the ones tracked daily with target/actual on the main Board. */
 export async function fetchKpis(): Promise<Kpi[]> {
   const { data, error } = await supabase
     .from('kpis')
     .select('*')
     .eq('active', true)
+    .eq('is_leading', false)
     .order('sort_order');
   if (error) throw error;
   return data as Kpi[];
+}
+
+/** Leading (process) KPIs only — these are the ones forecastable on the Forward Looking board. */
+export async function fetchLeadingKpis(): Promise<KpiWithPillar[]> {
+  const { data, error } = await supabase
+    .from('kpis')
+    .select('*, pillar:pillars(code, name)')
+    .eq('active', true)
+    .eq('is_leading', true)
+    .order('sort_order');
+  if (error) throw error;
+  return data as unknown as KpiWithPillar[];
 }
 
 export async function fetchKpisForEmployee(employeeId: string): Promise<KpiWithPillar[]> {
@@ -118,4 +132,61 @@ export async function fetchEmployees(): Promise<Employee[]> {
   const { data, error } = await supabase.from('employees').select('*').eq('active', true).order('name');
   if (error) throw error;
   return data as Employee[];
+}
+
+// ---------------------------------------------------------------------------
+// Forward Looking board — forecast cards for leading KPIs, +1/+2/+3 days out
+// ---------------------------------------------------------------------------
+
+const FORECAST_CARD_SELECT = '*, kpi:kpis(name, unit), pillar:pillars(code, name)';
+
+export async function fetchForecastCards(fromDate: string, toDate: string): Promise<ForecastCardWithRefs[]> {
+  const { data, error } = await supabase
+    .from('forecast_cards')
+    .select(FORECAST_CARD_SELECT)
+    .gte('target_date', fromDate)
+    .lte('target_date', toDate)
+    .order('target_date')
+    .order('created_at');
+  if (error) throw error;
+  return data as unknown as ForecastCardWithRefs[];
+}
+
+export interface NewForecastCardInput {
+  kpi_id: string;
+  pillar_id: string;
+  target_date: string;
+  note: string;
+  owner_name: string | null;
+  created_by: string | null;
+}
+
+export async function createForecastCard(input: NewForecastCardInput): Promise<ForecastCardWithRefs> {
+  const { data, error } = await supabase.from('forecast_cards').insert(input).select(FORECAST_CARD_SELECT).single();
+  if (error) throw error;
+  return data as unknown as ForecastCardWithRefs;
+}
+
+export interface UpdateForecastCardInput {
+  kpi_id?: string;
+  pillar_id?: string;
+  target_date?: string;
+  note?: string;
+  owner_name?: string | null;
+}
+
+export async function updateForecastCard(id: string, patch: UpdateForecastCardInput): Promise<ForecastCardWithRefs> {
+  const { data, error } = await supabase
+    .from('forecast_cards')
+    .update(patch)
+    .eq('id', id)
+    .select(FORECAST_CARD_SELECT)
+    .single();
+  if (error) throw error;
+  return data as unknown as ForecastCardWithRefs;
+}
+
+export async function deleteForecastCard(id: string): Promise<void> {
+  const { error } = await supabase.from('forecast_cards').delete().eq('id', id);
+  if (error) throw error;
 }

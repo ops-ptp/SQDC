@@ -2,8 +2,9 @@
 
 A digital replacement for the physical SQDC (Safety, Quality, Delivery, Cost) board.
 Staff log in with their Employee ID, enter today's KPI results (with a reason if the
-target was missed), and the dashboard renders each pillar exactly like the board:
-a run chart vs. target, a Pareto of reasons, and the pillar's action list.
+target was missed), and the dashboard renders each pillar with a large S/Q/D/C letter
+mosaic, a run chart vs. target, a Pareto of reasons, and the pillar's action list.
+A **Forward Looking** kanban board lets the team forecast leading KPIs 1–3 days out.
 
 Stack: **React + TypeScript + Vite**, **Supabase** (Postgres + REST), deployed on **Vercel**.
 
@@ -11,10 +12,12 @@ Stack: **React + TypeScript + Vite**, **Supabase** (Postgres + REST), deployed o
 
 1. Go to [supabase.com](https://supabase.com) → New project. Pick any name/region.
 2. Once it's provisioned, open **SQL Editor** and run the two files in this repo, in order:
-   - `supabase/schema.sql` — creates all tables, the view, and Row Level Security policies.
-   - `supabase/seed.sql` — loads the 4 pillars, 8 example KPIs (from your template — LTI,
-     TTT, First Pass Yield, etc.), 8 sample employees, curated reason lists, ~20 days of
-     demo daily entries, and a couple of demo actions, so the app is fully demoable
+   - `supabase/schema.sql` — creates all tables, the view, Row Level Security policies,
+     and the `is_leading` KPI flag + `forecast_cards` table used by Forward Looking.
+   - `supabase/seed.sql` — loads the 4 pillars, the real terminal-ops KPI catalog (20
+     lagging KPIs tracked daily + 7 leading KPIs for Forward Looking — see below), 8
+     sample employees, curated reason lists, ~20 days of demo daily entries, a couple of
+     demo actions, and a few demo forecast cards — so the app is fully demoable
      immediately.
 3. Go to **Project Settings → API** and copy:
    - **Project URL**
@@ -75,29 +78,75 @@ in `.gitignore`, so only `.env.example` (placeholders) goes to GitHub.
 4. From here on, every `git push` to `main` auto-deploys — that's the whole workflow:
    edit code → push to GitHub → Vercel redeploys automatically, no CLI needed on your end.
 
-## How the data model maps to your template
+## The KPI catalog (from `OPS_SQDC_-_Aug_2026.xlsx`)
 
-| Template concept | Table |
+The board now tracks your real terminal-ops KPIs instead of the generic template
+example set:
+
+| Pillar | Lagging KPIs (tracked daily on the Board) |
+|---|---|
+| **S — Safety** | Accident During Operation (Day/Night) |
+| **Q — Quality** | Delay – Waiting for CHE (L&D), Overall Mixing Yard, Labour Supply as Required – QC Gang (each Day/Night) |
+| **D — Delivery** | Moves, GMPH Mainliner, GMPH Feeder, Mainliner Load GMPH, Gate Truck Waiting Time >1 hour (each Day/Night) |
+| **C — Cost** | QC Preventive Maintenance & Service, Average Litres per Vessel Call (single daily figure, no shift split) |
+
+| Pillar | Leading KPIs (forecast on Forward Looking, +1/+2/+3 days) |
+|---|---|
+| **Q** | QC Gang - Projection Next Shift |
+| **D** | Moves - Projection Day/Night Shift, TEUs Run Rate (Forecast), Lashing - Projection Next Shift |
+| **C** | QC PM & Service - MTD, QC PM & Service - Projection Next Day |
+
+A few modeling decisions worth knowing about:
+
+- **Day/Night shift split**: most lagging KPIs are tracked separately per shift in
+  your source sheet, so each is modeled as two KPI rows (e.g. "Moves (Day)" /
+  "Moves (Night)") — `daily_entries` is one row per KPI per calendar day, so a shift
+  dimension needs its own KPI row rather than an extra column.
+- **Ratio-style KPIs** (Delay – Waiting for CHE, Overall Mixing Yard, Gate Truck
+  Waiting Time) are stored as percentages (raw sheet value × 100) for readability —
+  e.g. the sheet's `0.11` target is `11` in the app.
+- **Moves** has a Projected/Actual/Variant structure in your sheet — the day's target
+  itself moves day to day. This MVP tracks Actual against a fixed representative
+  target (~the Aug-2026 average projection) rather than a day-by-day editable target.
+  If you want the daily projection itself editable (so the target moves with it),
+  that's a reasonable v2 addition — say the word.
+- **Leading KPIs have no daily target/actual** — in your sheet they're forecast/
+  discussion items with no data columns, which maps directly onto `forecast_cards`
+  (Forward Looking) rather than `daily_entries`.
+- The demo `daily_entries` seeded by `seed.sql` are **synthetic** (deterministic
+  pseudo-random values around each KPI's target), not the literal Aug-2026 numbers
+  from your workbook. Let me know if you'd like the real historical figures imported
+  instead.
+
+## How the data model maps
+
+| Concept | Table |
 |---|---|
 | 4 pillars (Safety/Quality/Delivery/Cost) | `pillars` |
-| Each pillar's KPI(s), unit, target, higher/lower-is-good | `kpis` |
-| Who's responsible for updating a KPI | `kpi_assignments` |
-| Daily Value ↓ / Day 1-31 grid, vs. Target | `daily_entries` (one row per KPI per day) |
-| "Reason # / Reason description" feeding the Pareto | `reasons` (curated per-KPI list) picked when a daily entry misses target |
+| Each pillar's KPI(s), unit, target, higher/lower-is-good, leading/lagging | `kpis` (`is_leading` flag) |
+| Who's responsible for updating a KPI | `kpi_assignments` (lagging KPIs only) |
+| Daily Value vs. Target, one row per KPI per day | `daily_entries` |
+| Curated reasons feeding the Pareto, picked when a daily entry misses target | `reasons` |
 | Action list (Related reason/issue, Action, Owner, Deadline, Done?) | `actions` |
+| Forward Looking forecast cards (+1/+2/+3 days, leading KPIs only) | `forecast_cards` |
 
-The Pareto chart on the dashboard is computed **per KPI** (matching your
-"4 - Pareto - Simple" TTT example), not mashed together for the whole pillar. If a
-pillar has more than one KPI, use the tabs at the top of its quadrant to switch which
-KPI's run chart and Pareto are shown.
+The Pareto chart on the dashboard is computed **per KPI**, not mashed together for
+the whole pillar. Since most pillars now have several KPIs, use the tabs at the top
+of each quadrant to switch which KPI's run chart and Pareto are shown.
 
 ## App structure
 
-- **`/` — Board (Dashboard)**: the 4-quadrant SQDC view, no login required (meant to be
-  left open on a shared screen/TV, like the physical board).
-- **`/entry` — Enter KPI Data**: requires an Employee ID. Shows only the KPIs assigned
-  to that employee for today. If a value misses target, a reason is required before it
-  can be saved (feeds the Pareto chart).
+- **`/` — Board (Dashboard)**: the 4-quadrant SQDC view of **lagging** KPIs, no login
+  required (meant to be left open on a shared screen/TV, like the physical board). A
+  **Daily / Weekly** toggle switches the letter mosaic and run chart between this
+  calendar month (daily) and a trailing ~6-month view bucketed by ISO week (weekly).
+- **`/forward-looking` — Forward Looking**: a kanban-style board for **leading** KPIs
+  with three columns (+1 Day, +2 Days, +3 Days). Requires an Employee ID. Add, edit,
+  or delete a forecast card per column, or use the ←/→ buttons on a card to shift it
+  a day earlier/later. Requires at least one KPI with `is_leading = true`.
+- **`/entry` — Enter KPI Data**: requires an Employee ID. Shows only the (lagging)
+  KPIs assigned to that employee for today. If a value misses target, a reason is
+  required before it can be saved (feeds the Pareto chart).
 - **`/actions` — Action Log**: view/add actions across all pillars, filter by pillar,
   and check items off as done.
 
@@ -105,8 +154,10 @@ KPI's run chart and Pareto are shown.
 
 This MVP doesn't ship an admin UI yet. To add/change KPIs, targets, reason lists, or who's
 assigned to what, use the Supabase **Table Editor** (Project → Table Editor) or SQL Editor
-directly on `pillars`, `kpis`, `kpi_assignments`, and `reasons`. `supabase/seed.sql` is a
-good reference for the shape of each insert.
+directly on `pillars`, `kpis`, `kpi_assignments`, `reasons`, and `forecast_cards`.
+`supabase/seed.sql` is a good reference for the shape of each insert. To mark a KPI as
+leading (so it shows up on Forward Looking instead of the main Board), set
+`kpis.is_leading = true`.
 
 ## Security — read before relying on this beyond a demo
 
@@ -133,5 +184,9 @@ to the logged-in person.
 - Editing/deleting past daily entries beyond today's (the app only lets you enter/update
   *today's* value per KPI — `daily_entries` is unique per `kpi_id, entry_date` so a
   correction just re-saves that day).
+- A day-by-day editable target for "Moves" — currently tracked against a fixed
+  representative target rather than the sheet's daily-changing Projected figure.
+- A `is_weekly_tracked`-style flag to limit the Weekly toggle to a curated KPI subset —
+  right now Weekly applies uniformly to whichever lagging KPI tab is selected.
 - Multi-site / multi-board support (one board, one Supabase project).
 - Push notifications, email digests, or export.

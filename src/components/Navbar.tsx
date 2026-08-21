@@ -14,6 +14,9 @@ export default function Navbar() {
         <NavLink to="/" end className={({ isActive }) => (isActive ? 'active' : '')}>
           Board
         </NavLink>
+        <NavLink to="/forward-looking" className={({ isActive }) => (isActive ? 'active' : '')}>
+          Forward Looking
+        </NavLink>
         <NavLink to="/entry" className={({ isActive }) => (isActive ? 'active' : '')}>
           Enter KPI Data
         </NavLink>

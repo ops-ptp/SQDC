@@ -16,12 +16,14 @@ interface Props {
   kpi: Kpi;
   entries: DailyEntry[];
   color: string;
+  /** 'weekly' shows week-of dates on the x-axis instead of day-of-month numbers. */
+  granularity?: 'daily' | 'weekly';
 }
 
-export default function KpiRunChart({ kpi, entries, color }: Props) {
+export default function KpiRunChart({ kpi, entries, color, granularity = 'daily' }: Props) {
   const data = entries.map((e) => ({
     date: e.entry_date,
-    day: format(parseISO(e.entry_date), 'd'),
+    day: format(parseISO(e.entry_date), granularity === 'weekly' ? 'd MMM' : 'd'),
     actual: e.actual,
     target: e.target,
     met: e.met_target,

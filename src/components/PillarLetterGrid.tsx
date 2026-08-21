@@ -1,22 +1,25 @@
 import { useEffect, useState } from 'react';
 
 export type DayStatus = {
-  day: number; // day of month, 1-based
+  day: number; // day of month (daily view) or period index (weekly view), 1-based
   status: 'met' | 'missed' | 'future' | 'nodata';
 };
 
 interface Props {
   letter: string;
-  /** One entry per day of the current month, index 0 = day 1, in order. */
+  /** One entry per period (day or week) in order, oldest first. */
   days: DayStatus[];
   todayDay: number;
   height?: number;
+  /** What each cell represents, used in hover/aria labels. Defaults to 'Day'. */
+  periodLabel?: string;
 }
 
 const SAMPLE_W = 220;
 const SAMPLE_H = 260;
-const START_COLS = 11;
-const START_ROWS = 13;
+// Higher starting resolution so the mosaic stays crisp at the larger board size.
+const START_COLS = 15;
+const START_ROWS = 17;
 const MAX_ATTEMPTS = 5;
 
 function sampleGlyph(letter: string, cols: number, rows: number): { row: number; col: number }[] {
@@ -61,7 +64,7 @@ const STATUS_LABEL: Record<DayStatus['status'], string> = {
   nodata: 'no data logged',
 };
 
-export default function PillarLetterGrid({ letter, days, todayDay, height = 120 }: Props) {
+export default function PillarLetterGrid({ letter, days, todayDay, height = 120, periodLabel = 'Day' }: Props) {
   const [cells, setCells] = useState<{ row: number; col: number }[]>([]);
   const [dims, setDims] = useState({ cols: START_COLS, rows: START_ROWS });
 
@@ -96,7 +99,7 @@ export default function PillarLetterGrid({ letter, days, todayDay, height = 120 
       viewBox={`0 0 ${dims.cols} ${dims.rows}`}
       className="letter-grid-svg"
       role="img"
-      aria-label={`${letter} — daily performance for this month`}
+      aria-label={`${letter} — performance by ${periodLabel.toLowerCase()}`}
     >
       {cells.map((c, i) => {
         const dayInfo = days[i];
@@ -114,7 +117,9 @@ export default function PillarLetterGrid({ letter, days, todayDay, height = 120 
             stroke={isToday ? '#1d4ed8' : 'rgba(0,0,0,0.35)'}
             strokeWidth={isToday ? 0.16 : 0.05}
           >
-            {dayInfo && <title>{`Day ${dayInfo.day}${isToday ? ' (today)' : ''} — ${STATUS_LABEL[dayInfo.status]}`}</title>}
+            {dayInfo && (
+              <title>{`${periodLabel} ${dayInfo.day}${isToday ? ' (latest)' : ''} — ${STATUS_LABEL[dayInfo.status]}`}</title>
+            )}
           </rect>
         );
       })}
