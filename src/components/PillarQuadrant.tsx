@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { subDays, format } from 'date-fns';
+import { format, startOfMonth, getDaysInMonth } from 'date-fns';
 import { fetchActions, fetchEntriesForKpi, fetchReasonsForKpi } from '../lib/data';
 import { PILLAR_COLORS, metTarget, type ActionItem, type DailyEntry, type Kpi, type Pillar, type Reason } from '../types';
 import KpiRunChart from './KpiRunChart';
 import ParetoChart, { type ParetoDatum } from './ParetoChart';
 import ActionTable from './ActionTable';
+import PillarLetterGrid, { type DayStatus } from './PillarLetterGrid';
 
 interface Props {
   pillar: Pillar;
@@ -27,6 +28,9 @@ export default function PillarQuadrant({ pillar, kpis }: Props) {
     }
   }, [kpis, selectedKpiId]);
 
+  // Entries for the currently selected KPI, fetched from the 1st of the
+  // current calendar month — drives the run chart, Pareto, AND the S/Q/D/C
+  // letter mosaic, so switching KPI tabs updates all three together.
   useEffect(() => {
     if (!selectedKpi) {
       setLoading(false);
@@ -34,7 +38,7 @@ export default function PillarQuadrant({ pillar, kpis }: Props) {
     }
     let cancelled = false;
     setLoading(true);
-    const since = format(subDays(new Date(), 30), 'yyyy-MM-dd');
+    const since = format(startOfMonth(new Date()), 'yyyy-MM-dd');
     Promise.all([
       fetchEntriesForKpi(selectedKpi.id, since),
       fetchActions({ pillarId: pillar.id }),
@@ -52,6 +56,28 @@ export default function PillarQuadrant({ pillar, kpis }: Props) {
     };
   }, [selectedKpi, pillar.id]);
 
+  const today = new Date();
+  const todayDay = today.getDate();
+
+  const dayStatuses: DayStatus[] = useMemo(() => {
+    const byDate = new Map(entries.map((e) => [e.entry_date, e.met_target]));
+    const year = today.getFullYear();
+    const month = today.getMonth();
+    const daysInMonth = getDaysInMonth(today);
+    const result: DayStatus[] = [];
+    for (let day = 1; day <= daysInMonth; day++) {
+      if (day > todayDay) {
+        result.push({ day, status: 'future' });
+        continue;
+      }
+      const dateStr = format(new Date(year, month, day), 'yyyy-MM-dd');
+      const met = byDate.get(dateStr);
+      result.push({ day, status: met === undefined ? 'nodata' : met ? 'met' : 'missed' });
+    }
+    return result;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entries]);
+
   const latest = entries.length > 0 ? entries[entries.length - 1] : null;
 
   const reasonLabelById = useMemo(() => new Map(reasons.map((r) => [r.id, r.label])), [reasons]);
@@ -66,12 +92,20 @@ export default function PillarQuadrant({ pillar, kpis }: Props) {
     return Array.from(counts.entries()).map(([label, count]) => ({ label, count }));
   }, [entries, reasonLabelById]);
 
+  const hero = (
+    <div className="quadrant-hero" style={{ background: colors.soft }}>
+      <PillarLetterGrid letter={pillar.code} days={dayStatuses} todayDay={todayDay} height={116} />
+      <span className="quadrant-hero-name" style={{ color: colors.text }}>
+        {pillar.name}
+      </span>
+      {selectedKpi && kpis.length > 1 && <span className="quadrant-hero-kpi">{selectedKpi.name}</span>}
+    </div>
+  );
+
   if (kpis.length === 0) {
     return (
       <section className="quadrant" style={{ borderTopColor: colors.base }}>
-        <header className="quadrant-header" style={{ background: colors.base }}>
-          {pillar.name}
-        </header>
+        {hero}
         <div className="empty-state">No KPIs configured for this pillar yet.</div>
       </section>
     );
@@ -79,9 +113,7 @@ export default function PillarQuadrant({ pillar, kpis }: Props) {
 
   return (
     <section className="quadrant" style={{ borderTopColor: colors.base }}>
-      <header className="quadrant-header" style={{ background: colors.base }}>
-        {pillar.name}
-      </header>
+      {hero}
 
       {kpis.length > 1 && (
         <div className="kpi-tabs">
@@ -115,7 +147,7 @@ export default function PillarQuadrant({ pillar, kpis }: Props) {
             )}
           </div>
 
-          <div className="quadrant-block-title">KPI — last 30 days</div>
+          <div className="quadrant-block-title">KPI — this month</div>
           {loading ? <div className="empty-state">Loading…</div> : <KpiRunChart kpi={selectedKpi} entries={entries} color={colors.base} />}
 
           <div className="quadrant-block-title">Pareto of reasons — this month</div>
@@ -128,4 +160,3 @@ export default function PillarQuadrant({ pillar, kpis }: Props) {
     </section>
   );
 }
-

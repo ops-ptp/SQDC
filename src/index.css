@@ -447,13 +447,40 @@ p {
   flex-direction: column;
 }
 
-.quadrant-header {
-  color: white;
+.quadrant-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 18px 14px 14px;
+}
+
+.letter-grid-svg {
+  display: block;
+}
+
+.letter-grid-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  font-size: 48px;
+  font-weight: 900;
+  color: #cbd5e1;
+}
+
+.quadrant-hero-name {
   font-weight: 800;
-  font-size: 15px;
-  letter-spacing: 1px;
+  font-size: 14px;
+  letter-spacing: 1.5px;
   text-transform: uppercase;
-  padding: 10px 14px;
+}
+
+.quadrant-hero-kpi {
+  font-size: 11.5px;
+  font-weight: 600;
+  opacity: 0.75;
+  margin-top: -4px;
 }
 
 .kpi-tabs {
