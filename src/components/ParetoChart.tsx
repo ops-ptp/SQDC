@@ -69,42 +69,44 @@ export default function ParetoChart({ data }: Props) {
   }
 
   return (
-    <ResponsiveContainer width="100%" height={210}>
-      <ComposedChart data={chartData} margin={{ top: 18, right: 12, left: 4, bottom: 4 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="var(--grid-line)" vertical={false} />
-        <XAxis dataKey="label" interval={0} height={62} tick={<AngledTick x={0} y={0} payload={{ value: '' }} />} />
-        {/* Count scale drives the bar heights but stays hidden — the count is
-            labeled directly on each bar instead, which reads better in a
-            narrow card than a cramped left axis. */}
-        <YAxis yAxisId="left" hide allowDecimals={false} domain={[0, (max: number) => Math.ceil(max * 1.25)]} />
-        <YAxis
-          yAxisId="right"
-          orientation="right"
-          tick={{ fontSize: 10, fill: 'var(--muted)' }}
-          width={30}
-          domain={[0, 100]}
-          ticks={[0, 25, 50, 75, 100]}
-        />
-        <Tooltip
-          contentStyle={{ fontSize: 12, borderRadius: 8 }}
-          formatter={(value, name) => [name === 'Cumulative %' ? `${value}%` : value, String(name)]}
-        />
-        <ReferenceLine yAxisId="right" y={80} stroke="#94a3b8" strokeDasharray="4 4">
-          <Label value="80%" position="insideTopLeft" fontSize={10} fill="#64748b" />
-        </ReferenceLine>
-        <Bar yAxisId="left" dataKey="count" fill={BAR_COLOR} radius={[3, 3, 0, 0]} name="Occurrences" maxBarSize={48}>
-          <LabelList dataKey="count" position="top" fontSize={11} fontWeight={700} fill="#334155" />
-        </Bar>
-        <Line
-          yAxisId="right"
-          type="monotone"
-          dataKey="cumulativePct"
-          stroke={LINE_COLOR}
-          strokeWidth={2}
-          dot={{ r: 3 }}
-          name="Cumulative %"
-        />
-      </ComposedChart>
-    </ResponsiveContainer>
+    <div className="chart-wrap">
+      <ResponsiveContainer width="100%" height={210}>
+        <ComposedChart data={chartData} margin={{ top: 18, right: 4, left: 4, bottom: 4 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--grid-line)" vertical={false} />
+          <XAxis dataKey="label" interval={0} height={62} tick={<AngledTick x={0} y={0} payload={{ value: '' }} />} />
+          {/* Count scale drives the bar heights but stays hidden — the count is
+              labeled directly on each bar instead, which reads better in a
+              narrow card than a cramped left axis. */}
+          <YAxis yAxisId="left" hide width={0} allowDecimals={false} domain={[0, (max: number) => Math.ceil(max * 1.25)]} />
+          <YAxis
+            yAxisId="right"
+            orientation="right"
+            tick={{ fontSize: 10, fill: 'var(--muted)' }}
+            width={30}
+            domain={[0, 100]}
+            ticks={[0, 25, 50, 75, 100]}
+          />
+          <Tooltip
+            contentStyle={{ fontSize: 12, borderRadius: 8 }}
+            formatter={(value, name) => [name === 'Cumulative %' ? `${value}%` : value, String(name)]}
+          />
+          <ReferenceLine yAxisId="right" y={80} stroke="#94a3b8" strokeDasharray="4 4">
+            <Label value="80%" position="insideTopLeft" offset={6} fontSize={10} fill="#64748b" />
+          </ReferenceLine>
+          <Bar yAxisId="left" dataKey="count" fill={BAR_COLOR} radius={[3, 3, 0, 0]} name="Occurrences" maxBarSize={48}>
+            <LabelList dataKey="count" position="top" fontSize={11} fontWeight={700} fill="#334155" />
+          </Bar>
+          <Line
+            yAxisId="right"
+            type="monotone"
+            dataKey="cumulativePct"
+            stroke={LINE_COLOR}
+            strokeWidth={2}
+            dot={{ r: 3 }}
+            name="Cumulative %"
+          />
+        </ComposedChart>
+      </ResponsiveContainer>
+    </div>
   );
 }
