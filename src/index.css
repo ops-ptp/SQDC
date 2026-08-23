@@ -512,6 +512,16 @@ p {
     grid-template-rows: subgrid;
     grid-row: 1 / span 7;
   }
+
+  /* Weekly view drops the Remarks/Summary row (remarks are per-day, not
+     meaningfully aggregable), so all 4 quadrants have one fewer row. */
+  .board-grid.board-grid-weekly {
+    grid-template-rows: repeat(6, auto);
+  }
+
+  .board-grid.board-grid-weekly .quadrant {
+    grid-row: 1 / span 6;
+  }
 }
 
 @media (max-width: 1200px) {

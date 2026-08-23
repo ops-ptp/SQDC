@@ -61,7 +61,7 @@ export default function KpiRunChart({ points, unit, showDayNight }: Props) {
               stroke={DAY_COLOR}
               strokeWidth={1.5}
               strokeDasharray="2 3"
-              dot={{ r: 3 }}
+              dot={{ r: 2.25 }}
               connectNulls
               isAnimationActive={false}
             />
@@ -74,7 +74,7 @@ export default function KpiRunChart({ points, unit, showDayNight }: Props) {
               stroke={NIGHT_COLOR}
               strokeWidth={1.5}
               strokeDasharray="2 3"
-              dot={{ r: 3 }}
+              dot={{ r: 2.25 }}
               connectNulls
               isAnimationActive={false}
             />
@@ -82,10 +82,10 @@ export default function KpiRunChart({ points, unit, showDayNight }: Props) {
           <Line
             type="monotone"
             dataKey="avgActual"
-            name={showDayNight ? 'Average' : 'Actual'}
+            name={showDayNight ? 'Overall' : 'Actual'}
             stroke={AVG_COLOR}
             strokeWidth={2.75}
-            dot={{ r: 3 }}
+            dot={{ r: 3.5 }}
             connectNulls
             isAnimationActive={false}
           />

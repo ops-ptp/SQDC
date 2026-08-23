@@ -47,7 +47,7 @@ export default function Dashboard() {
           </button>
         </div>
       </div>
-      <div className="board-grid">
+      <div className={`board-grid ${granularity === 'weekly' ? 'board-grid-weekly' : ''}`}>
         {pillars.map((p) => (
           <PillarQuadrant
             key={p.id}

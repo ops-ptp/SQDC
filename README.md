@@ -170,15 +170,28 @@ correctly, including the 28-day blackening behavior.
   happened yesterday, not a day still in progress. A blue "Reviewing
   &lt;date&gt;" badge next to the page title makes this explicit, since the
   page header's own date is today's calendar date. The letter mosaic, pill
-  outlines, headline numbers, and Remarks/Summary section all reflect
-  yesterday; the trend chart's "last 7 days" / "last 4 work weeks" windows end
-  on yesterday too. Deliberately monochrome — hero background and Pareto chart
-  are neutral grey, so the only color is each KPI pill's green/red **outline**
-  (yesterday's pass/fail) and the selected pill's reverse fill. A
-  **Daily / Weekly** toggle switches the trend chart's window only — the
-  letter mosaic always shows the full calendar month containing the reviewed
-  day. Each quadrant's hero/pills/headline/remarks/trend/Pareto/actions
-  sections align row-by-row across all 4 pillars (CSS subgrid).
+  outlines, and headline numbers all reflect yesterday. Deliberately
+  monochrome — hero background and Pareto chart are neutral grey, so the only
+  color is each KPI pill's green/red **outline** (yesterday's pass/fail) and
+  the selected pill's reverse fill. A **Daily / Weekly** toggle switches the
+  trend chart and Pareto window — the letter mosaic always shows the full
+  calendar month containing the reviewed day, regardless of the toggle:
+  - **Daily**: trend chart covers the last 7 days; Pareto covers the same
+    window.
+  - **Weekly**: trend chart covers the **last 8 ISO weeks** (Monday–Sunday,
+    per ISO 8601 week numbering — the x-axis is labeled "Wk 34" etc., not a
+    date), each point a simple average of that week's logged days. Two line
+    styles: **Overall** (thicker, solid) and **Day / Night** where
+    applicable (thinner, dashed, smaller dots) — Overall is the primary
+    read, Day/Night are the secondary breakdown. Pareto covers the same
+    8-week window. The **Remarks/Summary section is hidden** in Weekly view,
+    since remarks are per-day free text and don't meaningfully aggregate to
+    a week.
+
+  Each quadrant's hero/pills/headline/[remarks]/trend/Pareto/actions
+  sections align row-by-row across all 4 pillars (CSS subgrid); the grid's
+  row count adjusts automatically between Daily (7 rows) and Weekly (6 rows,
+  no remarks row).
 - **`/forward-looking` — Forward Looking**: a kanban-style board for **leading**
   KPIs with three columns — **Today, Tomorrow, Day After** — the flip side of
   the Board reviewing yesterday: the same huddle that looks back at
@@ -194,7 +207,8 @@ correctly, including the 28-day blackening behavior.
   cards. Each entry captures: the actual value, a **Remarks** field, and — if
   the value misses target — a required reason category (with an explicit
   "Other, please specify" option) **and** required remarks explaining what
-  happened. Remarks show up on the Board's Remarks/Summary section.
+  happened. Remarks show up on the Board's Daily-view Remarks/Summary
+  section.
 - **`/actions` — Action Log**: view/add actions across all pillars, filter by
   pillar, and change each action's status (Not started / In progress /
   Dropped / Completed) from a dropdown.

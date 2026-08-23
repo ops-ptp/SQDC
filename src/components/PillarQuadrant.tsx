@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { format, startOfMonth, getDaysInMonth, startOfWeek, subWeeks, subDays, addDays } from 'date-fns';
+import { format, startOfMonth, getDaysInMonth, startOfWeek, subWeeks, subDays, addDays, getISOWeek } from 'date-fns';
 import { fetchActions, fetchEntriesForKpi, fetchEntriesForKpisOnDate, fetchReasonsForKpi } from '../lib/data';
 import { metTarget, type ActionItem, type DailyEntry, type Kpi, type Pillar, type PerformanceStatus } from '../types';
 import KpiRunChart, { type RunPoint } from './KpiRunChart';
@@ -127,7 +127,7 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily' }: 
     const monthSince = format(startOfMonth(referenceDate), 'yyyy-MM-dd');
     const windowSince =
       granularity === 'weekly'
-        ? format(subWeeks(startOfWeek(referenceDate, { weekStartsOn: 1 }), 3), 'yyyy-MM-dd')
+        ? format(subWeeks(startOfWeek(referenceDate, { weekStartsOn: 1 }), 7), 'yyyy-MM-dd')
         : format(subDays(referenceDate, 6), 'yyyy-MM-dd');
 
     Promise.all([
@@ -221,16 +221,16 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily' }: 
       return points;
     }
 
-    // Weekly: last 4 work-weeks (Mon-Fri), averaging weekday entries per week.
-    const currentMonday = startOfWeek(referenceDate, { weekStartsOn: 1 });
+    // Weekly: last 8 ISO weeks (Mon-Sun), simple average of all logged days per week.
+    const currentIsoWeekStart = startOfWeek(referenceDate, { weekStartsOn: 1 });
     const points: RunPoint[] = [];
-    for (let w = 3; w >= 0; w--) {
-      const monday = subWeeks(currentMonday, w);
+    for (let w = 7; w >= 0; w--) {
+      const weekStart = subWeeks(currentIsoWeekStart, w);
       const dayVals: number[] = [];
       const nightVals: number[] = [];
-      for (let d = 0; d < 5; d++) {
-        const date = addDays(monday, d);
-        if (date > referenceDate) continue;
+      for (let d = 0; d < 7; d++) {
+        const date = addDays(weekStart, d);
+        if (date > referenceDate) break;
         const dateStr = format(date, 'yyyy-MM-dd');
         const dv = dayIdx.get(dateStr)?.actual ?? singleIdx.get(dateStr)?.actual;
         const nv = nightIdx.get(dateStr)?.actual;
@@ -241,8 +241,8 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily' }: 
       const nightAvg = mean(nightVals);
       const both = [dayAvg, nightAvg].filter((v): v is number => v !== null);
       points.push({
-        label: format(monday, 'd MMM'),
-        date: format(monday, 'yyyy-MM-dd'),
+        label: `Wk ${getISOWeek(weekStart)}`,
+        date: format(weekStart, 'yyyy-MM-dd'),
         dayActual: dayAvg,
         nightActual: nightAvg,
         avgActual: mean(both),
@@ -344,32 +344,34 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily' }: 
             </div>
           </div>
 
-          <div className="quadrant-section">
-            <div className="quadrant-block-title">Remarks / Summary</div>
-            <div className="remarks-summary">
-              {selectedGroup.single ? (
-                <div className="remarks-block">
-                  <span className="remarks-block-label">{format(referenceDate, 'EEE d MMM')}</span>
-                  <p className="remarks-text">{referenceSingleEntry?.remarks?.trim() || 'No remarks logged for this date.'}</p>
-                </div>
-              ) : (
-                <>
+          {granularity === 'daily' && (
+            <div className="quadrant-section">
+              <div className="quadrant-block-title">Remarks / Summary</div>
+              <div className="remarks-summary">
+                {selectedGroup.single ? (
                   <div className="remarks-block">
-                    <span className="remarks-block-label">Day</span>
-                    <p className="remarks-text">{referenceDayEntry?.remarks?.trim() || 'No remarks logged for this date.'}</p>
+                    <span className="remarks-block-label">{format(referenceDate, 'EEE d MMM')}</span>
+                    <p className="remarks-text">{referenceSingleEntry?.remarks?.trim() || 'No remarks logged for this date.'}</p>
                   </div>
-                  <div className="remarks-block">
-                    <span className="remarks-block-label">Night</span>
-                    <p className="remarks-text">{referenceNightEntry?.remarks?.trim() || 'No remarks logged for this date.'}</p>
-                  </div>
-                </>
-              )}
+                ) : (
+                  <>
+                    <div className="remarks-block">
+                      <span className="remarks-block-label">Day</span>
+                      <p className="remarks-text">{referenceDayEntry?.remarks?.trim() || 'No remarks logged for this date.'}</p>
+                    </div>
+                    <div className="remarks-block">
+                      <span className="remarks-block-label">Night</span>
+                      <p className="remarks-text">{referenceNightEntry?.remarks?.trim() || 'No remarks logged for this date.'}</p>
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="quadrant-section">
             <div className="quadrant-block-title">
-              {granularity === 'weekly' ? 'Trend — last 4 work weeks' : 'Trend — last 7 days'}
+              {granularity === 'weekly' ? 'Trend — last 8 ISO weeks' : 'Trend — last 7 days'}
             </div>
             {loading ? (
               <div className="empty-state">Loading…</div>
@@ -380,7 +382,7 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily' }: 
 
           <div className="quadrant-section">
             <div className="quadrant-block-title">
-              Pareto of reasons — {granularity === 'weekly' ? 'last 4 work weeks' : 'last 7 days'}
+              Pareto of reasons — {granularity === 'weekly' ? 'last 8 ISO weeks' : 'last 7 days'}
             </div>
             <ParetoChart data={paretoData} />
           </div>
