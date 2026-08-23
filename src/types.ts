@@ -69,12 +69,28 @@ export interface ActionItem {
 
 export type ActionStatus = 'not_started' | 'in_progress' | 'dropped' | 'completed';
 
-export const ACTION_STATUS_META: Record<ActionStatus, { label: string; color: string; bg: string }> = {
+/** Overdue isn't a stored status — it's derived from (status, deadline).
+ * An action can be "in_progress" AND overdue at the same time; this is
+ * purely how it's badged/highlighted, not a value you can select. */
+export type DisplayActionStatus = ActionStatus | 'overdue';
+
+export const ACTION_STATUS_META: Record<DisplayActionStatus, { label: string; color: string; bg: string }> = {
   not_started: { label: 'Not started', color: '#475569', bg: '#e2e8f0' },
   in_progress: { label: 'In progress', color: '#1d4ed8', bg: '#dbeafe' },
-  dropped: { label: 'Dropped', color: '#991b1b', bg: '#fee2e2' },
+  overdue: { label: 'Overdue', color: '#b91c1c', bg: '#fecaca' },
+  dropped: { label: 'Dropped', color: '#78716c', bg: '#e7e5e4' },
   completed: { label: 'Completed', color: '#166534', bg: '#dcfce7' },
 };
+
+/** The status to actually display: real status, unless it's still open
+ * (not_started/in_progress) and past its deadline, in which case "overdue"
+ * takes over the badge/highlight — completed and dropped items are never
+ * shown as overdue since they're already closed out. */
+export function getDisplayStatus(action: Pick<ActionItem, 'status' | 'deadline'>, todayStr: string): DisplayActionStatus {
+  if (action.status === 'completed' || action.status === 'dropped') return action.status;
+  if (action.deadline && action.deadline < todayStr) return 'overdue';
+  return action.status;
+}
 
 export interface ForecastCard {
   id: string;

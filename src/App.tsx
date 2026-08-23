@@ -33,14 +33,7 @@ export default function App() {
                 </RequireEmployee>
               }
             />
-            <Route
-              path="/actions"
-              element={
-                <RequireEmployee>
-                  <ActionLog />
-                </RequireEmployee>
-              }
-            />
+            <Route path="/actions" element={<ActionLog />} />
           </Routes>
         </main>
       </BrowserRouter>

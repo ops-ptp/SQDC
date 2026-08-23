@@ -262,6 +262,46 @@ p {
 }
 
 /* ---------------- Data entry ---------------- */
+.entry-pillar-pills,
+.entry-kpi-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.entry-pill {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  background: white;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.entry-pill-kpi {
+  font-size: 12.5px;
+  padding: 6px 14px;
+}
+
+.entry-pill-check {
+  font-weight: 800;
+}
+
+.entry-pill-hint {
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--muted);
+}
+
+.entry-card-single {
+  max-width: 420px;
+  margin-top: 20px;
+}
+
 .entry-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -429,13 +469,28 @@ p {
   vertical-align: top;
 }
 
-.action-table tr.row-done td {
+.action-table tr.row-completed td {
   color: #94a3b8;
   text-decoration: line-through;
+  background: #f0fdf4;
+}
+
+.action-table tr.row-dropped td {
+  color: #a8a29e;
+  text-decoration: line-through;
+  background: #fafaf9;
+}
+
+.action-table tr.row-overdue {
+  background: #fef2f2;
 }
 
 .action-table tr.row-overdue td:first-child {
-  border-left: 3px solid var(--bad);
+  border-left: 3px solid #b91c1c;
+}
+
+.action-table tr.row-in-progress {
+  background: #eff6ff;
 }
 
 .table-footnote {

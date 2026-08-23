@@ -1,8 +1,15 @@
 import { format, subDays } from 'date-fns';
 import { useEffect, useState } from 'react';
 import { useEmployee } from '../context/EmployeeContext';
-import { fetchEntryForKpiAndDate, fetchKpisForEmployee, fetchReasonsForKpi, upsertDailyEntry } from '../lib/data';
-import { PILLAR_COLORS, metTarget, type DailyEntry, type KpiWithPillar, type Reason } from '../types';
+import {
+  fetchEntriesForKpisOnDate,
+  fetchEntryForKpiAndDate,
+  fetchKpis,
+  fetchPillars,
+  fetchReasonsForKpi,
+  upsertDailyEntry,
+} from '../lib/data';
+import { PILLAR_COLORS, metTarget, type DailyEntry, type Kpi, type Pillar, type Reason } from '../types';
 
 const TODAY = format(new Date(), 'yyyy-MM-dd');
 // Staff typically log the previous day's completed shift results each
@@ -15,19 +22,17 @@ type Shift = 'day' | 'night' | 'single';
 interface KpiGroup {
   key: string;
   label: string;
-  pillarName: string;
-  pillarCode: string;
+  pillarId: string;
   target: number;
   unit: string;
   isHigherBetter: boolean;
   sortOrder: number;
-  day?: KpiWithPillar;
-  night?: KpiWithPillar;
-  single?: KpiWithPillar;
+  day?: Kpi;
+  night?: Kpi;
+  single?: Kpi;
 }
 
-interface GroupState {
-  group: KpiGroup;
+interface FormState {
   shift: Shift;
   reasons: Reason[];
   actualInput: string;
@@ -41,29 +46,43 @@ interface GroupState {
   error: string | null;
 }
 
+const EMPTY_FORM: FormState = {
+  shift: 'single',
+  reasons: [],
+  actualInput: '',
+  remarks: '',
+  reasonId: '',
+  reasonOther: '',
+  existing: null,
+  loading: true,
+  saving: false,
+  saved: false,
+  error: null,
+};
+
 function baseNameOf(name: string): string {
   return name.replace(/\s*\((Day|Night)\)\s*$/i, '').trim();
 }
 
-function buildGroups(kpis: KpiWithPillar[]): KpiGroup[] {
+function buildGroups(kpis: Kpi[]): KpiGroup[] {
   const map = new Map<string, KpiGroup>();
   for (const k of kpis) {
     const isDay = /\(Day\)\s*$/i.test(k.name);
     const isNight = /\(Night\)\s*$/i.test(k.name);
     const base = baseNameOf(k.name);
-    let g = map.get(base);
+    const mapKey = `${k.pillar_id}::${base}`;
+    let g = map.get(mapKey);
     if (!g) {
       g = {
-        key: base,
+        key: mapKey,
         label: base,
-        pillarName: k.pillar.name,
-        pillarCode: k.pillar.code,
+        pillarId: k.pillar_id,
         target: k.target,
         unit: k.unit,
         isHigherBetter: k.is_higher_better,
         sortOrder: k.sort_order,
       };
-      map.set(base, g);
+      map.set(mapKey, g);
     }
     g.sortOrder = Math.min(g.sortOrder, k.sort_order);
     if (isDay) g.day = k;
@@ -73,7 +92,7 @@ function buildGroups(kpis: KpiWithPillar[]): KpiGroup[] {
   return Array.from(map.values()).sort((a, b) => a.sortOrder - b.sortOrder);
 }
 
-function activeKpi(g: KpiGroup, shift: Shift): KpiWithPillar | undefined {
+function activeKpi(g: KpiGroup, shift: Shift): Kpi | undefined {
   if (shift === 'day') return g.day;
   if (shift === 'night') return g.night;
   return g.single;
@@ -85,63 +104,70 @@ function defaultShift(g: KpiGroup): Shift {
   return 'single';
 }
 
+/** "Done" for a date = every applicable shift (day/night, or the single
+ * variant) has a logged entry — drives the grey-vs-colored pill state. */
+function isGroupDone(g: KpiGroup, entries: DailyEntry[]): boolean {
+  const ids = entries.map((e) => e.kpi_id);
+  if (g.single) return ids.includes(g.single.id);
+  const dayDone = g.day ? ids.includes(g.day.id) : true;
+  const nightDone = g.night ? ids.includes(g.night.id) : true;
+  return dayDone && nightDone;
+}
+
 export default function DataEntry() {
   const { employee } = useEmployee();
-  const [selectedDate, setSelectedDate] = useState(YESTERDAY);
+  const [pillars, setPillars] = useState<Pillar[]>([]);
   const [groups, setGroups] = useState<KpiGroup[]>([]);
-  const [rows, setRows] = useState<Record<string, GroupState>>({});
+  const [selectedDate, setSelectedDate] = useState(YESTERDAY);
+  const [selectedPillarId, setSelectedPillarId] = useState('');
+  const [selectedGroupKey, setSelectedGroupKey] = useState('');
+  const [dateEntries, setDateEntries] = useState<DailyEntry[]>([]);
+  const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  // Load the KPI catalog for this employee once.
+  // Load the full KPI catalog once — any logged-in employee can update any KPI.
   useEffect(() => {
-    if (!employee) return;
-    let cancelled = false;
     setLoading(true);
     setLoadError(null);
-    fetchKpisForEmployee(employee.id)
-      .then((kpis) => {
-        if (cancelled) return;
+    Promise.all([fetchPillars(), fetchKpis()])
+      .then(([p, kpis]) => {
+        setPillars(p);
         const built = buildGroups(kpis);
         setGroups(built);
-        setRows(
-          Object.fromEntries(
-            built.map((g) => [
-              g.key,
-              {
-                group: g,
-                shift: defaultShift(g),
-                reasons: [],
-                actualInput: '',
-                remarks: '',
-                reasonId: '',
-                reasonOther: '',
-                existing: null,
-                loading: true,
-                saving: false,
-                saved: false,
-                error: null,
-              } satisfies GroupState,
-            ])
-          )
-        );
+        if (p.length > 0) setSelectedPillarId(p[0].id);
+        const first = built.find((g) => g.pillarId === p[0]?.id) ?? built[0];
+        if (first) setSelectedGroupKey(first.key);
       })
-      .catch((e) => !cancelled && setLoadError(e instanceof Error ? e.message : 'Failed to load your KPIs'))
-      .finally(() => !cancelled && setLoading(false));
-    return () => {
-      cancelled = true;
-    };
-  }, [employee]);
+      .catch((e) => setLoadError(e instanceof Error ? e.message : 'Failed to load the KPI catalog'))
+      .finally(() => setLoading(false));
+  }, []);
 
-  // (Re)load one group's entry + reasons for its currently active KPI + the selected date.
-  async function reloadGroup(key: string, kpi: KpiWithPillar, date: string) {
-    setRows((prev) => ({ ...prev, [key]: { ...prev[key], loading: true } }));
-    try {
-      const [reasons, existing] = await Promise.all([fetchReasonsForKpi(kpi.id), fetchEntryForKpiAndDate(kpi.id, date)]);
-      setRows((prev) => ({
-        ...prev,
-        [key]: {
-          ...prev[key],
+  const pillarGroups = groups.filter((g) => g.pillarId === selectedPillarId);
+  const selectedGroup = groups.find((g) => g.key === selectedGroupKey);
+
+  // Which KPIs already have an entry for the selected date — drives the
+  // grey-until-updated pill styling for every group at once.
+  useEffect(() => {
+    const ids = groups.flatMap((g) => [g.day?.id, g.night?.id, g.single?.id].filter((x): x is string => Boolean(x)));
+    if (ids.length === 0) return;
+    fetchEntriesForKpisOnDate(ids, selectedDate)
+      .then(setDateEntries)
+      .catch(() => setDateEntries([]));
+  }, [groups, selectedDate]);
+
+  // Load the form for whichever KPI + shift is currently selected. Fires on
+  // group/date change, always resetting to that group's default shift.
+  useEffect(() => {
+    if (!selectedGroup) return;
+    const shift = defaultShift(selectedGroup);
+    const kpi = activeKpi(selectedGroup, shift);
+    if (!kpi) return;
+    setForm((f) => ({ ...f, shift, loading: true }));
+    Promise.all([fetchReasonsForKpi(kpi.id), fetchEntryForKpiAndDate(kpi.id, selectedDate)])
+      .then(([reasons, existing]) => {
+        setForm({
+          shift,
           reasons,
           existing,
           actualInput: existing ? String(existing.actual) : '',
@@ -149,83 +175,92 @@ export default function DataEntry() {
           reasonId: existing?.reason_id ?? (existing?.reason_other ? OTHER_SENTINEL : ''),
           reasonOther: existing?.reason_other ?? '',
           loading: false,
+          saving: false,
           saved: false,
           error: null,
-        },
-      }));
-    } catch (e) {
-      setRows((prev) => ({
-        ...prev,
-        [key]: { ...prev[key], loading: false, error: e instanceof Error ? e.message : 'Failed to load entry' },
-      }));
-    }
-  }
-
-  // Reload every group whenever the date changes (or groups first load).
-  useEffect(() => {
-    for (const g of groups) {
-      const kpi = activeKpi(g, rows[g.key]?.shift ?? defaultShift(g));
-      if (kpi) reloadGroup(g.key, kpi, selectedDate);
-    }
+        });
+      })
+      .catch((e) => setForm((f) => ({ ...f, loading: false, error: e instanceof Error ? e.message : 'Failed to load entry' })));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groups, selectedDate]);
+  }, [selectedGroup?.key, selectedDate]);
 
-  function handleShiftChange(key: string, shift: Shift) {
-    const g = groups.find((x) => x.key === key);
-    if (!g) return;
-    setRows((prev) => ({ ...prev, [key]: { ...prev[key], shift } }));
-    const kpi = activeKpi(g, shift);
-    if (kpi) reloadGroup(key, kpi, selectedDate);
+  async function handleShiftChange(shift: Shift) {
+    if (!selectedGroup) return;
+    const kpi = activeKpi(selectedGroup, shift);
+    if (!kpi) return;
+    setForm((f) => ({ ...f, shift, loading: true }));
+    try {
+      const [reasons, existing] = await Promise.all([fetchReasonsForKpi(kpi.id), fetchEntryForKpiAndDate(kpi.id, selectedDate)]);
+      setForm({
+        shift,
+        reasons,
+        existing,
+        actualInput: existing ? String(existing.actual) : '',
+        remarks: existing?.remarks ?? '',
+        reasonId: existing?.reason_id ?? (existing?.reason_other ? OTHER_SENTINEL : ''),
+        reasonOther: existing?.reason_other ?? '',
+        loading: false,
+        saving: false,
+        saved: false,
+        error: null,
+      });
+    } catch (e) {
+      setForm((f) => ({ ...f, loading: false, error: e instanceof Error ? e.message : 'Failed to load entry' }));
+    }
   }
 
-  function patchRow(key: string, patch: Partial<GroupState>) {
-    setRows((prev) => ({ ...prev, [key]: { ...prev[key], ...patch, saved: false } }));
+  function patch(p: Partial<FormState>) {
+    setForm((f) => ({ ...f, ...p, saved: false }));
   }
 
-  async function handleSave(key: string) {
-    if (!employee) return;
-    const row = rows[key];
-    const g = groups.find((x) => x.key === key);
-    const kpi = g && activeKpi(g, row.shift);
-    if (!g || !kpi) return;
+  async function handleSave() {
+    if (!employee || !selectedGroup) return;
+    const kpi = activeKpi(selectedGroup, form.shift);
+    if (!kpi) return;
 
-    const actual = Number(row.actualInput);
-    if (row.actualInput.trim() === '' || Number.isNaN(actual)) {
-      patchRow(key, { error: 'Enter a numeric value.' });
+    const actual = Number(form.actualInput);
+    if (form.actualInput.trim() === '' || Number.isNaN(actual)) {
+      patch({ error: 'Enter a numeric value.' });
       return;
     }
-    const met = metTarget({ is_higher_better: g.isHigherBetter }, g.target, actual);
-    const hasReason = (row.reasonId && row.reasonId !== OTHER_SENTINEL) || (row.reasonId === OTHER_SENTINEL && row.reasonOther.trim());
+    const met = metTarget({ is_higher_better: selectedGroup.isHigherBetter }, selectedGroup.target, actual);
+    const hasReason = (form.reasonId && form.reasonId !== OTHER_SENTINEL) || (form.reasonId === OTHER_SENTINEL && form.reasonOther.trim());
     if (!met && !hasReason) {
-      patchRow(key, { error: 'Target missed — please select a reason category (or "Other" and specify it).' });
+      patch({ error: 'Target missed — please select a reason category (or "Other" and specify it).' });
       return;
     }
-    if (!met && !row.remarks.trim()) {
-      patchRow(key, { error: 'Target missed — please add a remark explaining what happened.' });
+    if (!met && !form.remarks.trim()) {
+      patch({ error: 'Target missed — please add a remark explaining what happened.' });
       return;
     }
 
-    patchRow(key, { saving: true, error: null });
+    patch({ saving: true, error: null });
     try {
       const saved = await upsertDailyEntry({
         kpi_id: kpi.id,
         entry_date: selectedDate,
-        target: g.target,
+        target: selectedGroup.target,
         actual,
         met_target: met,
-        reason_id: met ? null : row.reasonId && row.reasonId !== OTHER_SENTINEL ? row.reasonId : null,
-        reason_other: met ? null : row.reasonId === OTHER_SENTINEL ? row.reasonOther.trim() || null : null,
-        remarks: row.remarks.trim() || null,
+        reason_id: met ? null : form.reasonId && form.reasonId !== OTHER_SENTINEL ? form.reasonId : null,
+        reason_other: met ? null : form.reasonId === OTHER_SENTINEL ? form.reasonOther.trim() || null : null,
+        remarks: form.remarks.trim() || null,
         entered_by: employee.id,
       });
-      patchRow(key, { saving: false, saved: true, existing: saved });
+      patch({ saving: false, saved: true, existing: saved });
+      setDateEntries((prev) => [...prev.filter((e) => e.kpi_id !== kpi.id), saved]);
     } catch (e) {
-      patchRow(key, { saving: false, error: e instanceof Error ? e.message : 'Failed to save' });
+      patch({ saving: false, error: e instanceof Error ? e.message : 'Failed to save' });
     }
   }
 
-  if (loading) return <div className="page-loading">Loading your KPIs…</div>;
+  if (loading) return <div className="page-loading">Loading KPI catalog…</div>;
   if (loadError) return <div className="alert alert-error page-margin">{loadError}</div>;
+
+  const actualNum = Number(form.actualInput);
+  const hasValidActual = form.actualInput.trim() !== '' && !Number.isNaN(actualNum);
+  const met = selectedGroup && hasValidActual ? metTarget({ is_higher_better: selectedGroup.isHigherBetter }, selectedGroup.target, actualNum) : null;
+  const hasShiftToggle = Boolean(selectedGroup?.day && selectedGroup?.night);
 
   return (
     <div className="page">
@@ -246,126 +281,139 @@ export default function DataEntry() {
         </label>
       </div>
 
-      {groups.length === 0 && (
-        <div className="empty-state page-margin">
-          No KPIs are currently assigned to your Employee ID. Ask your supervisor to add you in the{' '}
-          <code>kpi_assignments</code> table.
-        </div>
-      )}
-
-      <div className="entry-grid">
-        {groups.map((g) => {
-          const row = rows[g.key];
-          if (!row) return null;
-          const colors = PILLAR_COLORS[g.pillarCode] ?? PILLAR_COLORS.S;
-          const actualNum = Number(row.actualInput);
-          const hasValidActual = row.actualInput.trim() !== '' && !Number.isNaN(actualNum);
-          const met = hasValidActual ? metTarget({ is_higher_better: g.isHigherBetter }, g.target, actualNum) : null;
-          const hasShiftToggle = Boolean(g.day && g.night);
-
+      <div className="field-label">Pillar</div>
+      <div className="entry-pillar-pills">
+        {pillars.map((p) => {
+          const colors = PILLAR_COLORS[p.code] ?? PILLAR_COLORS.S;
+          const isSelected = p.id === selectedPillarId;
           return (
-            <div key={g.key} className="card entry-card" style={{ borderTopColor: colors.base }}>
-              <div className="entry-card-header">
-                <span className="pillar-tag" style={{ background: colors.soft, color: colors.text }}>
-                  {g.pillarName}
-                </span>
-                <h3>{g.label}</h3>
-                <span className="muted">
-                  Target: {g.target} {g.unit} ({g.isHigherBetter ? 'higher is good' : 'lower is good'})
-                </span>
-              </div>
-
-              {hasShiftToggle && (
-                <div className="segmented segmented-sm">
-                  <button
-                    type="button"
-                    className={`segmented-btn ${row.shift === 'day' ? 'segmented-btn-active' : ''}`}
-                    onClick={() => handleShiftChange(g.key, 'day')}
-                  >
-                    Day
-                  </button>
-                  <button
-                    type="button"
-                    className={`segmented-btn ${row.shift === 'night' ? 'segmented-btn-active' : ''}`}
-                    onClick={() => handleShiftChange(g.key, 'night')}
-                  >
-                    Night
-                  </button>
-                </div>
-              )}
-
-              {row.loading ? (
-                <div className="empty-state">Loading…</div>
-              ) : (
-                <>
-                  <label className="field-label">
-                    Actual ({g.unit}){hasShiftToggle ? ` — ${row.shift === 'day' ? 'Day' : 'Night'} shift` : ''}
-                  </label>
-                  <input
-                    type="number"
-                    step="any"
-                    className="input"
-                    value={row.actualInput}
-                    onChange={(e) => patchRow(g.key, { actualInput: e.target.value })}
-                    placeholder="Enter value"
-                  />
-
-                  {met === true && (
-                    <span className="pill pill-good" style={{ marginTop: 8 }}>
-                      Target met
-                    </span>
-                  )}
-
-                  {met === false && (
-                    <div className="reason-block">
-                      <span className="pill pill-bad">Target missed</span>
-                      <label className="field-label">Reason category</label>
-                      <select
-                        className="input"
-                        value={row.reasonId}
-                        onChange={(e) => patchRow(g.key, { reasonId: e.target.value, reasonOther: e.target.value === OTHER_SENTINEL ? row.reasonOther : '' })}
-                      >
-                        <option value="">— Select a reason —</option>
-                        {row.reasons.map((r) => (
-                          <option key={r.id} value={r.id}>
-                            {r.label}
-                          </option>
-                        ))}
-                        <option value={OTHER_SENTINEL}>Other (please specify)</option>
-                      </select>
-                      {row.reasonId === OTHER_SENTINEL && (
-                        <input
-                          className="input"
-                          placeholder="Specify the reason category…"
-                          value={row.reasonOther}
-                          onChange={(e) => patchRow(g.key, { reasonOther: e.target.value })}
-                        />
-                      )}
-                    </div>
-                  )}
-
-                  <label className="field-label">
-                    Remarks{met === false ? ' (required — target missed)' : ' (optional)'}
-                  </label>
-                  <textarea
-                    className="input entry-remarks"
-                    rows={2}
-                    value={row.remarks}
-                    onChange={(e) => patchRow(g.key, { remarks: e.target.value })}
-                    placeholder="What happened, what's being done about it…"
-                  />
-
-                  {row.error && <div className="alert alert-error">{row.error}</div>}
-
-                  <button className="btn btn-primary" disabled={row.saving} onClick={() => handleSave(g.key)}>
-                    {row.saving ? 'Saving…' : row.saved ? 'Saved ✓' : row.existing ? 'Update entry' : 'Save entry'}
-                  </button>
-                </>
-              )}
-            </div>
+            <button
+              key={p.id}
+              type="button"
+              className="entry-pill entry-pill-pillar"
+              style={isSelected ? { background: colors.base, borderColor: colors.base, color: 'white' } : { borderColor: colors.base, color: colors.text }}
+              onClick={() => {
+                setSelectedPillarId(p.id);
+                const first = groups.find((g) => g.pillarId === p.id);
+                if (first) setSelectedGroupKey(first.key);
+              }}
+            >
+              {p.name}
+            </button>
           );
         })}
       </div>
+
+      <div className="field-label" style={{ marginTop: 14 }}>
+        KPI <span className="entry-pill-hint">— greyed out until updated for this date</span>
+      </div>
+      <div className="entry-kpi-pills">
+        {pillarGroups.length === 0 && <span className="muted">No KPIs in this pillar.</span>}
+        {pillarGroups.map((g) => {
+          const done = isGroupDone(g, dateEntries);
+          const isSelected = g.key === selectedGroupKey;
+          const colors = PILLAR_COLORS[pillars.find((p) => p.id === g.pillarId)?.code ?? 'S'] ?? PILLAR_COLORS.S;
+          const style = isSelected
+            ? { background: colors.base, borderColor: colors.base, color: 'white' }
+            : done
+              ? { background: colors.soft, borderColor: colors.base, color: colors.text }
+              : { background: '#f1f5f9', borderColor: '#e2e8f0', color: '#94a3b8' };
+          return (
+            <button key={g.key} type="button" className="entry-pill entry-pill-kpi" style={style} onClick={() => setSelectedGroupKey(g.key)}>
+              {done && <span className="entry-pill-check">✓</span>} {g.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {selectedGroup && (
+        <div className="card entry-card entry-card-single" style={{ borderTopColor: (PILLAR_COLORS[pillars.find((p) => p.id === selectedGroup.pillarId)?.code ?? 'S'] ?? PILLAR_COLORS.S).base }}>
+          <div className="entry-card-header">
+            <h3>{selectedGroup.label}</h3>
+            <span className="muted">
+              Target: {selectedGroup.target} {selectedGroup.unit} ({selectedGroup.isHigherBetter ? 'higher is good' : 'lower is good'})
+            </span>
+          </div>
+
+          {hasShiftToggle && (
+            <div className="segmented segmented-sm">
+              <button type="button" className={`segmented-btn ${form.shift === 'day' ? 'segmented-btn-active' : ''}`} onClick={() => handleShiftChange('day')}>
+                Day
+              </button>
+              <button type="button" className={`segmented-btn ${form.shift === 'night' ? 'segmented-btn-active' : ''}`} onClick={() => handleShiftChange('night')}>
+                Night
+              </button>
+            </div>
+          )}
+
+          {form.loading ? (
+            <div className="empty-state">Loading…</div>
+          ) : (
+            <>
+              <label className="field-label">
+                Actual ({selectedGroup.unit}){hasShiftToggle ? ` — ${form.shift === 'day' ? 'Day' : 'Night'} shift` : ''}
+              </label>
+              <input
+                type="number"
+                step="any"
+                className="input"
+                value={form.actualInput}
+                onChange={(e) => patch({ actualInput: e.target.value })}
+                placeholder="Enter value"
+              />
+
+              {met === true && (
+                <span className="pill pill-good" style={{ marginTop: 8 }}>
+                  Target met
+                </span>
+              )}
+
+              {met === false && (
+                <div className="reason-block">
+                  <span className="pill pill-bad">Target missed</span>
+                  <label className="field-label">Reason category</label>
+                  <select
+                    className="input"
+                    value={form.reasonId}
+                    onChange={(e) => patch({ reasonId: e.target.value, reasonOther: e.target.value === OTHER_SENTINEL ? form.reasonOther : '' })}
+                  >
+                    <option value="">— Select a reason —</option>
+                    {form.reasons.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.label}
+                      </option>
+                    ))}
+                    <option value={OTHER_SENTINEL}>Other (please specify)</option>
+                  </select>
+                  {form.reasonId === OTHER_SENTINEL && (
+                    <input
+                      className="input"
+                      placeholder="Specify the reason category…"
+                      value={form.reasonOther}
+                      onChange={(e) => patch({ reasonOther: e.target.value })}
+                    />
+                  )}
+                </div>
+              )}
+
+              <label className="field-label">Remarks{met === false ? ' (required — target missed)' : ' (optional)'}</label>
+              <textarea
+                className="input entry-remarks"
+                rows={2}
+                value={form.remarks}
+                onChange={(e) => patch({ remarks: e.target.value })}
+                placeholder="What happened, what's being done about it…"
+              />
+
+              {form.error && <div className="alert alert-error">{form.error}</div>}
+
+              <button className="btn btn-primary" disabled={form.saving} onClick={handleSave}>
+                {form.saving ? 'Saving…' : form.saved ? 'Saved ✓' : form.existing ? 'Update entry' : 'Save entry'}
+              </button>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

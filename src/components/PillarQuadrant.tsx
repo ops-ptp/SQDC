@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { format, startOfMonth, getDaysInMonth, startOfWeek, subWeeks, subDays, addDays, getISOWeek } from 'date-fns';
 import { fetchActions, fetchEntriesForKpi, fetchEntriesForKpisOnDate, fetchReasonsForKpi } from '../lib/data';
-import { metTarget, type ActionItem, type DailyEntry, type Kpi, type Pillar, type PerformanceStatus } from '../types';
+import { metTarget, PILLAR_COLORS, type ActionItem, type DailyEntry, type Kpi, type Pillar, type PerformanceStatus } from '../types';
 import KpiRunChart, { type RunPoint } from './KpiRunChart';
 import ParetoChart, { type ParetoDatum } from './ParetoChart';
 import ActionTable from './ActionTable';
@@ -69,6 +69,7 @@ function groupMetTarget(g: KpiGroup, actual: number): boolean {
 }
 
 export default function PillarQuadrant({ pillar, kpis, granularity = 'daily' }: Props) {
+  const colors = PILLAR_COLORS[pillar.code] ?? PILLAR_COLORS.S;
   const groups = useMemo(() => buildGroups(kpis), [kpis]);
   const [selectedKey, setSelectedKey] = useState<string>(groups[0]?.key ?? '');
   const selectedGroup = groups.find((g) => g.key === selectedKey) ?? groups[0];
@@ -265,7 +266,7 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily' }: 
   }, [windowEntries, reasonLabelById]);
 
   const hero = (
-    <div className="quadrant-hero">
+    <div className="quadrant-hero" style={{ background: colors.soft }}>
       <PillarLetterGrid letter={pillar.code} days={dayStatuses} todayDay={referenceDay} height={300} />
       <span className="quadrant-hero-name">{pillar.name}</span>
     </div>
@@ -384,7 +385,7 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily' }: 
             <div className="quadrant-block-title">
               Pareto of reasons — {granularity === 'weekly' ? 'last 8 ISO weeks' : 'last 7 days'}
             </div>
-            <ParetoChart data={paretoData} />
+            <ParetoChart data={paretoData} background={colors.soft} />
           </div>
 
           <div className="quadrant-section quadrant-section-fill">

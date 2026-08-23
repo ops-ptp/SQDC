@@ -127,7 +127,7 @@ A few modeling decisions worth knowing about:
 | Who's responsible for updating a KPI | `kpi_assignments` (lagging KPIs only) |
 | Daily Value vs. Target, one row per KPI per day | `daily_entries` |
 | Curated reasons feeding the Pareto, picked when a daily entry misses target | `reasons` |
-| Action list (Related reason/issue, Action, Owner, Deadline, Status) | `actions` (`status`: not_started / in_progress / dropped / completed) |
+| Action list (Related reason/issue, Action, Owner, Deadline, Status) | `actions` (`status`: not_started / in_progress / dropped / completed — "Overdue" is a 5th *display* state derived client-side from `status` + `deadline`, not stored) |
 | Forward Looking forecast cards (+1/+2/+3 days, leading KPIs only) | `forecast_cards` |
 
 Most lagging KPIs are still stored as two DB rows — e.g. `kpis` rows named
@@ -170,12 +170,15 @@ correctly, including the 28-day blackening behavior.
   happened yesterday, not a day still in progress. A blue "Reviewing
   &lt;date&gt;" badge next to the page title makes this explicit, since the
   page header's own date is today's calendar date. The letter mosaic, pill
-  outlines, and headline numbers all reflect yesterday. Deliberately
-  monochrome — hero background and Pareto chart are neutral grey, so the only
-  color is each KPI pill's green/red **outline** (yesterday's pass/fail) and
-  the selected pill's reverse fill. A **Daily / Weekly** toggle switches the
-  trend chart and Pareto window — the letter mosaic always shows the full
-  calendar month containing the reviewed day, regardless of the toggle:
+  outlines, and headline numbers all reflect yesterday. Each pillar's letter
+  mosaic **background** and **Pareto chart background** are tinted with that
+  pillar's color (same palette as the Action Log's pillar chips/filters) —
+  everything else on the Board stays neutral: KPI pill outlines are still
+  green/red by pass/fail (not pillar-colored), and the trend chart's
+  Day/Night/Overall line colors are unchanged. A **Daily / Weekly** toggle
+  switches the trend chart and Pareto window — the letter mosaic always shows
+  the full calendar month containing the reviewed day, regardless of the
+  toggle:
   - **Daily**: trend chart covers the last 7 days; Pareto covers the same
     window.
   - **Weekly**: trend chart covers the **last 8 ISO weeks** (Monday–Sunday,
@@ -199,19 +202,30 @@ correctly, including the 28-day blackening behavior.
   ID. Add, edit, or delete a forecast card per column, or use the ←/→ buttons
   on a card to shift it a day earlier/later. Requires at least one KPI with
   `is_leading = true`.
-- **`/entry` — Enter KPI Data**: requires an Employee ID. Has its own date
-  picker (defaults to **yesterday**, capped at today — staff typically log
-  yesterday's completed shift each morning, but same-day entry is still
-  allowed). Day/Night KPI pairs appear as **one card with a Day/Night
-  toggle** (matching the Board's pill grouping) rather than two separate
-  cards. Each entry captures: the actual value, a **Remarks** field, and — if
-  the value misses target — a required reason category (with an explicit
-  "Other, please specify" option) **and** required remarks explaining what
-  happened. Remarks show up on the Board's Daily-view Remarks/Summary
-  section.
-- **`/actions` — Action Log**: view/add actions across all pillars, filter by
-  pillar, and change each action's status (Not started / In progress /
-  Dropped / Completed) from a dropdown.
+- **`/entry` — Enter KPI Data**: requires an Employee ID (to attribute the
+  entry), but **any logged-in employee can update any KPI** —
+  `kpi_assignments` is no longer used to restrict which KPIs someone can
+  enter, only `fetchKpisForEmployee()` (still in `lib/data.ts`, just unused
+  by this page now) reads it. Flow: pick a **date** (defaults to yesterday,
+  capped at today), pick a **pillar** (pills, not a dropdown), pick a **KPI**
+  (pills, not a dropdown) — KPI pills are **greyed out until that KPI has an
+  entry for the selected date**, then switch to the pillar's color once
+  done, so staff can see at a glance what's left. Day/Night KPI pairs are
+  one card with a Day/Night toggle rather than two separate cards. Each
+  entry captures: the actual value, a **Remarks** field, and — if the value
+  misses target — a required reason category (with an explicit "Other,
+  please specify" option) **and** required remarks explaining what happened.
+  Remarks show up on the Board's Daily-view Remarks/Summary section.
+- **`/actions` — Action Log**: **no login required** — anyone can view, add,
+  and update actions. Filter by pillar, and change each action's status
+  (Not started / In progress / Dropped / Completed) from a dropdown. A 5th
+  state, **Overdue, is derived rather than stored** — computed from
+  `(status, deadline)` client-side, since an action can be simultaneously
+  "In progress" *and* overdue (completed/dropped items are never shown as
+  overdue, since they're already closed out). Rows are background-tinted by
+  this derived status (red for overdue, blue for in-progress, faded
+  strikethrough for completed/dropped) so the list is scannable at a glance
+  without reading every deadline.
 
 ## Administering KPIs, targets, and assignments (MVP — via SQL)
 
@@ -224,16 +238,23 @@ leading (so it shows up on Forward Looking instead of the main Board), set
 
 ## Security — read before relying on this beyond a demo
 
-Employee ID login has **no password**. There is no Supabase Auth session — the browser
-talks to Postgres using the public `anon` key, and the Row Level Security policies in
-`schema.sql` allow that anon key to read everything and write to `daily_entries` and
-`actions`. This is intentional for an MVP used on a trusted shop-floor terminal/network
-(matches the "anyone on shift can update the board" behavior of the physical board), but
-it means:
+Employee ID login has **no password**, and only gates `/entry` and
+`/forward-looking` — `/` (Board) and `/actions` (Action Log) never required
+login and still don't. There is no Supabase Auth session — the browser talks
+to Postgres using the public `anon` key, and the Row Level Security policies
+in `schema.sql` allow that anon key to read everything and write to
+`daily_entries`/`actions`/`forecast_cards`. This is intentional for an MVP
+used on a trusted shop-floor terminal/network (matches the "anyone on shift
+can update the board" behavior of the physical board), but it means:
 
-- Anyone who has the app URL and knows (or guesses) an Employee ID can enter data for it.
-- Anyone with the anon key (visible in browser dev tools — it's meant to be public) can
-  read and write `daily_entries`/`actions` directly via the API, not just through the UI.
+- Anyone who has the app URL and knows (or guesses) an Employee ID can log an
+  entry as them — for **any** KPI, not just ones "assigned" to them.
+  `kpi_assignments` exists in the schema and is seeded, but `/entry` no
+  longer reads it to restrict access; it's vestigial unless you wire it back
+  in.
+- Anyone with the anon key (visible in browser dev tools — it's meant to be
+  public) can read and write `daily_entries`/`actions` directly via the API,
+  not just through the UI.
 
 Before using this for anything beyond an internal pilot, consider upgrading to real
 Supabase Auth (email/password or magic link per employee) and rewriting the RLS policies

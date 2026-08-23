@@ -19,6 +19,9 @@ export interface ParetoDatum {
 
 interface Props {
   data: ParetoDatum[];
+  /** Optional tint behind the chart (e.g. the pillar's soft color) — the
+   * bars/line themselves stay neutral, only the panel background changes. */
+  background?: string;
 }
 
 const BAR_COLOR = '#64748b';
@@ -55,7 +58,7 @@ function AngledTick({ x, y, payload }: { x: number | string; y: number | string;
   );
 }
 
-export default function ParetoChart({ data }: Props) {
+export default function ParetoChart({ data, background }: Props) {
   const sorted = [...data].sort((a, b) => b.count - a.count).slice(0, 6);
   const total = sorted.reduce((sum, d) => sum + d.count, 0);
   const { rows: chartData } = sorted.reduce<{ running: number; rows: Array<ParetoDatum & { cumulativePct: number }> }>(
@@ -69,14 +72,14 @@ export default function ParetoChart({ data }: Props) {
 
   if (chartData.length === 0) {
     return (
-      <div className="empty-state" style={{ height: 160 }}>
+      <div className="empty-state" style={{ height: 160, ...(background ? { background, borderRadius: 10 } : {}) }}>
         No missed-target reasons logged yet this period.
       </div>
     );
   }
 
   return (
-    <div className="chart-wrap">
+    <div className="chart-wrap" style={background ? { background, borderRadius: 10 } : undefined}>
       <ResponsiveContainer width="100%" height={210}>
         <ComposedChart data={chartData} margin={{ top: 18, right: 4, left: 4, bottom: 4 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--grid-line)" vertical={false} />

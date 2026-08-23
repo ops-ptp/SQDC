@@ -1,5 +1,5 @@
 import { format, parseISO } from 'date-fns';
-import { ACTION_STATUS_META, type ActionItem, type ActionStatus } from '../types';
+import { ACTION_STATUS_META, getDisplayStatus, type ActionItem, type ActionStatus } from '../types';
 
 interface Props {
   actions: ActionItem[];
@@ -8,14 +8,20 @@ interface Props {
 }
 
 const STATUS_ORDER: ActionStatus[] = ['not_started', 'in_progress', 'dropped', 'completed'];
+const TODAY_STR = format(new Date(), 'yyyy-MM-dd');
+
+const ROW_CLASS: Record<string, string> = {
+  overdue: 'row-overdue',
+  dropped: 'row-dropped',
+  completed: 'row-completed',
+  in_progress: 'row-in-progress',
+  not_started: '',
+};
 
 export default function ActionTable({ actions, onStatusChange, compact }: Props) {
   if (actions.length === 0) {
     return <div className="empty-state">No actions logged yet.</div>;
   }
-
-  const isClosed = (a: ActionItem) => a.status === 'completed' || a.status === 'dropped';
-  const isOverdue = (a: ActionItem) => !isClosed(a) && a.deadline && parseISO(a.deadline) < new Date(new Date().toDateString());
 
   return (
     <div className="table-scroll">
@@ -31,9 +37,10 @@ export default function ActionTable({ actions, onStatusChange, compact }: Props)
         </thead>
         <tbody>
           {actions.map((a) => {
-            const meta = ACTION_STATUS_META[a.status];
+            const displayStatus = getDisplayStatus(a, TODAY_STR);
+            const meta = ACTION_STATUS_META[displayStatus];
             return (
-              <tr key={a.id} className={isClosed(a) ? 'row-done' : isOverdue(a) ? 'row-overdue' : ''}>
+              <tr key={a.id} className={ROW_CLASS[displayStatus]}>
                 <td>{a.related_issue}</td>
                 <td>{a.action}</td>
                 <td>{a.owner_name}</td>
@@ -46,6 +53,7 @@ export default function ActionTable({ actions, onStatusChange, compact }: Props)
                       value={a.status}
                       onChange={(e) => onStatusChange(a, e.target.value as ActionStatus)}
                       aria-label="Change status"
+                      title={displayStatus === 'overdue' ? 'Past its deadline — pick a status to update it' : undefined}
                     >
                       {STATUS_ORDER.map((s) => (
                         <option key={s} value={s}>
@@ -66,7 +74,9 @@ export default function ActionTable({ actions, onStatusChange, compact }: Props)
       </table>
       {!compact && (
         <p className="table-footnote">
-          {actions.filter((a) => !isClosed(a)).length} open · {actions.filter((a) => a.status === 'completed').length} completed ·{' '}
+          {actions.filter((a) => getDisplayStatus(a, TODAY_STR) === 'overdue').length} overdue ·{' '}
+          {actions.filter((a) => a.status === 'not_started' || a.status === 'in_progress').length} open ·{' '}
+          {actions.filter((a) => a.status === 'completed').length} completed ·{' '}
           {actions.filter((a) => a.status === 'dropped').length} dropped
         </p>
       )}

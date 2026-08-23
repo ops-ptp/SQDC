@@ -296,6 +296,15 @@ select p.id, k.id, 'Excess overtime',
 from pillars p join kpis k on k.pillar_id = p.id and k.name = 'QC Preventive Maintenance & Service'
 where p.code = 'C';
 
+-- Deliberately past-deadline and still open, to demo the derived "Overdue"
+-- highlight (not a stored status — computed from status + deadline).
+insert into actions (pillar_id, kpi_id, related_issue, action, owner_name, deadline, status)
+select p.id, k.id, 'Unplanned absenteeism',
+  'Cross-train two frontliners as backup QC gang members', 'Farah',
+  current_date - 3, 'not_started'
+from pillars p join kpis k on k.pillar_id = p.id and k.name = 'Labour Supply as Required – QC Gang (Day)'
+where p.code = 'Q';
+
 -- ---- Demo Forward Looking cards (leading KPIs, today/tomorrow/day after) --
 insert into forecast_cards (kpi_id, pillar_id, target_date, note, owner_name)
 select k.id, k.pillar_id, current_date,
