@@ -143,22 +143,23 @@ trend chart (see below).
 
 ## The S/Q/D/C letter mosaic
 
-Each quadrant's hero is the pillar's letter (S/Q/D/C) made of **exactly as many
-cells as there are days in the current month** (28–31), each labeled with its
-date. A cell's color is the combined Day+Night average for that KPI on that
-date, compared to target — so unlike a typical dot-mosaic, every cell maps to a
-specific real day rather than an arbitrary decorative pixel. This always shows
-the full current calendar month regardless of the Daily/Weekly toggle below (the
-toggle only changes the trend chart's window).
+Each quadrant's hero is the pillar's letter (S/Q/D/C) made of a **fixed
+31-cell layout on an 8-column x 9-row grid that never changes**, each cell
+labeled with its date. A cell's color is the combined Day+Night average for
+that KPI on that date, compared to target — so unlike a typical dot-mosaic,
+every cell maps to a specific real day rather than an arbitrary decorative
+pixel. This always shows the full current calendar month regardless of the
+Daily/Weekly toggle below (the toggle only changes the trend chart's window).
 
-`PillarLetterGrid` samples the glyph at a resolution that comfortably exceeds
-the day count, then trims down to the exact count by removing the most
-"interior" cells first (so what's left still reads as an outline of the
-letter) — or grows outward from the sampled shape in the rare case sampling
-comes up short. This was unit-tested in isolation for exactness (no
-over/under-count, no duplicate cells) but the actual glyph-sampling step uses
-`<canvas>`, which only runs in a real browser — worth a visual check once
-you're running this against Supabase.
+The layout is **hand-authored, fixed data** in `PillarLetterGrid.tsx` — not
+computed at runtime — so it's identical every time for a given letter, with
+no dependency on the browser (`<canvas>`, fonts, etc.). Shorter months
+(28–30 days) don't get a differently-shaped/differently-sized letter — the
+trailing cells that have no matching date (e.g. cell #29 onward in February)
+are simply blackened, no number shown, on the exact same 31-cell shape.
+Verified by rendering the exact same coordinate data to PNG (via a script,
+independent of this repo) and visually confirming all 4 letters read
+correctly, including the 28-day blackening behavior.
 
 ## App structure
 
@@ -222,10 +223,5 @@ to the logged-in person.
   correction just re-saves that day).
 - A day-by-day editable target for "Moves" — currently tracked against a fixed
   representative target rather than the sheet's daily-changing Projected figure.
-- Not yet verified in a real browser this session — the letter-grid glyph sampling
-  uses `<canvas>`, which this sandbox can't render outside a browser (no network
-  access to download a headless Chromium). The trim/grow algorithm that hits the
-  exact day count was unit-tested standalone and is correct, but the actual visual
-  output (letter recognizability, digit legibility) is worth a look once deployed.
 - Multi-site / multi-board support (one board, one Supabase project).
 - Push notifications, email digests, or export.

@@ -47,6 +47,7 @@ export interface DailyEntry {
   met_target: boolean;
   reason_id: string | null;
   reason_other: string | null;
+  remarks: string | null;
   entered_by: string | null;
   created_at: string;
   updated_at: string;

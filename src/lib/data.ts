@@ -90,6 +90,7 @@ export interface UpsertEntryInput {
   met_target: boolean;
   reason_id: string | null;
   reason_other: string | null;
+  remarks: string | null;
   entered_by: string;
 }
 

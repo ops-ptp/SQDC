@@ -339,6 +339,29 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily' }: 
           </div>
 
           <div className="quadrant-section">
+            <div className="quadrant-block-title">Remarks / Summary</div>
+            <div className="remarks-summary">
+              {selectedGroup.single ? (
+                <div className="remarks-block">
+                  <span className="remarks-block-label">Today</span>
+                  <p className="remarks-text">{todaySingleEntry?.remarks?.trim() || 'No remarks logged yet today.'}</p>
+                </div>
+              ) : (
+                <>
+                  <div className="remarks-block">
+                    <span className="remarks-block-label">Day</span>
+                    <p className="remarks-text">{todayDayEntry?.remarks?.trim() || 'No remarks logged yet today.'}</p>
+                  </div>
+                  <div className="remarks-block">
+                    <span className="remarks-block-label">Night</span>
+                    <p className="remarks-text">{todayNightEntry?.remarks?.trim() || 'No remarks logged yet today.'}</p>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          <div className="quadrant-section">
             <div className="quadrant-block-title">
               {granularity === 'weekly' ? 'Trend — last 4 work weeks' : 'Trend — last 7 days'}
             </div>

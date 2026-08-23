@@ -199,6 +199,8 @@ declare
   entry_actual numeric;
   entry_met boolean;
   chosen_reason uuid;
+  chosen_reason_label text;
+  entry_remarks text;
   entrant uuid;
   seed_val double precision;
 begin
@@ -241,17 +243,25 @@ begin
                         else entry_actual <= k.target end;
 
       chosen_reason := null;
+      chosen_reason_label := null;
       if not entry_met then
-        select id into chosen_reason from reasons
+        select id, label into chosen_reason, chosen_reason_label from reasons
           where kpi_id = k.id
           order by sort_order, id
           limit 1 offset (abs(hashtext(k.id::text || d::text || 'r')) % greatest(1,(select count(*) from reasons where kpi_id = k.id)));
       end if;
 
+      -- Remarks are required (app-level rule) whenever a target is missed.
+      entry_remarks := case
+        when entry_met then null
+        when chosen_reason_label is not null then chosen_reason_label || ' — flagged for follow-up.'
+        else 'Target missed — reason under review.'
+      end;
+
       select employee_id into entrant from kpi_assignments where kpi_id = k.id limit 1;
 
-      insert into daily_entries (kpi_id, entry_date, target, actual, met_target, reason_id, entered_by)
-      values (k.id, d, k.target, entry_actual, entry_met, chosen_reason, entrant)
+      insert into daily_entries (kpi_id, entry_date, target, actual, met_target, reason_id, remarks, entered_by)
+      values (k.id, d, k.target, entry_actual, entry_met, chosen_reason, entry_remarks, entrant)
       on conflict (kpi_id, entry_date) do nothing;
     end loop;
   end loop;

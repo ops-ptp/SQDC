@@ -27,8 +27,9 @@ interface Cell {
 // months just blacken the trailing cells (see render below). Verified by
 // rendering this exact data to PNG and visually confirming all 4 letters
 // match the reference exactly, including the 28-day blackening.
-const GRID_COLS = 8;
-const GRID_ROWS = 9;
+// Layouts are defined on an 8-column x 9-row grid (matching the reference
+// spreadsheet's 1-indexed cols 1-8 / rows 1-9), though the actual bounding
+// box used per letter is cropped dynamically at render time (see below).
 
 const LETTER_LAYOUTS: Record<string, Cell[]> = {
   S: [
@@ -183,15 +184,26 @@ export default function PillarLetterGrid({ letter, days, todayDay, height = 208 
     );
   }
 
-  const widthPx = (height / GRID_ROWS) * GRID_COLS;
-  const cellPx = height / GRID_ROWS;
+  // Crop the SVG's viewBox to the actual bounding box of used cells, rather
+  // than the full fixed grid — the layouts intentionally leave row 0 / col 0
+  // empty (matching the reference template), which otherwise leaves a blank
+  // margin baked into the rendered box and throws off centering.
+  const minRow = Math.min(...cells.map((c) => c.row));
+  const maxRow = Math.max(...cells.map((c) => c.row));
+  const minCol = Math.min(...cells.map((c) => c.col));
+  const maxCol = Math.max(...cells.map((c) => c.col));
+  const boxRows = maxRow - minRow + 1;
+  const boxCols = maxCol - minCol + 1;
+
+  const widthPx = (height / boxRows) * boxCols;
+  const cellPx = height / boxRows;
   const fontSize = Math.min(0.34, Math.max(0.2, 11 / cellPx));
 
   return (
     <svg
       width={widthPx}
       height={height}
-      viewBox={`0 0 ${GRID_COLS} ${GRID_ROWS}`}
+      viewBox={`${minCol} ${minRow} ${boxCols} ${boxRows}`}
       className="letter-grid-svg"
       role="img"
       aria-label={`${letter} — daily performance for this month`}

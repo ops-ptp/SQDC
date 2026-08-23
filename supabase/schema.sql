@@ -238,3 +238,13 @@ exception
 end $$;
 
 alter table actions drop column if exists done;
+
+-- ============================================================================
+-- MIGRATION (2026-08-24): daily_entries.remarks
+-- ============================================================================
+-- Free-text remarks/summary, separate from the curated reason category.
+-- App-level rule (not a DB constraint, to keep this flexible): remarks are
+-- required when a daily entry misses target. Safe to re-run.
+-- ----------------------------------------------------------------------------
+
+alter table daily_entries add column if not exists remarks text;
