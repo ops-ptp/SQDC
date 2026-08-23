@@ -296,23 +296,23 @@ select p.id, k.id, 'Excess overtime',
 from pillars p join kpis k on k.pillar_id = p.id and k.name = 'QC Preventive Maintenance & Service'
 where p.code = 'C';
 
--- ---- Demo Forward Looking cards (leading KPIs, next 3 days) ---------------
+-- ---- Demo Forward Looking cards (leading KPIs, today/tomorrow/day after) --
 insert into forecast_cards (kpi_id, pillar_id, target_date, note, owner_name)
-select k.id, k.pillar_id, current_date + 1,
+select k.id, k.pillar_id, current_date,
   'Two mainliner calls back-to-back — expect ~13,000 moves, need full gang complement.', 'Hassan'
 from kpis k where k.name = 'Moves - Projection Day Shift';
 
 insert into forecast_cards (kpi_id, pillar_id, target_date, note, owner_name)
-select k.id, k.pillar_id, current_date + 1,
+select k.id, k.pillar_id, current_date,
   'Lighter night vessel call — lashing gang can be trimmed by one team.', 'Marcus'
 from kpis k where k.name = 'Lashing - Projection Next Shift';
 
 insert into forecast_cards (kpi_id, pillar_id, target_date, note, owner_name)
-select k.id, k.pillar_id, current_date + 2,
+select k.id, k.pillar_id, current_date + 1,
   'Two QC operators due for certification renewal — confirm backfill gang.', 'Farah'
 from kpis k where k.name = 'QC Gang - Projection Next Shift';
 
 insert into forecast_cards (kpi_id, pillar_id, target_date, note, owner_name)
-select k.id, k.pillar_id, current_date + 3,
+select k.id, k.pillar_id, current_date + 2,
   'Scheduled crane service due — plan for reduced GMPH that day.', 'Zaid'
 from kpis k where k.name = 'QC PM & Service - Projection Next Day';

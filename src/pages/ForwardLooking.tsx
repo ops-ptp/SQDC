@@ -12,7 +12,8 @@ import {
 import { PILLAR_COLORS, type ForecastCardWithRefs, type KpiWithPillar } from '../types';
 
 const TODAY = new Date();
-const COLUMN_OFFSETS = [1, 2, 3] as const;
+const COLUMN_OFFSETS = [0, 1, 2] as const;
+const COLUMN_LABELS: Record<number, string> = { 0: 'Today', 1: 'Tomorrow', 2: 'Day After' };
 
 interface FormState {
   kpiId: string;
@@ -41,8 +42,8 @@ export default function ForwardLooking() {
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
 
-  const fromDate = format(addDays(TODAY, 1), 'yyyy-MM-dd');
-  const toDate = format(addDays(TODAY, 3), 'yyyy-MM-dd');
+  const fromDate = format(TODAY, 'yyyy-MM-dd');
+  const toDate = format(addDays(TODAY, 2), 'yyyy-MM-dd');
 
   function reload() {
     setLoading(true);
@@ -65,7 +66,7 @@ export default function ForwardLooking() {
       return {
         offset,
         dateStr,
-        label: `+${offset} Day${offset > 1 ? 's' : ''}`,
+        label: COLUMN_LABELS[offset],
         dateLabel: format(date, 'EEE, d MMM'),
         cards: cards.filter((c) => c.target_date === dateStr),
       };
@@ -191,7 +192,7 @@ export default function ForwardLooking() {
       <div className="page-header">
         <h1>Forward Looking</h1>
         <p className="muted">
-          Forecast the next 3 days on your leading KPIs — what's expected, and what to watch for.
+          Forecast leading KPIs for today through the day after — what's expected, and what to watch for.
         </p>
       </div>
 
@@ -274,7 +275,7 @@ export default function ForwardLooking() {
                           <button
                             className="fl-icon-btn"
                             title="Move to earlier day"
-                            disabled={col.offset === 1}
+                            disabled={col.offset === 0}
                             onClick={() => shiftCard(card, -1)}
                           >
                             ←
@@ -282,7 +283,7 @@ export default function ForwardLooking() {
                           <button
                             className="fl-icon-btn"
                             title="Move to later day"
-                            disabled={col.offset === 3}
+                            disabled={col.offset === 2}
                             onClick={() => shiftCard(card, 1)}
                           >
                             →

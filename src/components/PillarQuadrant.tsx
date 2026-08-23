@@ -73,7 +73,7 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily' }: 
   const [selectedKey, setSelectedKey] = useState<string>(groups[0]?.key ?? '');
   const selectedGroup = groups.find((g) => g.key === selectedKey) ?? groups[0];
 
-  const [todayEntries, setTodayEntries] = useState<DailyEntry[]>([]);
+  const [referenceEntries, setReferenceEntries] = useState<DailyEntry[]>([]);
   const [monthEntries, setMonthEntries] = useState<DailyEntry[]>([]);
   const [windowEntries, setWindowEntries] = useState<DailyEntry[]>([]);
   const [actions, setActions] = useState<ActionItem[]>([]);
@@ -86,21 +86,24 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily' }: 
     }
   }, [groups, selectedKey]);
 
+  // The board reviews the most recently COMPLETED day, not the day in
+  // progress — the SQDC huddle discusses what happened yesterday.
   const today = new Date();
-  const todayStr = format(today, 'yyyy-MM-dd');
-  const todayDay = today.getDate();
+  const referenceDate = subDays(today, 1);
+  const referenceDateStr = format(referenceDate, 'yyyy-MM-dd');
+  const referenceDay = referenceDate.getDate();
 
-  // Today's entries for EVERY KPI in the pillar — drives the red/green
+  // Reference-day entries for EVERY KPI in the pillar — drives the red/green
   // outline on every pill, not just the selected one.
   useEffect(() => {
     const ids = kpis.map((k) => k.id);
     if (ids.length === 0) {
-      setTodayEntries([]);
+      setReferenceEntries([]);
       return;
     }
-    fetchEntriesForKpisOnDate(ids, todayStr)
-      .then(setTodayEntries)
-      .catch(() => setTodayEntries([]));
+    fetchEntriesForKpisOnDate(ids, referenceDateStr)
+      .then(setReferenceEntries)
+      .catch(() => setReferenceEntries([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kpis]);
 
@@ -109,9 +112,10 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily' }: 
     fetchActions({ pillarId: pillar.id }).then(setActions);
   }, [pillar.id]);
 
-  // Month entries (letter grid — always the full calendar month, regardless
-  // of the Daily/Weekly toggle) + window entries (chart/Pareto — last 7 days
-  // for Daily, last 4 work-weeks for Weekly) + reasons, for the selected KPI.
+  // Month entries (letter grid — always the full calendar month containing
+  // the reference day, regardless of the Daily/Weekly toggle) + window
+  // entries (chart/Pareto — 7 days or 4 work-weeks ending on the reference
+  // day) + reasons, for the selected KPI.
   useEffect(() => {
     if (!selectedGroup) {
       setLoading(false);
@@ -120,11 +124,11 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily' }: 
     let cancelled = false;
     setLoading(true);
     const ids = groupKpiIds(selectedGroup);
-    const monthSince = format(startOfMonth(today), 'yyyy-MM-dd');
+    const monthSince = format(startOfMonth(referenceDate), 'yyyy-MM-dd');
     const windowSince =
       granularity === 'weekly'
-        ? format(subWeeks(startOfWeek(today, { weekStartsOn: 1 }), 3), 'yyyy-MM-dd')
-        : format(subDays(today, 6), 'yyyy-MM-dd');
+        ? format(subWeeks(startOfWeek(referenceDate, { weekStartsOn: 1 }), 3), 'yyyy-MM-dd')
+        : format(subDays(referenceDate, 6), 'yyyy-MM-dd');
 
     Promise.all([
       Promise.all(ids.map((id) => fetchEntriesForKpi(id, monthSince))),
@@ -146,27 +150,27 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily' }: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedGroup?.key, granularity]);
 
-  // ---- Pill status (today's combined Day+Night average vs. target) --------
+  // ---- Pill status (reference day's combined Day+Night average vs target) -
   function groupStatus(g: KpiGroup): PerformanceStatus {
     const ids = groupKpiIds(g);
-    const vals = todayEntries.filter((e) => ids.includes(e.kpi_id)).map((e) => e.actual);
+    const vals = referenceEntries.filter((e) => ids.includes(e.kpi_id)).map((e) => e.actual);
     if (vals.length === 0) return 'nodata';
     const avg = mean(vals)!;
     return groupMetTarget(g, avg) ? 'met' : 'missed';
   }
 
   // ---- Letter grid: one cell per calendar day, combined Day+Night average -
-  const daysInMonth = getDaysInMonth(today);
+  const daysInMonth = getDaysInMonth(referenceDate);
   const dayStatuses: DayStatus[] = useMemo(() => {
     if (!selectedGroup) return [];
     const dayIdx = indexByDate(monthEntries.filter((e) => e.kpi_id === selectedGroup.day?.id));
     const nightIdx = indexByDate(monthEntries.filter((e) => e.kpi_id === selectedGroup.night?.id));
     const singleIdx = indexByDate(monthEntries.filter((e) => e.kpi_id === selectedGroup.single?.id));
-    const year = today.getFullYear();
-    const month = today.getMonth();
+    const year = referenceDate.getFullYear();
+    const month = referenceDate.getMonth();
     const result: DayStatus[] = [];
     for (let day = 1; day <= daysInMonth; day++) {
-      if (day > todayDay) {
+      if (day > referenceDay) {
         result.push({ day, status: 'future' });
         continue;
       }
@@ -183,12 +187,12 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily' }: 
     }
     return result;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [monthEntries, selectedGroup?.key, daysInMonth, todayDay]);
+  }, [monthEntries, selectedGroup?.key, daysInMonth, referenceDay]);
 
-  // ---- Headline: today's Day / Night actuals, shown as two numbers -------
-  const todayDayEntry = selectedGroup ? todayEntries.find((e) => e.kpi_id === selectedGroup.day?.id) : undefined;
-  const todayNightEntry = selectedGroup ? todayEntries.find((e) => e.kpi_id === selectedGroup.night?.id) : undefined;
-  const todaySingleEntry = selectedGroup ? todayEntries.find((e) => e.kpi_id === selectedGroup.single?.id) : undefined;
+  // ---- Headline: reference day's Day / Night actuals, shown as two numbers
+  const referenceDayEntry = selectedGroup ? referenceEntries.find((e) => e.kpi_id === selectedGroup.day?.id) : undefined;
+  const referenceNightEntry = selectedGroup ? referenceEntries.find((e) => e.kpi_id === selectedGroup.night?.id) : undefined;
+  const referenceSingleEntry = selectedGroup ? referenceEntries.find((e) => e.kpi_id === selectedGroup.single?.id) : undefined;
 
   // ---- Chart: Day / Night / Average lines, last 7 days or last 4 work-weeks
   const chartPoints: RunPoint[] = useMemo(() => {
@@ -200,7 +204,7 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily' }: 
     if (granularity === 'daily') {
       const points: RunPoint[] = [];
       for (let i = 6; i >= 0; i--) {
-        const d = subDays(today, i);
+        const d = subDays(referenceDate, i);
         const dateStr = format(d, 'yyyy-MM-dd');
         const dayVal = dayIdx.get(dateStr)?.actual ?? singleIdx.get(dateStr)?.actual ?? null;
         const nightVal = nightIdx.get(dateStr)?.actual ?? null;
@@ -218,7 +222,7 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily' }: 
     }
 
     // Weekly: last 4 work-weeks (Mon-Fri), averaging weekday entries per week.
-    const currentMonday = startOfWeek(today, { weekStartsOn: 1 });
+    const currentMonday = startOfWeek(referenceDate, { weekStartsOn: 1 });
     const points: RunPoint[] = [];
     for (let w = 3; w >= 0; w--) {
       const monday = subWeeks(currentMonday, w);
@@ -226,7 +230,7 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily' }: 
       const nightVals: number[] = [];
       for (let d = 0; d < 5; d++) {
         const date = addDays(monday, d);
-        if (date > today) continue;
+        if (date > referenceDate) continue;
         const dateStr = format(date, 'yyyy-MM-dd');
         const dv = dayIdx.get(dateStr)?.actual ?? singleIdx.get(dateStr)?.actual;
         const nv = nightIdx.get(dateStr)?.actual;
@@ -262,7 +266,7 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily' }: 
 
   const hero = (
     <div className="quadrant-hero">
-      <PillarLetterGrid letter={pillar.code} days={dayStatuses} todayDay={todayDay} height={300} />
+      <PillarLetterGrid letter={pillar.code} days={dayStatuses} todayDay={referenceDay} height={300} />
       <span className="quadrant-hero-name">{pillar.name}</span>
     </div>
   );
@@ -309,27 +313,29 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily' }: 
               <h3>{selectedGroup.label}</h3>
               <span className="muted">
                 Target {selectedGroup.target} {selectedGroup.unit} · {selectedGroup.isHigherBetter ? 'higher is good' : 'lower is good'}
+                {' · '}
+                <strong>{format(referenceDate, 'EEE d MMM')}</strong>
               </span>
             </div>
             <div className="headline-values">
               {selectedGroup.single ? (
-                <div className={`headline-value ${todaySingleEntry ? (groupMetTarget(selectedGroup, todaySingleEntry.actual) ? 'value-good' : 'value-bad') : 'value-nodata'}`}>
-                  {todaySingleEntry ? todaySingleEntry.actual : '—'}
+                <div className={`headline-value ${referenceSingleEntry ? (groupMetTarget(selectedGroup, referenceSingleEntry.actual) ? 'value-good' : 'value-bad') : 'value-nodata'}`}>
+                  {referenceSingleEntry ? referenceSingleEntry.actual : '—'}
                   <span className="headline-unit">{selectedGroup.unit}</span>
                 </div>
               ) : (
                 <>
                   <div className="headline-shift">
                     <span className="headline-shift-label">Day</span>
-                    <span className={`headline-value ${todayDayEntry ? (groupMetTarget(selectedGroup, todayDayEntry.actual) ? 'value-good' : 'value-bad') : 'value-nodata'}`}>
-                      {todayDayEntry ? todayDayEntry.actual : '—'}
+                    <span className={`headline-value ${referenceDayEntry ? (groupMetTarget(selectedGroup, referenceDayEntry.actual) ? 'value-good' : 'value-bad') : 'value-nodata'}`}>
+                      {referenceDayEntry ? referenceDayEntry.actual : '—'}
                       <span className="headline-unit">{selectedGroup.unit}</span>
                     </span>
                   </div>
                   <div className="headline-shift">
                     <span className="headline-shift-label">Night</span>
-                    <span className={`headline-value ${todayNightEntry ? (groupMetTarget(selectedGroup, todayNightEntry.actual) ? 'value-good' : 'value-bad') : 'value-nodata'}`}>
-                      {todayNightEntry ? todayNightEntry.actual : '—'}
+                    <span className={`headline-value ${referenceNightEntry ? (groupMetTarget(selectedGroup, referenceNightEntry.actual) ? 'value-good' : 'value-bad') : 'value-nodata'}`}>
+                      {referenceNightEntry ? referenceNightEntry.actual : '—'}
                       <span className="headline-unit">{selectedGroup.unit}</span>
                     </span>
                   </div>
@@ -343,18 +349,18 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily' }: 
             <div className="remarks-summary">
               {selectedGroup.single ? (
                 <div className="remarks-block">
-                  <span className="remarks-block-label">Today</span>
-                  <p className="remarks-text">{todaySingleEntry?.remarks?.trim() || 'No remarks logged yet today.'}</p>
+                  <span className="remarks-block-label">{format(referenceDate, 'EEE d MMM')}</span>
+                  <p className="remarks-text">{referenceSingleEntry?.remarks?.trim() || 'No remarks logged for this date.'}</p>
                 </div>
               ) : (
                 <>
                   <div className="remarks-block">
                     <span className="remarks-block-label">Day</span>
-                    <p className="remarks-text">{todayDayEntry?.remarks?.trim() || 'No remarks logged yet today.'}</p>
+                    <p className="remarks-text">{referenceDayEntry?.remarks?.trim() || 'No remarks logged for this date.'}</p>
                   </div>
                   <div className="remarks-block">
                     <span className="remarks-block-label">Night</span>
-                    <p className="remarks-text">{todayNightEntry?.remarks?.trim() || 'No remarks logged yet today.'}</p>
+                    <p className="remarks-text">{referenceNightEntry?.remarks?.trim() || 'No remarks logged for this date.'}</p>
                   </div>
                 </>
               )}

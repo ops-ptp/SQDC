@@ -1,10 +1,13 @@
-import { format } from 'date-fns';
+import { format, subDays } from 'date-fns';
 import { useEffect, useState } from 'react';
 import { useEmployee } from '../context/EmployeeContext';
 import { fetchEntryForKpiAndDate, fetchKpisForEmployee, fetchReasonsForKpi, upsertDailyEntry } from '../lib/data';
 import { PILLAR_COLORS, metTarget, type DailyEntry, type KpiWithPillar, type Reason } from '../types';
 
 const TODAY = format(new Date(), 'yyyy-MM-dd');
+// Staff typically log the previous day's completed shift results each
+// morning — matches the Board, which reviews yesterday's performance.
+const YESTERDAY = format(subDays(new Date(), 1), 'yyyy-MM-dd');
 const OTHER_SENTINEL = 'OTHER';
 
 type Shift = 'day' | 'night' | 'single';
@@ -84,7 +87,7 @@ function defaultShift(g: KpiGroup): Shift {
 
 export default function DataEntry() {
   const { employee } = useEmployee();
-  const [selectedDate, setSelectedDate] = useState(TODAY);
+  const [selectedDate, setSelectedDate] = useState(YESTERDAY);
   const [groups, setGroups] = useState<KpiGroup[]>([]);
   const [rows, setRows] = useState<Record<string, GroupState>>({});
   const [loading, setLoading] = useState(true);

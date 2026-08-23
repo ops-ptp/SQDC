@@ -458,6 +458,17 @@ p {
   flex-wrap: wrap;
 }
 
+.board-reviewing-badge {
+  display: inline-block;
+  margin-left: 10px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
 /* ---------------- Segmented toggle (Daily / Weekly) ---------------- */
 .segmented {
   display: inline-flex;

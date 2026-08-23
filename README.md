@@ -165,24 +165,36 @@ correctly, including the 28-day blackening behavior.
 
 - **`/` — Board (Dashboard)**: the 4-quadrant SQDC view of **lagging** KPIs, no
   login required (meant to be left open on a shared screen/TV, like the
-  physical board). Deliberately monochrome — the hero background and Pareto
-  chart are neutral grey, so the only color on the board is each KPI pill's
-  green/red **outline** (today's pass/fail) and the selected pill's reverse
-  fill. A **Daily / Weekly** toggle switches the trend chart between the last
-  7 days and the last 4 work weeks (Mon–Fri only) — it does *not* affect the
-  letter mosaic, which always shows the current month. Each quadrant's
-  hero/pills/headline/trend/Pareto/actions sections align row-by-row across
-  all 4 pillars (CSS subgrid) regardless of how much content is in each.
+  physical board). **Reviews the most recently completed day (yesterday), not
+  today** — matches how the real SQDC huddle works: you discuss what actually
+  happened yesterday, not a day still in progress. A blue "Reviewing
+  &lt;date&gt;" badge next to the page title makes this explicit, since the
+  page header's own date is today's calendar date. The letter mosaic, pill
+  outlines, headline numbers, and Remarks/Summary section all reflect
+  yesterday; the trend chart's "last 7 days" / "last 4 work weeks" windows end
+  on yesterday too. Deliberately monochrome — hero background and Pareto chart
+  are neutral grey, so the only color is each KPI pill's green/red **outline**
+  (yesterday's pass/fail) and the selected pill's reverse fill. A
+  **Daily / Weekly** toggle switches the trend chart's window only — the
+  letter mosaic always shows the full calendar month containing the reviewed
+  day. Each quadrant's hero/pills/headline/remarks/trend/Pareto/actions
+  sections align row-by-row across all 4 pillars (CSS subgrid).
 - **`/forward-looking` — Forward Looking**: a kanban-style board for **leading**
-  KPIs with three columns (+1 Day, +2 Days, +3 Days). Requires an Employee ID.
-  Add, edit, or delete a forecast card per column, or use the ←/→ buttons on a
-  card to shift it a day earlier/later. Requires at least one KPI with
+  KPIs with three columns — **Today, Tomorrow, Day After** — the flip side of
+  the Board reviewing yesterday: the same huddle that looks back at
+  yesterday's results looks forward starting from today. Requires an Employee
+  ID. Add, edit, or delete a forecast card per column, or use the ←/→ buttons
+  on a card to shift it a day earlier/later. Requires at least one KPI with
   `is_leading = true`.
-- **`/entry` — Enter KPI Data**: requires an Employee ID. Shows only the
-  (lagging) KPIs assigned to that employee for today — Day and Night variants
-  still appear as separate cards here, since staff enter them separately. If a
-  value misses target, a reason is required before it can be saved (feeds the
-  Pareto chart).
+- **`/entry` — Enter KPI Data**: requires an Employee ID. Has its own date
+  picker (defaults to **yesterday**, capped at today — staff typically log
+  yesterday's completed shift each morning, but same-day entry is still
+  allowed). Day/Night KPI pairs appear as **one card with a Day/Night
+  toggle** (matching the Board's pill grouping) rather than two separate
+  cards. Each entry captures: the actual value, a **Remarks** field, and — if
+  the value misses target — a required reason category (with an explicit
+  "Other, please specify" option) **and** required remarks explaining what
+  happened. Remarks show up on the Board's Remarks/Summary section.
 - **`/actions` — Action Log**: view/add actions across all pillars, filter by
   pillar, and change each action's status (Not started / In progress /
   Dropped / Completed) from a dropdown.

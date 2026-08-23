@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { format } from 'date-fns';
+import { format, subDays } from 'date-fns';
 import { fetchKpis, fetchPillars } from '../lib/data';
 import type { Kpi, Pillar } from '../types';
 import PillarQuadrant, { type Granularity } from '../components/PillarQuadrant';
@@ -30,6 +30,7 @@ export default function Dashboard() {
         <div>
           <h1>SQDC Board</h1>
           <span className="muted">{format(new Date(), 'EEEE, d MMMM yyyy')}</span>
+          <span className="board-reviewing-badge">Reviewing {format(subDays(new Date(), 1), 'EEEE, d MMMM')}</span>
         </div>
         <div className="segmented">
           <button

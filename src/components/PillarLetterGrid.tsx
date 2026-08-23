@@ -232,7 +232,7 @@ export default function PillarLetterGrid({ letter, days, todayDay, height = 208 
                 {isPastMonthEnd
                   ? 'No such date this month'
                   : dayInfo
-                    ? `Day ${dayInfo.day}${isToday ? ' (today)' : ''} — ${STATUS_LABEL[dayInfo.status]}`
+                    ? `Day ${dayInfo.day}${isToday ? ' (most recent)' : ''} — ${STATUS_LABEL[dayInfo.status]}`
                     : undefined}
               </title>
             </rect>
