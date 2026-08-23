@@ -23,6 +23,30 @@ interface Props {
 
 const BAR_COLOR = '#64748b';
 const LINE_COLOR = '#1e293b';
+const MAX_LABEL_CHARS = 15;
+
+function truncateLabel(text: string, max = MAX_LABEL_CHARS): string {
+  if (text.length <= max) return text;
+  const cut = text.slice(0, max);
+  const lastSpace = cut.lastIndexOf(' ');
+  const base = lastSpace > max * 0.5 ? cut.slice(0, lastSpace) : cut;
+  return `${base}…`;
+}
+
+// Custom tick: rotated labels can be long ("CHE allocation / scheduling gap")
+// and, rotated -25°, spill past the card's left edge and get clipped by the
+// card's overflow:hidden. Truncating here (word-aware) keeps every label
+// inside the plot area; hovering shows the full text via a native <title>.
+function AngledTick({ x, y, payload }: { x: number; y: number; payload: { value: string } }) {
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <text dy={12} textAnchor="end" transform="rotate(-30)" fontSize={10} fill="var(--muted)">
+        {truncateLabel(payload.value)}
+        <title>{payload.value}</title>
+      </text>
+    </g>
+  );
+}
 
 export default function ParetoChart({ data }: Props) {
   const sorted = [...data].sort((a, b) => b.count - a.count).slice(0, 6);
@@ -46,16 +70,9 @@ export default function ParetoChart({ data }: Props) {
 
   return (
     <ResponsiveContainer width="100%" height={210}>
-      <ComposedChart data={chartData} margin={{ top: 18, right: 12, left: 0, bottom: 4 }}>
+      <ComposedChart data={chartData} margin={{ top: 18, right: 12, left: 4, bottom: 4 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="var(--grid-line)" vertical={false} />
-        <XAxis
-          dataKey="label"
-          tick={{ fontSize: 10, fill: 'var(--muted)' }}
-          interval={0}
-          angle={-25}
-          textAnchor="end"
-          height={58}
-        />
+        <XAxis dataKey="label" interval={0} height={62} tick={<AngledTick x={0} y={0} payload={{ value: '' }} />} />
         {/* Count scale drives the bar heights but stays hidden — the count is
             labeled directly on each bar instead, which reads better in a
             narrow card than a cramped left axis. */}
