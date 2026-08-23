@@ -8,7 +8,7 @@ export type DayStatus = {
 
 interface Props {
   letter: string;
-  /** Exactly one entry per day of the current month, index 0 = day 1, in order. */
+  /** One entry per day that actually exists this month (28-31 entries, index 0 = day 1). */
   days: DayStatus[];
   todayDay: number;
   height?: number;
@@ -17,6 +17,11 @@ interface Props {
 const SAMPLE_W = 220;
 const SAMPLE_H = 260;
 const MAX_GROW_ATTEMPTS = 10;
+// The letter's cell layout is always sampled at this fixed size (the longest
+// possible month) so the shape never changes month to month. Shorter months
+// (28-30 days) just blacken the trailing cells that have no real date, rather
+// than re-sampling a differently-shaped/differently-sized letter.
+const GRID_CELL_COUNT = 31;
 
 interface Cell {
   row: number;
@@ -121,31 +126,29 @@ export default function PillarLetterGrid({ letter, days, todayDay, height = 208 
   const [cells, setCells] = useState<Cell[]>([]);
   const [dims, setDims] = useState({ cols: 7, rows: 8 });
 
+  // Sampled once per letter, always at the fixed 31-cell target — NOT
+  // re-sampled per month, so the shape/layout is identical every month.
   useEffect(() => {
-    const target = days.length;
-    if (target === 0) {
-      setCells([]);
-      return;
-    }
-    // Start low-res (big blocky cells) and grow until the glyph has at least
-    // `target` filled cells, then trim/grow to hit the count exactly.
     let cols = 6;
     let rows = 7;
     let filled = sampleGlyph(letter, cols, rows);
-    for (let attempt = 1; attempt < MAX_GROW_ATTEMPTS && filled.length < target; attempt++) {
+    for (let attempt = 1; attempt < MAX_GROW_ATTEMPTS && filled.length < GRID_CELL_COUNT; attempt++) {
       cols += 1;
       rows += 1;
       filled = sampleGlyph(letter, cols, rows);
     }
-    const exact = filled.length >= target ? trimToCount(filled, target) : growToCount(filled, target, cols, rows);
+    const exact =
+      filled.length >= GRID_CELL_COUNT
+        ? trimToCount(filled, GRID_CELL_COUNT)
+        : growToCount(filled, GRID_CELL_COUNT, cols, rows);
     // Reading order: top-to-bottom, left-to-right, so day 1 lands near the
     // top of the letter and the month progresses downward.
     exact.sort((a, b) => a.row - b.row || a.col - b.col);
     setCells(exact);
     setDims({ cols, rows });
-  }, [letter, days.length]);
+  }, [letter]);
 
-  if (days.length === 0 || cells.length === 0) {
+  if (cells.length === 0) {
     return (
       <div className="letter-grid-empty" style={{ height }}>
         {letter}
@@ -167,9 +170,12 @@ export default function PillarLetterGrid({ letter, days, todayDay, height = 208 
       aria-label={`${letter} — daily performance for this month`}
     >
       {cells.map((c, i) => {
-        const dayInfo = days[i];
+        // Cells beyond the real number of days this month (e.g. cell #29 in
+        // February) have no matching day — shown blackened, no number.
+        const dayInfo: DayStatus | undefined = i < days.length ? days[i] : undefined;
+        const isPastMonthEnd = i >= days.length;
         const isToday = dayInfo?.day === todayDay;
-        const fill = dayInfo ? PERFORMANCE_COLORS[dayInfo.status] : PERFORMANCE_COLORS.future;
+        const fill = isPastMonthEnd ? '#1e293b' : dayInfo ? PERFORMANCE_COLORS[dayInfo.status] : PERFORMANCE_COLORS.future;
         const textColor = dayInfo && (dayInfo.status === 'met' || dayInfo.status === 'missed') ? '#ffffff' : '#475569';
         return (
           <g key={`${c.row}-${c.col}`}>
@@ -183,7 +189,13 @@ export default function PillarLetterGrid({ letter, days, todayDay, height = 208 
               stroke={isToday ? '#1d4ed8' : 'rgba(0,0,0,0.35)'}
               strokeWidth={isToday ? 0.14 : 0.045}
             >
-              {dayInfo && <title>{`Day ${dayInfo.day}${isToday ? ' (today)' : ''} — ${STATUS_LABEL[dayInfo.status]}`}</title>}
+              <title>
+                {isPastMonthEnd
+                  ? 'No such date this month'
+                  : dayInfo
+                    ? `Day ${dayInfo.day}${isToday ? ' (today)' : ''} — ${STATUS_LABEL[dayInfo.status]}`
+                    : undefined}
+              </title>
             </rect>
             {dayInfo && (
               <text
