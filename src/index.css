@@ -511,6 +511,11 @@ p {
   flex: 1;
 }
 
+.chart-wrap {
+  padding: 0 14px;
+  box-sizing: border-box;
+}
+
 .quadrant-hero {
   display: flex;
   flex-direction: column;
