@@ -37,7 +37,14 @@ function truncateLabel(text: string, max = MAX_LABEL_CHARS): string {
 // and, rotated -25°, spill past the card's left edge and get clipped by the
 // card's overflow:hidden. Truncating here (word-aware) keeps every label
 // inside the plot area; hovering shows the full text via a native <title>.
-function AngledTick({ x, y, payload }: { x: number; y: number; payload: { value: string } }) {
+//
+// IMPORTANT: passed to XAxis as a bare function reference (`tick={AngledTick}`),
+// NOT as a pre-built element (`tick={<AngledTick .../>}`). Recharts extracts
+// SVG-attribute-looking props (x, y, ...) straight off an already-built
+// element and uses them to override its own computed per-tick coordinates —
+// so a pre-built element with placeholder x/y pins every tick to that same
+// spot. A function reference has no such props to extract from.
+function AngledTick({ x, y, payload }: { x: number | string; y: number | string; payload: { value: string } }) {
   return (
     <g transform={`translate(${x},${y})`}>
       <text dy={12} textAnchor="end" transform="rotate(-30)" fontSize={10} fill="var(--muted)">
@@ -73,7 +80,7 @@ export default function ParetoChart({ data }: Props) {
       <ResponsiveContainer width="100%" height={210}>
         <ComposedChart data={chartData} margin={{ top: 18, right: 4, left: 4, bottom: 4 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--grid-line)" vertical={false} />
-          <XAxis dataKey="label" interval={0} height={62} tick={<AngledTick x={0} y={0} payload={{ value: '' }} />} />
+          <XAxis dataKey="label" interval={0} height={62} tick={AngledTick} />
           {/* Count scale drives the bar heights but stays hidden — the count is
               labeled directly on each bar instead, which reads better in a
               narrow card than a cramped left axis. */}
