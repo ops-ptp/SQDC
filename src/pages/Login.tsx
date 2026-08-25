@@ -30,7 +30,7 @@ export default function Login() {
     <div className="center-page">
       <form className="card login-card" onSubmit={handleSubmit}>
         <h1>Enter your Employee ID</h1>
-        <p className="muted">This tells us which KPIs are yours to update today.</p>
+        <p className="muted">Only accessible employee can enter this page.</p>
         <input
           autoFocus
           className="input input-lg"
