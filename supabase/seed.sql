@@ -52,15 +52,17 @@ insert into pillars (code, name, sort_order) values
   ('C', 'Cost',     4);
 
 -- ---- Employees -----------------------------------------------------------
-insert into employees (employee_code, name, role) values
-  ('E001', 'Nasser',   'Safety Officer'),
-  ('E002', 'Noura',    'Frontliner'),
-  ('E003', 'Aiman',    'Shift Supervisor'),
-  ('E004', 'Farah',    'Quality Lead'),
-  ('E005', 'Hassan',   'Delivery Lead'),
-  ('E006', 'Zaid',     'Maintenance / Cost Controller'),
-  ('E007', 'Iris',     'Yard Planner'),
-  ('E008', 'Marcus',   'Quay Operations');
+-- E003 (Aiman, Shift Supervisor) is seeded as the demo Admin/Superuser — the
+-- only one who sees the Admin tab (Daily/Weekly Excel upload) by default.
+insert into employees (employee_code, name, role, is_admin) values
+  ('E001', 'Nasser',   'Safety Officer', false),
+  ('E002', 'Noura',    'Frontliner', false),
+  ('E003', 'Aiman',    'Shift Supervisor', true),
+  ('E004', 'Farah',    'Quality Lead', false),
+  ('E005', 'Hassan',   'Delivery Lead', false),
+  ('E006', 'Zaid',     'Maintenance / Cost Controller', false),
+  ('E007', 'Iris',     'Yard Planner', false),
+  ('E008', 'Marcus',   'Quay Operations', false);
 
 -- ---- KPIs -----------------------------------------------------------------
 -- is_leading: true = a leading/process indicator, forecast on the Forward
@@ -68,7 +70,10 @@ insert into employees (employee_code, name, role) values
 -- false = a lagging/outcome indicator, tracked daily on the main Board.
 --
 -- Safety
-insert into kpis (pillar_id, name, unit, is_higher_better, target, info, sort_order, is_leading) select id, v.name, v.unit, v.higher, v.target, v.info, v.ord, false from pillars, (values
+-- manual_entry = true: Accident During Operation keeps manual Performance
+-- entry in Enter Remarks even after the Admin Excel upload goes live — one
+-- of the 3 exceptions (see kpis.manual_entry migration note in schema.sql).
+insert into kpis (pillar_id, name, unit, is_higher_better, target, info, sort_order, is_leading, manual_entry) select id, v.name, v.unit, v.higher, v.target, v.info, v.ord, false, true from pillars, (values
   ('Accident During Operation (Day)',   'Count', false, 0, 'Direct safety performance indicator. Any accident during operation, day shift.', 1),
   ('Accident During Operation (Night)', 'Count', false, 0, 'Direct safety performance indicator. Any accident during operation, night shift.', 2)
 ) as v(name, unit, higher, target, info, ord) where pillars.code = 'S';
@@ -98,7 +103,8 @@ insert into kpis (pillar_id, name, unit, is_higher_better, target, info, sort_or
 ) as v(name, unit, higher, target, info, ord) where pillars.code = 'D';
 
 -- Cost
-insert into kpis (pillar_id, name, unit, is_higher_better, target, info, sort_order, is_leading) select id, v.name, v.unit, v.higher, v.target, v.info, v.ord, false from pillars, (values
+-- Both Cost KPIs are the other 2 manual_entry exceptions.
+insert into kpis (pillar_id, name, unit, is_higher_better, target, info, sort_order, is_leading, manual_entry) select id, v.name, v.unit, v.higher, v.target, v.info, v.ord, false, true from pillars, (values
   ('QC Preventive Maintenance & Service', 'Services/day', true,  3,   'Maintenance activity/cost and asset efficiency — target is 3 services per day.', 1),
   ('Average Litres per Vessel Call',      'Litres/Call',  false, 425, 'Fuel consumption / operating cost efficiency — target is ≤425 litres per vessel call.', 2)
 ) as v(name, unit, higher, target, info, ord) where pillars.code = 'C';

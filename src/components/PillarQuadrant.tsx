@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { format, startOfMonth, getDaysInMonth, startOfWeek, subWeeks, subDays, addDays, getISOWeek } from 'date-fns';
-import { fetchActions, fetchEntriesForKpi, fetchEntriesForKpisOnDate, fetchReasonsForKpi } from '../lib/data';
-import { metTarget, PILLAR_COLORS, type ActionItem, type DailyEntry, type Kpi, type Pillar, type PerformanceStatus } from '../types';
+import { format, startOfMonth, getDaysInMonth, startOfWeek, subWeeks, subDays, addDays, getISOWeek, getISOWeekYear } from 'date-fns';
+import { fetchActions, fetchEntriesForKpi, fetchEntriesForKpisOnDate, fetchReasonsForKpi, fetchWeeklyEntriesForKpiBase } from '../lib/data';
+import { metTarget, PILLAR_COLORS, type ActionItem, type DailyEntry, type Kpi, type Pillar, type PerformanceStatus, type WeeklyEntry } from '../types';
 import KpiRunChart, { type RunPoint } from './KpiRunChart';
 import ParetoChart, { type ParetoDatum } from './ParetoChart';
 import ActionTable from './ActionTable';
@@ -77,9 +77,19 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily' }: 
   const [referenceEntries, setReferenceEntries] = useState<DailyEntry[]>([]);
   const [monthEntries, setMonthEntries] = useState<DailyEntry[]>([]);
   const [windowEntries, setWindowEntries] = useState<DailyEntry[]>([]);
+  // Pareto has its own lookback window, independent of the Trend chart's —
+  // daily view: same last-7-days window as the chart. Weekly view: last 2
+  // weeks (the chart stays at last 8 ISO weeks) — see item 8 of the spec.
+  const [paretoEntries, setParetoEntries] = useState<DailyEntry[]>([]);
+  // Fallback source for the Weekly trend — uploaded weekly figures, used only
+  // for ISO weeks that have no live daily_entries to aggregate (item 1/8).
+  const [weeklyFallback, setWeeklyFallback] = useState<WeeklyEntry[]>([]);
   const [actions, setActions] = useState<ActionItem[]>([]);
   const [reasonLabelById, setReasonLabelById] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(true);
+  // Single toggle hiding/showing Pareto + Actions together — Daily view only;
+  // Weekly view always shows both (item 7).
+  const [showParetoActions, setShowParetoActions] = useState(true);
 
   useEffect(() => {
     if (groups.length > 0 && !groups.some((g) => g.key === selectedKey)) {
@@ -130,16 +140,24 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily' }: 
       granularity === 'weekly'
         ? format(subWeeks(startOfWeek(referenceDate, { weekStartsOn: 1 }), 7), 'yyyy-MM-dd')
         : format(subDays(referenceDate, 6), 'yyyy-MM-dd');
+    // Pareto window: daily reuses the chart's 7-day window; weekly is a
+    // shorter last-2-weeks lookback, not the chart's 8-week one.
+    const paretoSince =
+      granularity === 'weekly'
+        ? format(subWeeks(startOfWeek(referenceDate, { weekStartsOn: 1 }), 1), 'yyyy-MM-dd')
+        : windowSince;
 
     Promise.all([
       Promise.all(ids.map((id) => fetchEntriesForKpi(id, monthSince))),
       Promise.all(ids.map((id) => fetchEntriesForKpi(id, windowSince))),
+      granularity === 'weekly' ? Promise.all(ids.map((id) => fetchEntriesForKpi(id, paretoSince))) : null,
       Promise.all(ids.map((id) => fetchReasonsForKpi(id))),
     ])
-      .then(([monthByKpi, windowByKpi, reasonsByKpi]) => {
+      .then(([monthByKpi, windowByKpi, paretoByKpi, reasonsByKpi]) => {
         if (cancelled) return;
         setMonthEntries(monthByKpi.flat());
         setWindowEntries(windowByKpi.flat());
+        setParetoEntries(paretoByKpi ? paretoByKpi.flat() : windowByKpi.flat());
         const map = new Map<string, string>();
         for (const list of reasonsByKpi) for (const r of list) map.set(r.id, r.label);
         setReasonLabelById(map);
@@ -150,6 +168,17 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily' }: 
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedGroup?.key, granularity]);
+
+  // Weekly fallback figures — only needed in Weekly view.
+  useEffect(() => {
+    if (granularity !== 'weekly' || !selectedGroup) {
+      setWeeklyFallback([]);
+      return;
+    }
+    fetchWeeklyEntriesForKpiBase(pillar.id, selectedGroup.label)
+      .then(setWeeklyFallback)
+      .catch(() => setWeeklyFallback([]));
+  }, [granularity, selectedGroup?.key, pillar.id, selectedGroup?.label]);
 
   // ---- Pill status (reference day's combined Day+Night average vs target) -
   function groupStatus(g: KpiGroup): PerformanceStatus {
@@ -210,13 +239,17 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily' }: 
         const dayVal = dayIdx.get(dateStr)?.actual ?? singleIdx.get(dateStr)?.actual ?? null;
         const nightVal = nightIdx.get(dateStr)?.actual ?? null;
         const vals = [dayVal, nightVal].filter((v): v is number => v !== null);
+        const avgVal = mean(vals);
         points.push({
           label: format(d, 'EEE d'),
           date: dateStr,
           dayActual: dayVal,
           nightActual: nightVal,
-          avgActual: mean(vals),
+          avgActual: avgVal,
           target: selectedGroup.target,
+          dayMet: dayVal === null ? null : groupMetTarget(selectedGroup, dayVal),
+          nightMet: nightVal === null ? null : groupMetTarget(selectedGroup, nightVal),
+          avgMet: avgVal === null ? null : groupMetTarget(selectedGroup, avgVal),
         });
       }
       return points;
@@ -224,6 +257,7 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily' }: 
 
     // Weekly: last 8 ISO weeks (Mon-Sun), simple average of all logged days per week.
     const currentIsoWeekStart = startOfWeek(referenceDate, { weekStartsOn: 1 });
+    const fallbackByWeek = new Map(weeklyFallback.map((w) => [`${w.iso_year}-${w.iso_week}`, w]));
     const points: RunPoint[] = [];
     for (let w = 7; w >= 0; w--) {
       const weekStart = subWeeks(currentIsoWeekStart, w);
@@ -238,32 +272,48 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily' }: 
         if (dv !== undefined) dayVals.push(dv);
         if (nv !== undefined) nightVals.push(nv);
       }
-      const dayAvg = mean(dayVals);
-      const nightAvg = mean(nightVals);
+      let dayAvg = mean(dayVals);
+      let nightAvg = mean(nightVals);
+      // No daily entries logged at all for this ISO week — fall back to the
+      // uploaded Weekly figure if one exists. That figure is already blended
+      // (the source sheet has no Day/Night split), so with only Day/Night
+      // lines left on this chart it's plotted on both — the best available
+      // stand-in for a number the upload never split out.
+      if (dayAvg === null && nightAvg === null) {
+        const fb = fallbackByWeek.get(`${getISOWeekYear(weekStart)}-${getISOWeek(weekStart)}`);
+        if (fb) {
+          dayAvg = fb.actual;
+          nightAvg = fb.actual;
+        }
+      }
       const both = [dayAvg, nightAvg].filter((v): v is number => v !== null);
+      const avgVal = mean(both);
       points.push({
         label: `Wk ${getISOWeek(weekStart)}`,
         date: format(weekStart, 'yyyy-MM-dd'),
         dayActual: dayAvg,
         nightActual: nightAvg,
-        avgActual: mean(both),
+        avgActual: avgVal,
         target: selectedGroup.target,
+        dayMet: dayAvg === null ? null : groupMetTarget(selectedGroup, dayAvg),
+        nightMet: nightAvg === null ? null : groupMetTarget(selectedGroup, nightAvg),
+        avgMet: avgVal === null ? null : groupMetTarget(selectedGroup, avgVal),
       });
     }
     return points;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [windowEntries, selectedGroup?.key, granularity]);
+  }, [windowEntries, weeklyFallback, selectedGroup?.key, granularity]);
 
-  // ---- Pareto: missed-target reasons within the same chart window --------
+  // ---- Pareto: missed-target reasons within the Pareto-specific window ---
   const paretoData: ParetoDatum[] = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const e of windowEntries) {
+    for (const e of paretoEntries) {
       if (e.met_target) continue;
       const label = e.reason_other?.trim() || (e.reason_id ? reasonLabelById.get(e.reason_id) : undefined) || 'Unspecified';
       counts.set(label, (counts.get(label) ?? 0) + 1);
     }
     return Array.from(counts.entries()).map(([label, count]) => ({ label, count }));
-  }, [windowEntries, reasonLabelById]);
+  }, [paretoEntries, reasonLabelById]);
 
   const hero = (
     <div className="quadrant-hero" style={{ background: colors.soft }}>
@@ -345,6 +395,17 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily' }: 
             </div>
           </div>
 
+          <div className="quadrant-section">
+            <div className="quadrant-block-title">
+              {granularity === 'weekly' ? 'Trend — last 8 ISO weeks' : 'Trend — last 7 days'}
+            </div>
+            {loading ? (
+              <div className="empty-state">Loading…</div>
+            ) : (
+              <KpiRunChart points={chartPoints} unit={selectedGroup.unit} showDayNight={!selectedGroup.single} />
+            )}
+          </div>
+
           {granularity === 'daily' && (
             <div className="quadrant-section">
               <div className="quadrant-block-title">Remarks / Summary</div>
@@ -370,28 +431,32 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily' }: 
             </div>
           )}
 
-          <div className="quadrant-section">
-            <div className="quadrant-block-title">
-              {granularity === 'weekly' ? 'Trend — last 8 ISO weeks' : 'Trend — last 7 days'}
-            </div>
-            {loading ? (
-              <div className="empty-state">Loading…</div>
-            ) : (
-              <KpiRunChart points={chartPoints} unit={selectedGroup.unit} showDayNight={!selectedGroup.single} />
-            )}
-          </div>
+          {granularity === 'daily' && (
+            <button
+              type="button"
+              className="quadrant-toggle-btn"
+              onClick={() => setShowParetoActions((s) => !s)}
+              aria-expanded={showParetoActions}
+            >
+              {showParetoActions ? 'Hide Pareto & Actions ▲' : 'Show Pareto & Actions ▼'}
+            </button>
+          )}
 
-          <div className="quadrant-section">
-            <div className="quadrant-block-title">
-              Pareto of reasons — {granularity === 'weekly' ? 'last 8 ISO weeks' : 'last 7 days'}
-            </div>
-            <ParetoChart data={paretoData} background={colors.soft} />
-          </div>
+          {(granularity === 'weekly' || showParetoActions) && (
+            <>
+              <div className="quadrant-section">
+                <div className="quadrant-block-title">
+                  Pareto of reasons — {granularity === 'weekly' ? 'last 2 weeks' : 'last 7 days'}
+                </div>
+                <ParetoChart data={paretoData} background={colors.soft} />
+              </div>
 
-          <div className="quadrant-section quadrant-section-fill">
-            <div className="quadrant-block-title">Actions</div>
-            <ActionTable actions={actions} compact />
-          </div>
+              <div className="quadrant-section quadrant-section-fill">
+                <div className="quadrant-block-title">Actions</div>
+                <ActionTable actions={actions} compact />
+              </div>
+            </>
+          )}
         </>
       )}
     </section>

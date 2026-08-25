@@ -248,3 +248,72 @@ alter table actions drop column if exists done;
 -- ----------------------------------------------------------------------------
 
 alter table daily_entries add column if not exists remarks text;
+
+-- ============================================================================
+-- MIGRATION (2026-08-25): Admin Excel upload + Enter Remarks rework
+-- ============================================================================
+-- Adds everything needed for the new data-entry model:
+--   * employees.is_admin — gates the Admin tab (Daily/Weekly Excel upload).
+--     Only admins/superusers see and use it.
+--   * daily_entries.is_manual_override — set true whenever a value was typed
+--     in by a person via Enter Remarks, for one of the 3 KPIs that still get
+--     manual Performance entry (Accident During Operation, QC Preventive
+--     Maintenance & Service, Average Litres per Vessel Call). The Admin
+--     upload writes these 3 KPIs' columns too (they exist in the source
+--     spreadsheet), but only as a FALLBACK — it must never overwrite a row
+--     with is_manual_override = true. Upload-written rows always set this
+--     to false.
+--   * weekly_entries — new table backing the uploaded OPS SQDC Weekly.xlsx
+--     ("Weekly Database" sheet — ISO week rows, one column per KPI, a
+--     coarser subset of the daily KPI catalog with no Day/Night split).
+--     The Weekly board view prefers live daily_entries aggregation when
+--     available for a given ISO week, and falls back to this table when it
+--     isn't (e.g. weeks predating daily tracking, or a week uploaded here
+--     but never logged day-by-day). Keyed by (pillar, kpi BASE name) rather
+--     than a strict kpi_id FK, because the sheet's figures are already
+--     blended across Day/Night while most of this app's kpis rows are the
+--     Day/Night-split variants (there's no single "combined" kpi row to
+--     reference) — kpi_base_name matches the same base-name grouping the
+--     app already computes (KPI name with any trailing " (Day)"/" (Night)"
+--     stripped), e.g. "GMPH Mainliner".
+-- Safe to re-run.
+-- ----------------------------------------------------------------------------
+
+alter table employees add column if not exists is_admin boolean not null default false;
+
+-- kpis.manual_entry marks the 3 KPIs that keep manual Performance-value entry
+-- in Enter Remarks (Accident During Operation, QC Preventive Maintenance &
+-- Service, Average Litres per Vessel Call) — everything else becomes
+-- remarks-only once the Admin upload is populating it. Driven by this flag
+-- rather than hardcoded KPI names in the app, so it stays configurable.
+alter table kpis add column if not exists manual_entry boolean not null default false;
+
+alter table daily_entries add column if not exists is_manual_override boolean not null default false;
+
+create table if not exists weekly_entries (
+  id             uuid primary key default gen_random_uuid(),
+  pillar_id      uuid not null references pillars(id) on delete cascade,
+  kpi_base_name  text not null,          -- e.g. "GMPH Mainliner" — matches the app's Day/Night-stripped grouping
+  iso_year       int not null,
+  iso_week       int not null,           -- 1-53
+  target         numeric not null,       -- snapshot at upload time
+  actual         numeric not null,
+  met_target     boolean not null,
+  uploaded_by    uuid references employees(id),
+  created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now(),
+  unique (pillar_id, kpi_base_name, iso_year, iso_week)
+);
+
+drop trigger if exists trg_weekly_entries_updated_at on weekly_entries;
+create trigger trg_weekly_entries_updated_at
+  before update on weekly_entries
+  for each row execute function set_updated_at();
+
+alter table weekly_entries enable row level security;
+
+drop policy if exists anon_all_weekly_entries on weekly_entries;
+create policy anon_all_weekly_entries on weekly_entries for all using (true) with check (true);
+
+-- Convenience: mark your own account (or any employee) as admin, e.g.:
+--   update employees set is_admin = true where employee_code = 'E001';

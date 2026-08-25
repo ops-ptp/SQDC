@@ -1,5 +1,5 @@
 import { supabase } from './supabaseClient';
-import type { ActionItem, DailyEntry, Employee, ForecastCardWithRefs, Kpi, KpiWithPillar, Pillar, Reason } from '../types';
+import type { ActionItem, DailyEntry, Employee, ForecastCardWithRefs, Kpi, KpiWithPillar, Pillar, Reason, WeeklyEntry } from '../types';
 
 export async function fetchPillars(): Promise<Pillar[]> {
   const { data, error } = await supabase.from('pillars').select('*').order('sort_order');
@@ -92,6 +92,11 @@ export interface UpsertEntryInput {
   reason_other: string | null;
   remarks: string | null;
   entered_by: string;
+  /** true when this write comes from a person manually entering a
+   * Performance value (one of the 3 manual_entry KPIs) — protects the row
+   * from being overwritten by a later Admin Excel upload. Defaults to false
+   * (remarks-only edits on an upload-sourced row never set this). */
+  is_manual_override?: boolean;
 }
 
 export async function upsertDailyEntry(input: UpsertEntryInput): Promise<DailyEntry> {
@@ -102,6 +107,94 @@ export async function upsertDailyEntry(input: UpsertEntryInput): Promise<DailyEn
     .single();
   if (error) throw error;
   return data as DailyEntry;
+}
+
+// ---------------------------------------------------------------------------
+// Admin Excel upload — Daily/Weekly bulk upsert
+// ---------------------------------------------------------------------------
+
+/** All lagging KPIs (active, non-leading), regardless of manual_entry — the
+ * full catalog the Admin upload needs to map spreadsheet columns against. */
+export async function fetchKpisForUpload(): Promise<Kpi[]> {
+  return fetchKpis();
+}
+
+/** Which (kpi_id, entry_date) pairs already carry a person-typed value for a
+ * manual_entry KPI — the upload must never overwrite these. Pass the full
+ * candidate set; only the ones actually flagged come back. */
+export async function fetchManualOverrideKeys(kpiIds: string[], dates: string[]): Promise<Set<string>> {
+  if (kpiIds.length === 0 || dates.length === 0) return new Set();
+  const { data, error } = await supabase
+    .from('daily_entries')
+    .select('kpi_id, entry_date')
+    .in('kpi_id', kpiIds)
+    .in('entry_date', dates)
+    .eq('is_manual_override', true);
+  if (error) throw error;
+  return new Set((data as { kpi_id: string; entry_date: string }[]).map((r) => `${r.kpi_id}|${r.entry_date}`));
+}
+
+export interface UploadDailyRow {
+  kpi_id: string;
+  entry_date: string;
+  target: number;
+  actual: number;
+  met_target: boolean;
+  entered_by: string | null;
+}
+
+/** Bulk upsert daily_entries from an Admin upload. Rows are written with
+ * is_manual_override = false (upload-sourced) and reason/remarks left
+ * untouched — chunked to stay well under PostgREST's request size limits. */
+export async function bulkUpsertDailyEntriesFromUpload(rows: UploadDailyRow[]): Promise<number> {
+  const CHUNK = 400;
+  let written = 0;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const chunk = rows.slice(i, i + CHUNK).map((r) => ({ ...r, is_manual_override: false }));
+    const { error } = await supabase.from('daily_entries').upsert(chunk, { onConflict: 'kpi_id,entry_date' });
+    if (error) throw error;
+    written += chunk.length;
+  }
+  return written;
+}
+
+export interface UploadWeeklyRow {
+  pillar_id: string;
+  kpi_base_name: string;
+  iso_year: number;
+  iso_week: number;
+  target: number;
+  actual: number;
+  met_target: boolean;
+  uploaded_by: string | null;
+}
+
+export async function bulkUpsertWeeklyEntriesFromUpload(rows: UploadWeeklyRow[]): Promise<number> {
+  const CHUNK = 400;
+  let written = 0;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const chunk = rows.slice(i, i + CHUNK);
+    const { error } = await supabase
+      .from('weekly_entries')
+      .upsert(chunk, { onConflict: 'pillar_id,kpi_base_name,iso_year,iso_week' });
+    if (error) throw error;
+    written += chunk.length;
+  }
+  return written;
+}
+
+/** All uploaded weekly figures for one pillar's KPI base name — the Weekly
+ * board's fallback source for ISO weeks with no live daily_entries. */
+export async function fetchWeeklyEntriesForKpiBase(pillarId: string, kpiBaseName: string): Promise<WeeklyEntry[]> {
+  const { data, error } = await supabase
+    .from('weekly_entries')
+    .select('*')
+    .eq('pillar_id', pillarId)
+    .eq('kpi_base_name', kpiBaseName)
+    .order('iso_year')
+    .order('iso_week');
+  if (error) throw error;
+  return data as WeeklyEntry[];
 }
 
 export async function fetchActions(filters?: { pillarId?: string; kpiId?: string }): Promise<ActionItem[]> {

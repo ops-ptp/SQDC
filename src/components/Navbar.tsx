@@ -15,14 +15,19 @@ export default function Navbar() {
           Board
         </NavLink>
         <NavLink to="/forward-looking" className={({ isActive }) => (isActive ? 'active' : '')}>
-          Forward Looking
+          Next 24 Hours
         </NavLink>
         <NavLink to="/entry" className={({ isActive }) => (isActive ? 'active' : '')}>
-          Enter KPI Data
+          Enter Remarks
         </NavLink>
         <NavLink to="/actions" className={({ isActive }) => (isActive ? 'active' : '')}>
           Action Log
         </NavLink>
+        {employee?.is_admin && (
+          <NavLink to="/admin" className={({ isActive }) => (isActive ? 'active' : '')}>
+            Admin
+          </NavLink>
+        )}
       </nav>
       <div className="navbar-user">
         {employee ? (

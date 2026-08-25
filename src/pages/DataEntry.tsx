@@ -27,6 +27,11 @@ interface KpiGroup {
   unit: string;
   isHigherBetter: boolean;
   sortOrder: number;
+  /** True when this KPI keeps manual Performance-value entry (Accident
+   * During Operation, QC Preventive Maintenance & Service, Average Litres
+   * per Vessel Call) — every other KPI is remarks-only, its Performance
+   * value coming from the Admin Excel upload instead. */
+  manualEntry: boolean;
   day?: Kpi;
   night?: Kpi;
   single?: Kpi;
@@ -81,10 +86,12 @@ function buildGroups(kpis: Kpi[]): KpiGroup[] {
         unit: k.unit,
         isHigherBetter: k.is_higher_better,
         sortOrder: k.sort_order,
+        manualEntry: k.manual_entry,
       };
       map.set(mapKey, g);
     }
     g.sortOrder = Math.min(g.sortOrder, k.sort_order);
+    g.manualEntry = g.manualEntry || k.manual_entry;
     if (isDay) g.day = k;
     else if (isNight) g.night = k;
     else g.single = k;
@@ -104,6 +111,10 @@ function defaultShift(g: KpiGroup): Shift {
   return 'single';
 }
 
+function groupKpiIds(g: KpiGroup): string[] {
+  return [g.day?.id, g.night?.id, g.single?.id].filter((x): x is string => Boolean(x));
+}
+
 /** "Done" for a date = every applicable shift (day/night, or the single
  * variant) has a logged entry — drives the grey-vs-colored pill state. */
 function isGroupDone(g: KpiGroup, entries: DailyEntry[]): boolean {
@@ -112,6 +123,14 @@ function isGroupDone(g: KpiGroup, entries: DailyEntry[]): boolean {
   const dayDone = g.day ? ids.includes(g.day.id) : true;
   const nightDone = g.night ? ids.includes(g.night.id) : true;
   return dayDone && nightDone;
+}
+
+/** True when this group has a logged entry that missed target and has no
+ * remark yet — the "still needs attention" state, distinct from "not
+ * logged at all". Drives the red pill highlight + the page-level count. */
+function groupNeedsRemark(g: KpiGroup, entries: DailyEntry[]): boolean {
+  const ids = groupKpiIds(g);
+  return entries.some((e) => ids.includes(e.kpi_id) && !e.met_target && !e.remarks?.trim());
 }
 
 export default function DataEntry() {
@@ -147,7 +166,7 @@ export default function DataEntry() {
   const selectedGroup = groups.find((g) => g.key === selectedGroupKey);
 
   // Which KPIs already have an entry for the selected date — drives the
-  // grey-until-updated pill styling for every group at once.
+  // grey-until-updated pill styling and the "needs remark" highlight.
   useEffect(() => {
     const ids = groups.flatMap((g) => [g.day?.id, g.night?.id, g.single?.id].filter((x): x is string => Boolean(x)));
     if (ids.length === 0) return;
@@ -213,7 +232,10 @@ export default function DataEntry() {
     setForm((f) => ({ ...f, ...p, saved: false }));
   }
 
-  async function handleSave() {
+  /** Manual-entry save: person types the Performance value directly (one of
+   * the 3 manual_entry KPIs). Always marks is_manual_override so a later
+   * Admin upload never clobbers it. */
+  async function handleSaveManual() {
     if (!employee || !selectedGroup) return;
     const kpi = activeKpi(selectedGroup, form.shift);
     if (!kpi) return;
@@ -246,6 +268,47 @@ export default function DataEntry() {
         reason_other: met ? null : form.reasonId === OTHER_SENTINEL ? form.reasonOther.trim() || null : null,
         remarks: form.remarks.trim() || null,
         entered_by: employee.id,
+        is_manual_override: true,
+      });
+      patch({ saving: false, saved: true, existing: saved });
+      setDateEntries((prev) => [...prev.filter((e) => e.kpi_id !== kpi.id), saved]);
+    } catch (e) {
+      patch({ saving: false, error: e instanceof Error ? e.message : 'Failed to save' });
+    }
+  }
+
+  /** Remarks-only save: the Performance value already exists (written by the
+   * Admin Excel upload) — only remarks/reason are editable. Leaves
+   * is_manual_override untouched (omitted from the payload) since this was
+   * never a manually-typed value. */
+  async function handleSaveRemarks() {
+    if (!employee || !selectedGroup || !form.existing) return;
+    const kpi = activeKpi(selectedGroup, form.shift);
+    if (!kpi) return;
+
+    const met = form.existing.met_target;
+    const hasReason = (form.reasonId && form.reasonId !== OTHER_SENTINEL) || (form.reasonId === OTHER_SENTINEL && form.reasonOther.trim());
+    if (!met && !hasReason) {
+      patch({ error: 'Target was missed — please select a reason category (or "Other" and specify it).' });
+      return;
+    }
+    if (!met && !form.remarks.trim()) {
+      patch({ error: 'Target was missed — please add a remark explaining what happened.' });
+      return;
+    }
+
+    patch({ saving: true, error: null });
+    try {
+      const saved = await upsertDailyEntry({
+        kpi_id: kpi.id,
+        entry_date: selectedDate,
+        target: form.existing.target,
+        actual: form.existing.actual,
+        met_target: form.existing.met_target,
+        reason_id: met ? null : form.reasonId && form.reasonId !== OTHER_SENTINEL ? form.reasonId : null,
+        reason_other: met ? null : form.reasonId === OTHER_SENTINEL ? form.reasonOther.trim() || null : null,
+        remarks: form.remarks.trim() || null,
+        entered_by: employee.id,
       });
       patch({ saving: false, saved: true, existing: saved });
       setDateEntries((prev) => [...prev.filter((e) => e.kpi_id !== kpi.id), saved]);
@@ -259,15 +322,19 @@ export default function DataEntry() {
 
   const actualNum = Number(form.actualInput);
   const hasValidActual = form.actualInput.trim() !== '' && !Number.isNaN(actualNum);
-  const met = selectedGroup && hasValidActual ? metTarget({ is_higher_better: selectedGroup.isHigherBetter }, selectedGroup.target, actualNum) : null;
+  const manualMet = selectedGroup && hasValidActual ? metTarget({ is_higher_better: selectedGroup.isHigherBetter }, selectedGroup.target, actualNum) : null;
   const hasShiftToggle = Boolean(selectedGroup?.day && selectedGroup?.night);
+  const needsRemarkCount = groups.filter((g) => groupNeedsRemark(g, dateEntries)).length;
 
   return (
     <div className="page">
       <div className="page-header page-header-row">
         <div>
-          <h1>Enter KPI results</h1>
-          <p className="muted">Logged in as {employee?.name}</p>
+          <h1>Enter Remarks</h1>
+          <p className="muted">
+            Logged in as {employee?.name}. Performance values come from the daily Admin upload — pick a KPI below to add
+            the remark or reason for it.
+          </p>
         </div>
         <label className="date-picker">
           <span className="field-label">Date</span>
@@ -280,6 +347,13 @@ export default function DataEntry() {
           />
         </label>
       </div>
+
+      {needsRemarkCount > 0 && (
+        <div className="alert alert-error">
+          {needsRemarkCount} KPI{needsRemarkCount === 1 ? '' : 's'} missed target on this date and still need{needsRemarkCount === 1 ? 's' : ''} a
+          remark — look for the red pills below.
+        </div>
+      )}
 
       <div className="field-label">Pillar</div>
       <div className="entry-pillar-pills">
@@ -305,22 +379,28 @@ export default function DataEntry() {
       </div>
 
       <div className="field-label" style={{ marginTop: 14 }}>
-        KPI <span className="entry-pill-hint">— greyed out until updated for this date</span>
+        KPI <span className="entry-pill-hint">— grey until updated, red if target was missed and still needs a remark</span>
       </div>
       <div className="entry-kpi-pills">
         {pillarGroups.length === 0 && <span className="muted">No KPIs in this pillar.</span>}
         {pillarGroups.map((g) => {
           const done = isGroupDone(g, dateEntries);
+          const needsRemark = groupNeedsRemark(g, dateEntries);
           const isSelected = g.key === selectedGroupKey;
           const colors = PILLAR_COLORS[pillars.find((p) => p.id === g.pillarId)?.code ?? 'S'] ?? PILLAR_COLORS.S;
-          const style = isSelected
-            ? { background: colors.base, borderColor: colors.base, color: 'white' }
-            : done
-              ? { background: colors.soft, borderColor: colors.base, color: colors.text }
-              : { background: '#f1f5f9', borderColor: '#e2e8f0', color: '#94a3b8' };
+          const style = needsRemark
+            ? isSelected
+              ? { background: 'var(--bad)', borderColor: 'var(--bad)', color: 'white' }
+              : { background: '#fee2e2', borderColor: 'var(--bad)', color: '#991b1b' }
+            : isSelected
+              ? { background: colors.base, borderColor: colors.base, color: 'white' }
+              : done
+                ? { background: colors.soft, borderColor: colors.base, color: colors.text }
+                : { background: '#f1f5f9', borderColor: '#e2e8f0', color: '#94a3b8' };
           return (
             <button key={g.key} type="button" className="entry-pill entry-pill-kpi" style={style} onClick={() => setSelectedGroupKey(g.key)}>
-              {done && <span className="entry-pill-check">✓</span>} {g.label}
+              {needsRemark ? <span className="entry-pill-check">!</span> : done && <span className="entry-pill-check">✓</span>} {g.label}
+              {!g.manualEntry && <span className="entry-pill-remarks-tag"> · remarks only</span>}
             </button>
           );
         })}
@@ -348,7 +428,7 @@ export default function DataEntry() {
 
           {form.loading ? (
             <div className="empty-state">Loading…</div>
-          ) : (
+          ) : selectedGroup.manualEntry ? (
             <>
               <label className="field-label">
                 Actual ({selectedGroup.unit}){hasShiftToggle ? ` — ${form.shift === 'day' ? 'Day' : 'Night'} shift` : ''}
@@ -362,13 +442,13 @@ export default function DataEntry() {
                 placeholder="Enter value"
               />
 
-              {met === true && (
+              {manualMet === true && (
                 <span className="pill pill-good" style={{ marginTop: 8 }}>
                   Target met
                 </span>
               )}
 
-              {met === false && (
+              {manualMet === false && (
                 <div className="reason-block">
                   <span className="pill pill-bad">Target missed</span>
                   <label className="field-label">Reason category</label>
@@ -396,7 +476,7 @@ export default function DataEntry() {
                 </div>
               )}
 
-              <label className="field-label">Remarks{met === false ? ' (required — target missed)' : ' (optional)'}</label>
+              <label className="field-label">Remarks{manualMet === false ? ' (required — target missed)' : ' (optional)'}</label>
               <textarea
                 className="input entry-remarks"
                 rows={2}
@@ -407,8 +487,67 @@ export default function DataEntry() {
 
               {form.error && <div className="alert alert-error">{form.error}</div>}
 
-              <button className="btn btn-primary" disabled={form.saving} onClick={handleSave}>
+              <button className="btn btn-primary" disabled={form.saving} onClick={handleSaveManual}>
                 {form.saving ? 'Saving…' : form.saved ? 'Saved ✓' : form.existing ? 'Update entry' : 'Save entry'}
+              </button>
+            </>
+          ) : !form.existing ? (
+            <div className="empty-state">
+              No performance data uploaded yet for {selectedGroup.label} on this date. Once the Admin daily upload
+              includes it, this KPI's actual value will show here and you can add a remark.
+            </div>
+          ) : (
+            <>
+              <div className="entry-readonly-value">
+                <span className={`headline-value ${form.existing.met_target ? 'value-good' : 'value-bad'}`}>
+                  {form.existing.actual}
+                  <span className="headline-unit">{selectedGroup.unit}</span>
+                </span>
+                <span className={`pill ${form.existing.met_target ? 'pill-good' : 'pill-bad'}`}>
+                  {form.existing.met_target ? 'Target met' : 'Target missed'}
+                </span>
+              </div>
+
+              {!form.existing.met_target && (
+                <div className="reason-block">
+                  <label className="field-label">Reason category</label>
+                  <select
+                    className="input"
+                    value={form.reasonId}
+                    onChange={(e) => patch({ reasonId: e.target.value, reasonOther: e.target.value === OTHER_SENTINEL ? form.reasonOther : '' })}
+                  >
+                    <option value="">— Select a reason —</option>
+                    {form.reasons.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.label}
+                      </option>
+                    ))}
+                    <option value={OTHER_SENTINEL}>Other (please specify)</option>
+                  </select>
+                  {form.reasonId === OTHER_SENTINEL && (
+                    <input
+                      className="input"
+                      placeholder="Specify the reason category…"
+                      value={form.reasonOther}
+                      onChange={(e) => patch({ reasonOther: e.target.value })}
+                    />
+                  )}
+                </div>
+              )}
+
+              <label className="field-label">Remarks{!form.existing.met_target ? ' (required — target missed)' : ' (optional)'}</label>
+              <textarea
+                className="input entry-remarks"
+                rows={2}
+                value={form.remarks}
+                onChange={(e) => patch({ remarks: e.target.value })}
+                placeholder="What happened, what's being done about it…"
+              />
+
+              {form.error && <div className="alert alert-error">{form.error}</div>}
+
+              <button className="btn btn-primary" disabled={form.saving} onClick={handleSaveRemarks}>
+                {form.saving ? 'Saving…' : form.saved ? 'Saved ✓' : 'Save remark'}
               </button>
             </>
           )}

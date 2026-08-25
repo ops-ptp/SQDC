@@ -11,6 +11,7 @@ export interface Employee {
   name: string;
   role: string | null;
   active: boolean;
+  is_admin: boolean;
 }
 
 export interface Kpi {
@@ -24,6 +25,11 @@ export interface Kpi {
   active: boolean;
   sort_order: number;
   is_leading: boolean;
+  /** True for the 3 KPIs that keep manual Performance-value entry in Enter
+   * Remarks (Accident During Operation, QC Preventive Maintenance & Service,
+   * Average Litres per Vessel Call) — everything else is remarks-only, its
+   * Performance values coming from the Admin Excel upload instead. */
+  manual_entry: boolean;
 }
 
 export interface KpiWithPillar extends Kpi {
@@ -49,6 +55,30 @@ export interface DailyEntry {
   reason_other: string | null;
   remarks: string | null;
   entered_by: string | null;
+  created_at: string;
+  updated_at: string;
+  /** True when this row's `actual` was typed in by a person (Enter Remarks,
+   * for one of the 3 manual_entry KPIs) rather than written by the Admin
+   * Excel upload. The upload treats its own value as a fallback only — it
+   * must never overwrite a row with this set to true. */
+  is_manual_override: boolean;
+}
+
+/** A blended (no Day/Night split) weekly figure from the Admin Weekly Excel
+ * upload — keyed by pillar + KPI base name rather than a strict kpi_id,
+ * since most KPIs only exist as Day/Night-split rows in `kpis`. Used as a
+ * fallback for the Weekly board when a given ISO week has no live
+ * daily_entries to aggregate from. */
+export interface WeeklyEntry {
+  id: string;
+  pillar_id: string;
+  kpi_base_name: string;
+  iso_year: number;
+  iso_week: number;
+  target: number;
+  actual: number;
+  met_target: boolean;
+  uploaded_by: string | null;
   created_at: string;
   updated_at: string;
 }

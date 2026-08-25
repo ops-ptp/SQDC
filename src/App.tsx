@@ -2,10 +2,12 @@ import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import { EmployeeProvider } from './context/EmployeeContext';
 import Navbar from './components/Navbar';
 import RequireEmployee from './components/RequireEmployee';
+import RequireAdmin from './components/RequireAdmin';
 import Dashboard from './pages/Dashboard';
 import DataEntry from './pages/DataEntry';
 import ActionLog from './pages/ActionLog';
 import ForwardLooking from './pages/ForwardLooking';
+import Admin from './pages/Admin';
 import Login from './pages/Login';
 
 export default function App() {
@@ -34,6 +36,14 @@ export default function App() {
               }
             />
             <Route path="/actions" element={<ActionLog />} />
+            <Route
+              path="/admin"
+              element={
+                <RequireAdmin>
+                  <Admin />
+                </RequireAdmin>
+              }
+            />
           </Routes>
         </main>
       </BrowserRouter>

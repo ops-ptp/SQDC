@@ -252,6 +252,53 @@ p {
   border: 1px solid #fecaca;
 }
 
+.alert-success {
+  background: #dcfce7;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+}
+
+/* ---------------- Admin (Excel upload) ---------------- */
+.admin-upload-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+.admin-upload-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.admin-file-input {
+  display: none;
+}
+
+.admin-filename {
+  font-size: 12.5px;
+}
+
+.admin-warnings {
+  width: 100%;
+  font-size: 12px;
+  color: var(--muted);
+  background: #f8fafc;
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.admin-warnings summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.admin-warnings ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
 .empty-state {
   padding: 24px;
   text-align: center;
@@ -295,6 +342,19 @@ p {
   text-transform: none;
   letter-spacing: 0;
   color: var(--muted);
+}
+
+.entry-pill-remarks-tag {
+  font-weight: 500;
+  opacity: 0.75;
+  font-size: 10.5px;
+}
+
+.entry-readonly-value {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 4px 0 10px;
 }
 
 .entry-card-single {
@@ -685,12 +745,15 @@ p {
   display: flex;
   gap: 14px;
   align-items: flex-end;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .headline-shift {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
+  min-width: 0;
 }
 
 .headline-shift-label {
@@ -702,11 +765,15 @@ p {
   margin-bottom: 1px;
 }
 
+/* Enlarged per spec (was 26px) — also no longer force nowrap, so a longer
+ * unit like "Count" wraps under the number instead of clipping/overlapping
+ * a neighbouring Day/Night value in a narrow quadrant column. */
 .headline-value {
-  font-size: 26px;
+  font-size: 34px;
   font-weight: 800;
-  line-height: 1;
-  white-space: nowrap;
+  line-height: 1.05;
+  white-space: normal;
+  word-break: break-word;
 }
 
 .headline-unit {
@@ -714,6 +781,7 @@ p {
   font-weight: 600;
   margin-left: 3px;
   color: var(--muted);
+  white-space: nowrap;
 }
 
 .value-good {
@@ -735,6 +803,25 @@ p {
   letter-spacing: 0.6px;
   color: var(--muted);
   padding: 14px 14px 4px;
+}
+
+.quadrant-toggle-btn {
+  margin: 10px 14px 0;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f8fafc;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  cursor: pointer;
+  align-self: flex-start;
+}
+
+.quadrant-toggle-btn:hover {
+  background: #eef2f7;
+  color: var(--text);
 }
 
 .quadrant .action-table {
@@ -793,22 +880,17 @@ p {
   cursor: pointer;
 }
 
-/* ---------------- Forward Looking (kanban) ---------------- */
+/* ---------------- Next 24 Hours board ---------------- */
+/* Single "Today" column only — Tomorrow/Day After were removed per spec. */
 .fl-page {
-  max-width: 1320px;
+  max-width: 620px;
 }
 
 .fl-board {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
   align-items: start;
-}
-
-@media (max-width: 900px) {
-  .fl-board {
-    grid-template-columns: 1fr;
-  }
 }
 
 .fl-column {

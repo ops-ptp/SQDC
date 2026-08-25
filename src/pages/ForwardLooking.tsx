@@ -12,8 +12,9 @@ import {
 import { PILLAR_COLORS, type ForecastCardWithRefs, type KpiWithPillar } from '../types';
 
 const TODAY = new Date();
-const COLUMN_OFFSETS = [0, 1, 2] as const;
-const COLUMN_LABELS: Record<number, string> = { 0: 'Today', 1: 'Tomorrow', 2: 'Day After' };
+// Only "Today" is shown now — Tomorrow/Day After columns were removed per spec.
+const COLUMN_OFFSETS = [0] as const;
+const COLUMN_LABELS: Record<number, string> = { 0: 'Today' };
 
 interface FormState {
   kpiId: string;
@@ -43,7 +44,7 @@ export default function ForwardLooking() {
   const [editError, setEditError] = useState<string | null>(null);
 
   const fromDate = format(TODAY, 'yyyy-MM-dd');
-  const toDate = format(addDays(TODAY, 2), 'yyyy-MM-dd');
+  const toDate = fromDate;
 
   function reload() {
     setLoading(true);
@@ -172,28 +173,14 @@ export default function ForwardLooking() {
     }
   }
 
-  /** Move a card one day earlier or later by re-writing its target_date. */
-  async function shiftCard(card: ForecastCardWithRefs, deltaDays: number) {
-    const newDate = format(addDays(new Date(card.target_date), deltaDays), 'yyyy-MM-dd');
-    if (newDate < fromDate || newDate > toDate) return;
-    try {
-      const updated = await updateForecastCard(card.id, { target_date: newDate });
-      setCards((prev) => prev.map((c) => (c.id === card.id ? updated : c)));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to move card');
-    }
-  }
-
-  if (loading) return <div className="page-loading">Loading Forward Looking board…</div>;
+  if (loading) return <div className="page-loading">Loading Next 24 Hours board…</div>;
   if (error) return <div className="alert alert-error page-margin">{error}</div>;
 
   return (
     <div className="page fl-page">
       <div className="page-header">
-        <h1>Forward Looking</h1>
-        <p className="muted">
-          Forecast leading KPIs for today through the day after — what's expected, and what to watch for.
-        </p>
+        <h1>Next 24 Hours</h1>
+        <p className="muted">Forecast leading KPIs for today — what's expected, and what to watch for.</p>
       </div>
 
       {kpis.length === 0 ? (
@@ -271,24 +258,6 @@ export default function ForwardLooking() {
                         <span className="pillar-tag" style={{ background: colors.soft, color: colors.text }}>
                           {card.pillar.name}
                         </span>
-                        <div className="fl-card-menu">
-                          <button
-                            className="fl-icon-btn"
-                            title="Move to earlier day"
-                            disabled={col.offset === 0}
-                            onClick={() => shiftCard(card, -1)}
-                          >
-                            ←
-                          </button>
-                          <button
-                            className="fl-icon-btn"
-                            title="Move to later day"
-                            disabled={col.offset === 2}
-                            onClick={() => shiftCard(card, 1)}
-                          >
-                            →
-                          </button>
-                        </div>
                       </div>
                       <div className="fl-card-kpi">{card.kpi.name}</div>
                       <p className="fl-card-note">{card.note}</p>
