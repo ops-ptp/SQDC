@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { format, startOfMonth, getDaysInMonth, startOfWeek, subWeeks, subDays, addDays, getISOWeek, getISOWeekYear } from 'date-fns';
 import { fetchActions, fetchEntriesForKpi, fetchEntriesForKpisOnDate, fetchReasonsForKpi, fetchWeeklyEntriesForKpiBase } from '../lib/data';
+import { useEmployee } from '../context/EmployeeContext';
 import { metTarget, PILLAR_COLORS, type ActionItem, type DailyEntry, type Kpi, type Pillar, type PerformanceStatus, type WeeklyEntry } from '../types';
 import KpiRunChart, { type RunPoint } from './KpiRunChart';
 import ParetoChart, { type ParetoDatum } from './ParetoChart';
@@ -13,6 +15,10 @@ interface Props {
   pillar: Pillar;
   kpis: Kpi[];
   granularity?: Granularity;
+  /** Daily view only — controlled by one board-wide toggle button in
+   * Dashboard.tsx so all 4 quadrants show/hide together. Weekly view always
+   * shows both regardless of this prop. */
+  showParetoActions?: boolean;
 }
 
 /** One logical KPI as shown on the board: a single pill, backed by up to a
@@ -68,7 +74,9 @@ function groupMetTarget(g: KpiGroup, actual: number): boolean {
   return metTarget({ is_higher_better: g.isHigherBetter }, g.target, actual);
 }
 
-export default function PillarQuadrant({ pillar, kpis, granularity = 'daily' }: Props) {
+export default function PillarQuadrant({ pillar, kpis, granularity = 'daily', showParetoActions = true }: Props) {
+  const navigate = useNavigate();
+  const { employee } = useEmployee();
   const colors = PILLAR_COLORS[pillar.code] ?? PILLAR_COLORS.S;
   const groups = useMemo(() => buildGroups(kpis), [kpis]);
   const [selectedKey, setSelectedKey] = useState<string>(groups[0]?.key ?? '');
@@ -87,9 +95,6 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily' }: 
   const [actions, setActions] = useState<ActionItem[]>([]);
   const [reasonLabelById, setReasonLabelById] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(true);
-  // Single toggle hiding/showing Pareto + Actions together — Daily view only;
-  // Weekly view always shows both (item 7).
-  const [showParetoActions, setShowParetoActions] = useState(true);
 
   useEffect(() => {
     if (groups.length > 0 && !groups.some((g) => g.key === selectedKey)) {
@@ -315,6 +320,45 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily' }: 
     return Array.from(counts.entries()).map(([label, count]) => ({ label, count }));
   }, [paretoEntries, reasonLabelById]);
 
+  // ---- Remarks/Summary block: highlight + deep-link into Enter Remarks for
+  // any shift that missed target and still has no remark logged. Passed
+  // (or no data at all) shifts render as plain, non-interactive text.
+  function renderRemarksBlock(label: string, entry: DailyEntry | undefined) {
+    const text = entry?.remarks?.trim() || 'No remarks logged for this date.';
+    const needsRemark = Boolean(entry) && entry!.met_target === false && !entry!.remarks?.trim();
+    if (!needsRemark) {
+      return (
+        <div className="remarks-block" key={label}>
+          <span className="remarks-block-label">{label}</span>
+          <p className="remarks-text">{text}</p>
+        </div>
+      );
+    }
+    // Only logged-in employees can be deep-linked into Enter Remarks — the
+    // board itself stays viewable without login on a shared screen.
+    const clickable = Boolean(employee) && Boolean(selectedGroup);
+    return (
+      <button
+        type="button"
+        key={label}
+        className="remarks-block remarks-block-missing"
+        disabled={!clickable}
+        onClick={() =>
+          clickable &&
+          navigate('/entry', {
+            state: { pillarId: pillar.id, label: selectedGroup!.label, date: referenceDateStr },
+          })
+        }
+      >
+        <span className="remarks-block-label">{label}</span>
+        <p className="remarks-text">
+          {text}
+          {clickable && <span className="remarks-cta"> — click to add remark →</span>}
+        </p>
+      </button>
+    );
+  }
+
   const hero = (
     <div className="quadrant-hero" style={{ background: colors.soft }}>
       <PillarLetterGrid letter={pillar.code} days={dayStatuses} todayDay={referenceDay} height={300} />
@@ -363,9 +407,7 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily' }: 
             <div>
               <h3>{selectedGroup.label}</h3>
               <span className="muted">
-                Target {selectedGroup.target} {selectedGroup.unit} · {selectedGroup.isHigherBetter ? 'higher is good' : 'lower is good'}
-                {' · '}
-                <strong>{format(referenceDate, 'EEE d MMM')}</strong>
+                Target {selectedGroup.target} {selectedGroup.unit}
               </span>
             </div>
             <div className="headline-values">
@@ -410,36 +452,16 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily' }: 
             <div className="quadrant-section">
               <div className="quadrant-block-title">Remarks / Summary</div>
               <div className="remarks-summary">
-                {selectedGroup.single ? (
-                  <div className="remarks-block">
-                    <span className="remarks-block-label">{format(referenceDate, 'EEE d MMM')}</span>
-                    <p className="remarks-text">{referenceSingleEntry?.remarks?.trim() || 'No remarks logged for this date.'}</p>
-                  </div>
-                ) : (
-                  <>
-                    <div className="remarks-block">
-                      <span className="remarks-block-label">Day</span>
-                      <p className="remarks-text">{referenceDayEntry?.remarks?.trim() || 'No remarks logged for this date.'}</p>
-                    </div>
-                    <div className="remarks-block">
-                      <span className="remarks-block-label">Night</span>
-                      <p className="remarks-text">{referenceNightEntry?.remarks?.trim() || 'No remarks logged for this date.'}</p>
-                    </div>
-                  </>
-                )}
+                {selectedGroup.single
+                  ? renderRemarksBlock(format(referenceDate, 'EEE d MMM'), referenceSingleEntry)
+                  : (
+                    <>
+                      {renderRemarksBlock('Day', referenceDayEntry)}
+                      {renderRemarksBlock('Night', referenceNightEntry)}
+                    </>
+                  )}
               </div>
             </div>
-          )}
-
-          {granularity === 'daily' && (
-            <button
-              type="button"
-              className="quadrant-toggle-btn"
-              onClick={() => setShowParetoActions((s) => !s)}
-              aria-expanded={showParetoActions}
-            >
-              {showParetoActions ? 'Hide Pareto & Actions ▲' : 'Show Pareto & Actions ▼'}
-            </button>
           )}
 
           {(granularity === 'weekly' || showParetoActions) && (

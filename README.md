@@ -247,18 +247,25 @@ for the SheetJS `read`/`utils.sheet_to_json` API.
   mosaic **background** and **Pareto chart background** are tinted with that
   pillar's color (same palette as the Action Log's pillar chips/filters) —
   everything else on the Board stays neutral: KPI pill outlines are still
-  green/red by pass/fail (not pillar-colored). The trend chart shows only
-  **Day** (dark orange) and **Night** (dark blue) lines — no separate
-  "Overall" line — with each point's dot colored red/green by that point's
-  own pass/fail, and the Y-axis auto-padded to the data's actual range
-  instead of a fixed 0-anchored scale, so the shape of the trend stays
-  visible even for a KPI that only moves in a narrow band. A **Daily /
-  Weekly** toggle switches the trend chart and Pareto window — the letter
-  mosaic always shows the full calendar month containing the reviewed day,
-  regardless of the toggle:
+  green/red by pass/fail (not pillar-colored). Each KPI's subtitle line just
+  reads "Target &lt;value&gt; &lt;unit&gt;" — the "higher/lower is good" phrase and the
+  reviewed date were dropped to keep it clean and consistent across every
+  pillar's KPIs (the date is still shown once, in the page-level "Reviewing
+  &lt;date&gt;" badge). The trend chart shows only **Day** (dark orange) and
+  **Night** (dark blue) lines — no separate "Overall" line — with each
+  point's dot colored red/green by that point's own pass/fail, and the
+  Y-axis auto-padded to the data's actual range instead of a fixed
+  0-anchored scale, so the shape of the trend stays visible even for a KPI
+  that only moves in a narrow band. A **Daily / Weekly** toggle switches the
+  trend chart and Pareto window — the letter mosaic always shows the full
+  calendar month containing the reviewed day, regardless of the toggle:
   - **Daily**: trend chart covers the last 7 days; Pareto covers the same
-    window. The Trend chart is followed by **Remarks/Summary**, then a
-    single **"Hide/Show Pareto & Actions"** toggle collapsing both together.
+    window. The Trend chart is followed by **Remarks/Summary** — any shift
+    that missed target and still has no remark logged is highlighted red
+    and, for a logged-in employee, clickable straight into `/entry` with
+    that pillar/KPI/date pre-selected. One **"Hide/Show Pareto & Actions"**
+    button in the page header (not per-quadrant) collapses Pareto + Actions
+    across all 4 pillars together.
   - **Weekly**: trend chart covers the **last 8 ISO weeks** (Monday–Sunday,
     per ISO 8601 week numbering — the x-axis is labeled "Wk 34" etc., not a
     date), each point a simple average of that week's logged days (falling
@@ -269,13 +276,17 @@ for the SheetJS `read`/`utils.sheet_to_json` API.
     Daily-only — Weekly always shows Pareto + Actions with no toggle.
 
   Each quadrant's hero/pills/headline/[remarks]/trend/Pareto/actions
-  sections align row-by-row across all 4 pillars (CSS subgrid).
-- **`/forward-looking` — Next 24 Hours**: a single-column board for **leading**
-  KPIs, forecasting **today only** — the flip side of the Board reviewing
+  sections align row-by-row across all 4 pillars (CSS subgrid) — the section
+  count per quadrant must match the subgrid's row count (`repeat(7, auto)`
+  daily / `repeat(6, auto)` weekly in `index.css`) or the extra section
+  overlaps the next one; keep that in mind before adding/removing a section.
+- **`/forward-looking` — Next 24 Hours**: a board for **leading** KPIs,
+  forecasting **today only** — the flip side of the Board reviewing
   yesterday: the same huddle that looks back at yesterday's results looks
-  forward at what's coming in the next 24 hours. Requires an Employee ID. Add,
-  edit, or delete a forecast card. Requires at least one KPI with
-  `is_leading = true`.
+  forward at what's coming in the next 24 hours. Today's forecast cards lay
+  out in a 3-column grid (2 columns on tablet, 1 on mobile), left-aligned
+  like every other page. Requires an Employee ID. Add, edit, or delete a
+  forecast card. Requires at least one KPI with `is_leading = true`.
 - **`/admin` — Admin**: gated by `employees.is_admin` (a logged-in non-admin
   is bounced back to the Board; a logged-out visitor goes to Login first).
   Two file-upload widgets for the Daily/Weekly Excel exports — see "Admin
@@ -290,7 +301,12 @@ for the SheetJS `read`/`utils.sheet_to_json` API.
   the selected date**, switch to the pillar's color once logged and passing,
   and turn **red with a "!"** when the entry missed target and still has no
   remark — a banner at the top of the page also counts how many KPIs are in
-  that state for the selected date. For the 3 `manual_entry` KPIs (Accident
+  that state for the selected date. The **pillar pills** carry the same
+  grey-until-complete logic one level up: a pillar pill stays grey until
+  every one of its KPIs that missed target has a remark filled in, then
+  switches to that pillar's color. Arriving via the Board's "no remarks
+  logged" highlight pre-selects the matching pillar, KPI, and date. For the
+  3 `manual_entry` KPIs (Accident
   During Operation, QC Preventive Maintenance & Service, Average Litres per
   Vessel Call), the flow is unchanged from before: enter the actual value
   directly (saved with `is_manual_override = true`, protecting it from the
@@ -301,9 +317,12 @@ for the SheetJS `read`/`utils.sheet_to_json` API.
   explaining what happened; if no Admin upload has reached that KPI/date
   yet, the form says so instead of showing a blank value. Remarks show up on
   the Board's Daily-view Remarks/Summary section.
-- **`/actions` — Action Log**: **no login required** — anyone can view, add,
-  and update actions. Filter by pillar, and change each action's status
-  (Not started / In progress / Dropped / Completed) from a dropdown. A 5th
+- **`/actions` — Action Log**: **no login required to view or add** —
+  anyone, logged in or not, can view the log and submit a new action.
+  Changing an existing action's status (Not started / In progress / Dropped
+  / Completed, via a dropdown) is restricted to logged-in **Admins**
+  (`employees.is_admin`); everyone else sees the status as a plain
+  read-only badge instead of a dropdown. Filter by pillar. A 5th
   state, **Overdue, is derived rather than stored** — computed from
   `(status, deadline)` client-side, since an action can be simultaneously
   "In progress" *and* overdue (completed/dropped items are never shown as

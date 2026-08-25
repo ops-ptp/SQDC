@@ -1,5 +1,6 @@
 import { format, subDays } from 'date-fns';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useEmployee } from '../context/EmployeeContext';
 import {
   fetchEntriesForKpisOnDate,
@@ -133,8 +134,18 @@ function groupNeedsRemark(g: KpiGroup, entries: DailyEntry[]): boolean {
   return entries.some((e) => ids.includes(e.kpi_id) && !e.met_target && !e.remarks?.trim());
 }
 
+/** Deep-link payload from the Board's "no remarks logged" highlight — see
+ * PillarQuadrant.tsx's renderRemarksBlock. */
+interface DeepLinkState {
+  pillarId: string;
+  label: string;
+  date: string;
+}
+
 export default function DataEntry() {
   const { employee } = useEmployee();
+  const location = useLocation();
+  const deepLinkApplied = useRef(false);
   const [pillars, setPillars] = useState<Pillar[]>([]);
   const [groups, setGroups] = useState<KpiGroup[]>([]);
   const [selectedDate, setSelectedDate] = useState(YESTERDAY);
@@ -161,6 +172,22 @@ export default function DataEntry() {
       .catch((e) => setLoadError(e instanceof Error ? e.message : 'Failed to load the KPI catalog'))
       .finally(() => setLoading(false));
   }, []);
+
+  // Deep link from the Board's "no remarks logged" highlight — pre-select
+  // the pillar/KPI/date it was clicked from. Applied once, the first time
+  // the KPI catalog is ready.
+  useEffect(() => {
+    if (deepLinkApplied.current || groups.length === 0) return;
+    const state = location.state as DeepLinkState | null;
+    if (!state) return;
+    const match = groups.find((g) => g.pillarId === state.pillarId && g.label === state.label);
+    if (match) {
+      deepLinkApplied.current = true;
+      setSelectedPillarId(match.pillarId);
+      setSelectedGroupKey(match.key);
+      if (state.date) setSelectedDate(state.date);
+    }
+  }, [groups, location.state]);
 
   const pillarGroups = groups.filter((g) => g.pillarId === selectedPillarId);
   const selectedGroup = groups.find((g) => g.key === selectedGroupKey);
@@ -360,12 +387,23 @@ export default function DataEntry() {
         {pillars.map((p) => {
           const colors = PILLAR_COLORS[p.code] ?? PILLAR_COLORS.S;
           const isSelected = p.id === selectedPillarId;
+          // Grey out until every failed KPI in this pillar has a remark
+          // filled in — mirrors the KPI-pill grey/colored logic below.
+          const pillarGroupsForPill = groups.filter((g) => g.pillarId === p.id);
+          const pillarDone = pillarGroupsForPill.every((g) => !groupNeedsRemark(g, dateEntries));
+          const style = pillarDone
+            ? isSelected
+              ? { background: colors.base, borderColor: colors.base, color: 'white' }
+              : { borderColor: colors.base, color: colors.text }
+            : isSelected
+              ? { background: '#94a3b8', borderColor: '#94a3b8', color: 'white' }
+              : { background: '#f1f5f9', borderColor: '#e2e8f0', color: '#94a3b8' };
           return (
             <button
               key={p.id}
               type="button"
               className="entry-pill entry-pill-pillar"
-              style={isSelected ? { background: colors.base, borderColor: colors.base, color: 'white' } : { borderColor: colors.base, color: colors.text }}
+              style={style}
               onClick={() => {
                 setSelectedPillarId(p.id);
                 const first = groups.find((g) => g.pillarId === p.id);

@@ -196,7 +196,10 @@ export default function ActionLog() {
         .map((p) => (
           <section key={p.id} className="card action-section" style={{ borderTopColor: PILLAR_COLORS[p.code].base }}>
             <h2 style={{ color: PILLAR_COLORS[p.code].text }}>{p.name}</h2>
-            <ActionTable actions={grouped.get(p.id) ?? []} onStatusChange={handleStatusChange} />
+            <ActionTable
+              actions={grouped.get(p.id) ?? []}
+              onStatusChange={employee?.is_admin ? handleStatusChange : undefined}
+            />
           </section>
         ))}
     </div>

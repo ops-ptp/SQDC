@@ -10,6 +10,9 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [granularity, setGranularity] = useState<Granularity>('daily');
+  // Single toggle hiding/showing Pareto + Actions across all 4 pillars at
+  // once — Daily view only; Weekly view always shows both regardless.
+  const [showParetoActions, setShowParetoActions] = useState(true);
 
   useEffect(() => {
     Promise.all([fetchPillars(), fetchKpis()])
@@ -32,19 +35,31 @@ export default function Dashboard() {
           <span className="muted">{format(new Date(), 'EEEE, d MMMM yyyy')}</span>
           <span className="board-reviewing-badge">Reviewing {format(subDays(new Date(), 1), 'EEEE, d MMMM')}</span>
         </div>
-        <div className="segmented">
-          <button
-            className={`segmented-btn ${granularity === 'daily' ? 'segmented-btn-active' : ''}`}
-            onClick={() => setGranularity('daily')}
-          >
-            Daily
-          </button>
-          <button
-            className={`segmented-btn ${granularity === 'weekly' ? 'segmented-btn-active' : ''}`}
-            onClick={() => setGranularity('weekly')}
-          >
-            Weekly
-          </button>
+        <div className="board-page-controls">
+          <div className="segmented">
+            <button
+              className={`segmented-btn ${granularity === 'daily' ? 'segmented-btn-active' : ''}`}
+              onClick={() => setGranularity('daily')}
+            >
+              Daily
+            </button>
+            <button
+              className={`segmented-btn ${granularity === 'weekly' ? 'segmented-btn-active' : ''}`}
+              onClick={() => setGranularity('weekly')}
+            >
+              Weekly
+            </button>
+          </div>
+          {granularity === 'daily' && (
+            <button
+              type="button"
+              className="btn btn-ghost-light"
+              onClick={() => setShowParetoActions((s) => !s)}
+              aria-expanded={showParetoActions}
+            >
+              {showParetoActions ? 'Hide Pareto & Actions ▲' : 'Show Pareto & Actions ▼'}
+            </button>
+          )}
         </div>
       </div>
       <div className={`board-grid ${granularity === 'weekly' ? 'board-grid-weekly' : ''}`}>
@@ -54,6 +69,7 @@ export default function Dashboard() {
             pillar={p}
             kpis={kpis.filter((k) => k.pillar_id === p.id)}
             granularity={granularity}
+            showParetoActions={showParetoActions}
           />
         ))}
       </div>
