@@ -48,7 +48,7 @@ export function EmployeeProvider({ children }: { children: ReactNode }) {
       .eq('active', true)
       .maybeSingle();
     if (err) throw new Error(err.message);
-    if (!data) throw new Error(`No active employee found for ID "${code}".`);
+    if (!data) throw new Error(`ID "${code}" cannot access this page. Please return to SQDC Board`);
     return data as Employee;
   }
 
