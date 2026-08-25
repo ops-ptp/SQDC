@@ -26,17 +26,18 @@ Stack: **React + TypeScript + Vite**, **Supabase** (Postgres + REST), deployed o
      just applies the new migration at the bottom without touching your existing data.
    - `supabase/seed.sql` — loads the 4 pillars, the real terminal-ops KPI catalog (20
      lagging KPIs tracked daily + 7 leading KPIs for Next 24 Hours — see below, 3 of the
-     20 flagged `manual_entry = true`), 8 sample employees (one, `E003`/Aiman, seeded as
+     20 flagged `manual_entry = true`), 8 sample employees (one, `000003`/Aiman, seeded as
      `is_admin = true` — the demo Admin/Superuser), curated reason lists, ~20 days of
      demo daily entries, a couple of demo actions, and a few demo forecast cards — so the
-     app is fully demoable immediately.
+     app is fully demoable immediately. Employee IDs are 6-digit, zero-padded numbers
+     (`000001`, `000002`, …) — enforced by a check constraint in `schema.sql`.
 3. Go to **Project Settings → API** and copy:
    - **Project URL**
    - **anon public** key
 
 You can re-run `seed.sql` any time to reset demo data back to a clean state — it clears
 its own tables first. To make a *real* employee an Admin/Superuser (rather than the demo
-E003), run: `update employees set is_admin = true where employee_code = 'E00X';`
+000003), run: `update employees set is_admin = true where employee_code = '0000XX';`
 
 ## 2. Configure the app
 
@@ -59,7 +60,7 @@ npm run dev
 ```
 
 Open the printed localhost URL. Try logging in with one of the seeded Employee IDs:
-`E001` (Nasser), `E004` (Farah), `E005` (Hassan), `E006` (Zaid), etc. — see
+`000001` (Nasser), `000004` (Farah), `000005` (Hassan), `000006` (Zaid), etc. — see
 `supabase/seed.sql` for the full list and which KPIs each is assigned.
 
 ## 3. Push to GitHub

@@ -52,17 +52,19 @@ insert into pillars (code, name, sort_order) values
   ('C', 'Cost',     4);
 
 -- ---- Employees -----------------------------------------------------------
--- E003 (Aiman, Shift Supervisor) is seeded as the demo Admin/Superuser — the
--- only one who sees the Admin tab (Daily/Weekly Excel upload) by default.
+-- Employee IDs are 6-digit, zero-padded numbers (enforced by a check
+-- constraint in schema.sql). 000003 (Aiman, Shift Supervisor) is seeded as
+-- the demo Admin/Superuser — the only one who sees the Admin tab (Daily/
+-- Weekly Excel upload) by default.
 insert into employees (employee_code, name, role, is_admin) values
-  ('E001', 'Nasser',   'Safety Officer', false),
-  ('E002', 'Noura',    'Frontliner', false),
-  ('E003', 'Aiman',    'Shift Supervisor', true),
-  ('E004', 'Farah',    'Quality Lead', false),
-  ('E005', 'Hassan',   'Delivery Lead', false),
-  ('E006', 'Zaid',     'Maintenance / Cost Controller', false),
-  ('E007', 'Iris',     'Yard Planner', false),
-  ('E008', 'Marcus',   'Quay Operations', false);
+  ('000001', 'Nasser',   'Safety Officer', false),
+  ('000002', 'Noura',    'Frontliner', false),
+  ('000003', 'Aiman',    'Shift Supervisor', true),
+  ('000004', 'Farah',    'Quality Lead', false),
+  ('000005', 'Hassan',   'Delivery Lead', false),
+  ('000006', 'Zaid',     'Maintenance / Cost Controller', false),
+  ('000007', 'Iris',     'Yard Planner', false),
+  ('000008', 'Marcus',   'Quay Operations', false);
 
 -- ---- KPIs -----------------------------------------------------------------
 -- is_leading: true = a leading/process indicator, forecast on the Forward
@@ -131,17 +133,17 @@ insert into kpis (pillar_id, name, unit, is_higher_better, target, info, sort_or
 -- Looking board by any logged-in employee, not tied to a numeric entry form.
 insert into kpi_assignments (kpi_id, employee_id)
 select k.id, e.id from kpis k, employees e
-where (k.name like 'Accident During Operation%' and e.employee_code in ('E001','E003'))
-   or (k.name like 'Delay – Waiting for CHE%' and e.employee_code in ('E004','E007'))
-   or (k.name like 'Overall Mixing Yard%' and e.employee_code in ('E007','E004'))
-   or (k.name like 'Labour Supply as Required%' and e.employee_code in ('E004','E003'))
-   or (k.name like 'Moves (%' and e.employee_code in ('E005','E008'))
-   or (k.name like 'GMPH Mainliner%' and e.employee_code in ('E005','E008'))
-   or (k.name like 'GMPH Feeder%' and e.employee_code in ('E005','E008'))
-   or (k.name like 'Mainliner Load GMPH%' and e.employee_code in ('E005','E008'))
-   or (k.name like 'Gate Truck Waiting Time%' and e.employee_code in ('E005','E003'))
-   or (k.name = 'QC Preventive Maintenance & Service' and e.employee_code in ('E006'))
-   or (k.name = 'Average Litres per Vessel Call' and e.employee_code in ('E006'));
+where (k.name like 'Accident During Operation%' and e.employee_code in ('000001','000003'))
+   or (k.name like 'Delay – Waiting for CHE%' and e.employee_code in ('000004','000007'))
+   or (k.name like 'Overall Mixing Yard%' and e.employee_code in ('000007','000004'))
+   or (k.name like 'Labour Supply as Required%' and e.employee_code in ('000004','000003'))
+   or (k.name like 'Moves (%' and e.employee_code in ('000005','000008'))
+   or (k.name like 'GMPH Mainliner%' and e.employee_code in ('000005','000008'))
+   or (k.name like 'GMPH Feeder%' and e.employee_code in ('000005','000008'))
+   or (k.name like 'Mainliner Load GMPH%' and e.employee_code in ('000005','000008'))
+   or (k.name like 'Gate Truck Waiting Time%' and e.employee_code in ('000005','000003'))
+   or (k.name = 'QC Preventive Maintenance & Service' and e.employee_code in ('000006'))
+   or (k.name = 'Average Litres per Vessel Call' and e.employee_code in ('000006'));
 
 -- ---- Reasons per KPI (curated lists, feed the Pareto chart) --------------
 -- Applied to both the "(Day)"/"(Night)" variant and any un-suffixed match.

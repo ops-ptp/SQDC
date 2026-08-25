@@ -4,6 +4,15 @@ import type { Employee } from '../types';
 
 const STORAGE_KEY = 'sqdc.employee_code';
 
+/** Employee IDs are 6-digit, zero-padded numbers (e.g. "000007"). Staff
+ * often drop the leading zeros when typing, so a plain numeric entry
+ * shorter than 6 digits is padded before lookup; anything else (non-digits,
+ * already 6+ digits) is passed through untouched. */
+function normalizeEmployeeCode(code: string): string {
+  const trimmed = code.trim();
+  return /^\d{1,6}$/.test(trimmed) ? trimmed.padStart(6, '0') : trimmed;
+}
+
 interface EmployeeContextValue {
   employee: Employee | null;
   loading: boolean;
@@ -35,7 +44,7 @@ export function EmployeeProvider({ children }: { children: ReactNode }) {
     const { data, error: err } = await supabase
       .from('employees')
       .select('*')
-      .ilike('employee_code', code.trim())
+      .ilike('employee_code', normalizeEmployeeCode(code))
       .eq('active', true)
       .maybeSingle();
     if (err) throw new Error(err.message);

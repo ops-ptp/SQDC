@@ -40,7 +40,7 @@ create table if not exists pillars (
 -- ----------------------------------------------------------------------------
 create table if not exists employees (
   id             uuid primary key default gen_random_uuid(),
-  employee_code  text not null unique,     -- what they type in at login, e.g. "E1042"
+  employee_code  text not null unique,     -- what they type in at login, e.g. "000042" (6 digits, zero-padded)
   name           text not null,
   role           text,                     -- optional, e.g. "Shift Supervisor"
   active         boolean not null default true,
@@ -316,4 +316,20 @@ drop policy if exists anon_all_weekly_entries on weekly_entries;
 create policy anon_all_weekly_entries on weekly_entries for all using (true) with check (true);
 
 -- Convenience: mark your own account (or any employee) as admin, e.g.:
---   update employees set is_admin = true where employee_code = 'E001';
+--   update employees set is_admin = true where employee_code = '000001';
+
+-- ============================================================================
+-- MIGRATION (2026-08-25b): employee_code is a 6-digit, zero-padded number
+-- ============================================================================
+-- Enforces the real-world ID format at the DB level so a bad value can't be
+-- inserted via the Table Editor/SQL by mistake. If you already have
+-- employees seeded with the old "E001"-style codes, re-run seed.sql (it
+-- deletes and reloads the employees table) or update the existing rows to
+-- 6-digit codes yourself before this constraint is added, or the ALTER
+-- below will fail on the existing data.
+do $$ begin
+  alter table employees add constraint employees_employee_code_format
+    check (employee_code ~ '^[0-9]{6}$');
+exception
+  when duplicate_object then null;
+end $$;

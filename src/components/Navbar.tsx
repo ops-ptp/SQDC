@@ -8,7 +8,7 @@ export default function Navbar() {
     <header className="navbar">
       <div className="navbar-brand">
         <span className="navbar-logo">SQDC</span>
-        <span className="navbar-title">Operations Division</span>
+        <span className="navbar-title">Operations Divisions</span>
       </div>
       <nav className="navbar-links">
         <NavLink to="/" end className={({ isActive }) => (isActive ? 'active' : '')}>

@@ -470,7 +470,7 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily', sh
                 <div className="quadrant-block-title">
                   Pareto of reasons — {granularity === 'weekly' ? 'last 2 weeks' : 'last 7 days'}
                 </div>
-                <ParetoChart data={paretoData} barColor={colors.base} />
+                <ParetoChart data={paretoData} background={colors.soft} />
               </div>
 
               <div className="quadrant-section quadrant-section-fill">

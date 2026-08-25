@@ -34,7 +34,8 @@ export default function Login() {
         <input
           autoFocus
           className="input input-lg"
-          placeholder="e.g. E001"
+          placeholder="e.g. 000001"
+          inputMode="numeric"
           value={code}
           onChange={(e) => setCode(e.target.value)}
         />
