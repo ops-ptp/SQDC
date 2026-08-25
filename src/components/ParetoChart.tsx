@@ -19,12 +19,12 @@ export interface ParetoDatum {
 
 interface Props {
   data: ParetoDatum[];
-  /** Optional tint behind the chart (e.g. the pillar's soft color) — the
-   * bars/line themselves stay neutral, only the panel background changes. */
-  background?: string;
+  /** Bar color — pass the pillar's brand color (e.g. colors.base) so the
+   * chart reads as belonging to that pillar. Falls back to neutral grey. */
+  barColor?: string;
 }
 
-const BAR_COLOR = '#64748b';
+const DEFAULT_BAR_COLOR = '#64748b';
 const LINE_COLOR = '#1e293b';
 const MAX_LABEL_CHARS = 15;
 
@@ -58,7 +58,7 @@ function AngledTick({ x, y, payload }: { x: number | string; y: number | string;
   );
 }
 
-export default function ParetoChart({ data, background }: Props) {
+export default function ParetoChart({ data, barColor = DEFAULT_BAR_COLOR }: Props) {
   const sorted = [...data].sort((a, b) => b.count - a.count).slice(0, 6);
   const total = sorted.reduce((sum, d) => sum + d.count, 0);
   const { rows: chartData } = sorted.reduce<{ running: number; rows: Array<ParetoDatum & { cumulativePct: number }> }>(
@@ -72,14 +72,14 @@ export default function ParetoChart({ data, background }: Props) {
 
   if (chartData.length === 0) {
     return (
-      <div className="empty-state" style={{ height: 160, ...(background ? { background, borderRadius: 10 } : {}) }}>
+      <div className="empty-state" style={{ height: 160 }}>
         No missed-target reasons logged yet this period.
       </div>
     );
   }
 
   return (
-    <div className="chart-wrap" style={background ? { background, borderRadius: 10 } : undefined}>
+    <div className="chart-wrap">
       <ResponsiveContainer width="100%" height={210}>
         <ComposedChart data={chartData} margin={{ top: 18, right: 4, left: 4, bottom: 4 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--grid-line)" vertical={false} />
@@ -103,7 +103,7 @@ export default function ParetoChart({ data, background }: Props) {
           <ReferenceLine yAxisId="right" y={80} stroke="#94a3b8" strokeDasharray="4 4">
             <Label value="80%" position="insideTopLeft" offset={6} fontSize={10} fill="#64748b" />
           </ReferenceLine>
-          <Bar yAxisId="left" dataKey="count" fill={BAR_COLOR} radius={[3, 3, 0, 0]} name="Occurrences" maxBarSize={48}>
+          <Bar yAxisId="left" dataKey="count" fill={barColor} radius={[3, 3, 0, 0]} name="Occurrences" maxBarSize={48}>
             <LabelList dataKey="count" position="top" fontSize={11} fontWeight={700} fill="#334155" />
           </Bar>
           <Line
