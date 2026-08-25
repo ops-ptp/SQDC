@@ -123,10 +123,14 @@ A few modeling decisions worth knowing about:
   Waiting Time) are stored as percentages (raw sheet value × 100) for readability —
   e.g. the sheet's `0.11` target is `11` in the app.
 - **Moves** has a Projected/Actual/Variant structure in your sheet — the day's target
-  itself moves day to day. This MVP tracks Actual against a fixed representative
-  target (~the Aug-2026 average projection) rather than a day-by-day editable target.
-  If you want the daily projection itself editable (so the target moves with it),
-  that's a reasonable v2 addition — say the word.
+  itself moves day to day. The Admin Excel upload now reads the sheet's own
+  **Projection** column and writes it as that row's `daily_entries.target`, so pass/
+  fail, the Board pill, the letter grid, and the Trend chart's target line all follow
+  the real day-by-day projection instead of a fixed catalog value. (If a row's Actual
+  is present but Projection is blank, the upload falls back to the catalog's fixed
+  target for just that row and flags it in the upload warnings.) The Trend chart shows
+  the target as a dashed line that moves with the data for Moves, and stays a flat
+  reference line for every other KPI, whose target genuinely is fixed.
 - **Leading KPIs have no daily target/actual** — in your sheet they're forecast/
   discussion items with no data columns, which maps directly onto `forecast_cards`
   (Forward Looking) rather than `daily_entries`.
@@ -396,7 +400,5 @@ to the logged-in person.
 - Editing/deleting past daily entries beyond today's (the app only lets you enter/update
   *today's* value per KPI — `daily_entries` is unique per `kpi_id, entry_date` so a
   correction just re-saves that day).
-- A day-by-day editable target for "Moves" — currently tracked against a fixed
-  representative target rather than the sheet's daily-changing Projected figure.
 - Multi-site / multi-board support (one board, one Supabase project).
 - Push notifications, email digests, or export.

@@ -118,11 +118,15 @@ export async function parseDailyWorkbook(buffer: ArrayBuffer, kpis: Kpi[], uploa
   const headers: string[] = [];
   for (let c = 1; c <= colCount; c++) headers[c] = norm(headerRow.getCell(c).value);
 
-  // Moves: only the "Actual" sub-column under the merged "Moves" header maps
-  // to the KPI — the "Projection" sub-column has no home in this schema yet.
+  // Moves: the merged "Moves" header has both a "Projection" sub-column and
+  // an "Actual" one. Projection is the day's real target (Moves has no fixed
+  // catalog target — it's re-projected daily), so it's written into the
+  // row's own `target` instead of falling back to the KPI catalog value.
   let movesActualCol = -1;
+  let movesProjectionCol = -1;
   for (let c = 1; c <= colCount; c++) {
     if (headers[c] === 'Projection' && headers[c + 1] === 'Actual') {
+      movesProjectionCol = c;
       movesActualCol = c + 1;
       break;
     }
@@ -164,7 +168,10 @@ export async function parseDailyWorkbook(buffer: ArrayBuffer, kpis: Kpi[], uploa
     rowsRead++;
     const dateStr = date.toISOString().slice(0, 10);
 
-    function writeValue(base: string, raw: number | null) {
+    // `rawTarget`: when given, overrides the KPI catalog's fixed target with
+    // a value read from the sheet itself (e.g. Moves' daily "Projection"
+    // column) — the row keeps its own snapshotted target either way.
+    function writeValue(base: string, raw: number | null, rawTarget?: number | null) {
       if (raw === null) return;
       const shiftKpi = findShiftKpi(kpis, base, shift!);
       const target = shiftKpi ?? findRepresentativeKpi(kpis, base);
@@ -182,18 +189,26 @@ export async function parseDailyWorkbook(buffer: ArrayBuffer, kpis: Kpi[], uploa
         return;
       }
       const actual = convertValue(raw, target);
+      const rowTarget = rawTarget != null ? convertValue(rawTarget, target) : target.target;
       rows.push({
         kpi_id: target.id,
         entry_date: dateStr,
-        target: target.target,
+        target: rowTarget,
         actual,
-        met_target: metTarget(target, target.target, actual),
+        met_target: metTarget(target, rowTarget, actual),
         entered_by: uploadedBy,
       });
     }
 
     for (const { col, base } of simpleCols) writeValue(base, cellNumber(row.getCell(col).value));
-    if (movesActualCol > 0) writeValue('Moves', cellNumber(row.getCell(movesActualCol).value));
+    if (movesActualCol > 0) {
+      const movesActual = cellNumber(row.getCell(movesActualCol).value);
+      const movesProjection = movesProjectionCol > 0 ? cellNumber(row.getCell(movesProjectionCol).value) : null;
+      if (movesActual !== null && movesProjection === null) {
+        warnings.push(`Moves (${shift}) on ${dateStr}: no Projection value found — used the catalog's fixed target instead.`);
+      }
+      writeValue('Moves', movesActual, movesProjection);
+    }
     if (mainlinerNewCol > 0 || mainlinerOldCol > 0) {
       const newVal = mainlinerNewCol > 0 ? cellNumber(row.getCell(mainlinerNewCol).value) : null;
       const oldVal = mainlinerOldCol > 0 ? cellNumber(row.getCell(mainlinerOldCol).value) : null;

@@ -83,6 +83,13 @@ export default function KpiRunChart({ points, unit, showDayNight }: Props) {
   const [yMin, yMax] = useYDomain(points);
   const hasData = points.some((p) => p.dayActual !== null || p.nightActual !== null || p.avgActual !== null);
 
+  // Most KPIs have a fixed target, so a flat ReferenceLine is correct and
+  // reads more cleanly than a dashed series. A few (e.g. Moves, whose target
+  // is the day's uploaded Projection figure) have a target that varies by
+  // date — for those, plot it as its own dashed line so it steps/slopes
+  // along with the real daily number instead of averaging it away.
+  const targetVaries = points.length > 1 && points.some((p) => p.target !== points[0].target);
+
   if (!hasData) {
     return <div className="empty-state" style={{ height: 180 }}>No data logged for this period yet.</div>;
   }
@@ -105,7 +112,22 @@ export default function KpiRunChart({ points, unit, showDayNight }: Props) {
             formatter={(value, name) => [`${value} ${unit}`, String(name)]}
           />
           <Legend verticalAlign="top" align="right" height={24} wrapperStyle={{ fontSize: 11 }} iconSize={10} />
-          <ReferenceLine y={points[0]?.target ?? 0} stroke="#94a3b8" strokeDasharray="4 4" label={{ value: 'Target', fontSize: 10, fill: '#64748b', position: 'insideTopLeft' }} />
+          {targetVaries ? (
+            <Line
+              type="monotone"
+              dataKey="target"
+              name="Target"
+              stroke="#94a3b8"
+              strokeWidth={1.5}
+              strokeDasharray="4 4"
+              dot={false}
+              activeDot={false}
+              connectNulls
+              isAnimationActive={false}
+            />
+          ) : (
+            <ReferenceLine y={points[0]?.target ?? 0} stroke="#94a3b8" strokeDasharray="4 4" label={{ value: 'Target', fontSize: 10, fill: '#64748b', position: 'insideTopLeft' }} />
+          )}
           {showDayNight && (
             <Line
               type="monotone"

@@ -70,8 +70,13 @@ function indexByDate(entries: DailyEntry[]): Map<string, DailyEntry> {
 
 const mean = (nums: number[]) => (nums.length === 0 ? null : nums.reduce((s, n) => s + n, 0) / nums.length);
 
-function groupMetTarget(g: KpiGroup, actual: number): boolean {
-  return metTarget({ is_higher_better: g.isHigherBetter }, g.target, actual);
+/** Pass/fail vs. target. Pass `targetOverride` (an entry's own snapshotted
+ * `target`) whenever a real DailyEntry is available — some KPIs (e.g.
+ * Moves, whose target is the day's uploaded Projection figure, not a fixed
+ * catalog value) have a target that varies by date, so the live `g.target`
+ * from the KPI catalog is only a fallback for when no entry exists yet. */
+function groupMetTarget(g: KpiGroup, actual: number, targetOverride?: number): boolean {
+  return metTarget({ is_higher_better: g.isHigherBetter }, targetOverride ?? g.target, actual);
 }
 
 export default function PillarQuadrant({ pillar, kpis, granularity = 'daily', showParetoActions = true }: Props) {
@@ -186,12 +191,16 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily', sh
   }, [granularity, selectedGroup?.key, pillar.id, selectedGroup?.label]);
 
   // ---- Pill status (reference day's combined Day+Night average vs target) -
+  // Target is averaged from each entry's own snapshotted `target`, not the
+  // live KPI catalog value — correct for KPIs like Moves whose target
+  // varies by date (the day's uploaded Projection figure).
   function groupStatus(g: KpiGroup): PerformanceStatus {
     const ids = groupKpiIds(g);
-    const vals = referenceEntries.filter((e) => ids.includes(e.kpi_id)).map((e) => e.actual);
-    if (vals.length === 0) return 'nodata';
-    const avg = mean(vals)!;
-    return groupMetTarget(g, avg) ? 'met' : 'missed';
+    const entries = referenceEntries.filter((e) => ids.includes(e.kpi_id));
+    if (entries.length === 0) return 'nodata';
+    const avgActual = mean(entries.map((e) => e.actual))!;
+    const avgTarget = mean(entries.map((e) => e.target))!;
+    return groupMetTarget(g, avgActual, avgTarget) ? 'met' : 'missed';
   }
 
   // ---- Letter grid: one cell per calendar day, combined Day+Night average -
@@ -210,15 +219,16 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily', sh
         continue;
       }
       const dateStr = format(new Date(year, month, day), 'yyyy-MM-dd');
-      const vals = [dayIdx.get(dateStr)?.actual, nightIdx.get(dateStr)?.actual, singleIdx.get(dateStr)?.actual].filter(
-        (v): v is number => v !== undefined
+      const dayEntries = [dayIdx.get(dateStr), nightIdx.get(dateStr), singleIdx.get(dateStr)].filter(
+        (e): e is DailyEntry => e !== undefined
       );
-      if (vals.length === 0) {
+      if (dayEntries.length === 0) {
         result.push({ day, status: 'nodata' });
         continue;
       }
-      const avg = mean(vals)!;
-      result.push({ day, status: groupMetTarget(selectedGroup, avg) ? 'met' : 'missed' });
+      const avgActual = mean(dayEntries.map((e) => e.actual))!;
+      const avgTarget = mean(dayEntries.map((e) => e.target))!;
+      result.push({ day, status: groupMetTarget(selectedGroup, avgActual, avgTarget) ? 'met' : 'missed' });
     }
     return result;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -241,20 +251,29 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily', sh
       for (let i = 6; i >= 0; i--) {
         const d = subDays(referenceDate, i);
         const dateStr = format(d, 'yyyy-MM-dd');
-        const dayVal = dayIdx.get(dateStr)?.actual ?? singleIdx.get(dateStr)?.actual ?? null;
-        const nightVal = nightIdx.get(dateStr)?.actual ?? null;
+        const dayEntry = dayIdx.get(dateStr) ?? singleIdx.get(dateStr);
+        const nightEntry = nightIdx.get(dateStr);
+        const dayVal = dayEntry?.actual ?? null;
+        const nightVal = nightEntry?.actual ?? null;
         const vals = [dayVal, nightVal].filter((v): v is number => v !== null);
         const avgVal = mean(vals);
+        // Point target: averaged from whichever entries exist for this date
+        // (so a day-varying target like Moves' daily Projection is honored),
+        // falling back to the live catalog target when no entry exists yet.
+        const pointTargets = [dayEntry?.target, nightEntry?.target].filter(
+          (t): t is number => t !== undefined
+        );
+        const pointTarget = pointTargets.length > 0 ? mean(pointTargets)! : selectedGroup.target;
         points.push({
           label: format(d, 'EEE d'),
           date: dateStr,
           dayActual: dayVal,
           nightActual: nightVal,
           avgActual: avgVal,
-          target: selectedGroup.target,
-          dayMet: dayVal === null ? null : groupMetTarget(selectedGroup, dayVal),
-          nightMet: nightVal === null ? null : groupMetTarget(selectedGroup, nightVal),
-          avgMet: avgVal === null ? null : groupMetTarget(selectedGroup, avgVal),
+          target: pointTarget,
+          dayMet: dayVal === null ? null : groupMetTarget(selectedGroup, dayVal, dayEntry?.target),
+          nightMet: nightVal === null ? null : groupMetTarget(selectedGroup, nightVal, nightEntry?.target),
+          avgMet: avgVal === null ? null : groupMetTarget(selectedGroup, avgVal, pointTarget),
         });
       }
       return points;
@@ -268,27 +287,40 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily', sh
       const weekStart = subWeeks(currentIsoWeekStart, w);
       const dayVals: number[] = [];
       const nightVals: number[] = [];
+      const targetVals: number[] = [];
       for (let d = 0; d < 7; d++) {
         const date = addDays(weekStart, d);
         if (date > referenceDate) break;
         const dateStr = format(date, 'yyyy-MM-dd');
-        const dv = dayIdx.get(dateStr)?.actual ?? singleIdx.get(dateStr)?.actual;
-        const nv = nightIdx.get(dateStr)?.actual;
-        if (dv !== undefined) dayVals.push(dv);
-        if (nv !== undefined) nightVals.push(nv);
+        const dEntry = dayIdx.get(dateStr) ?? singleIdx.get(dateStr);
+        const nEntry = nightIdx.get(dateStr);
+        if (dEntry !== undefined) {
+          dayVals.push(dEntry.actual);
+          targetVals.push(dEntry.target);
+        }
+        if (nEntry !== undefined) {
+          nightVals.push(nEntry.actual);
+          targetVals.push(nEntry.target);
+        }
       }
       let dayAvg = mean(dayVals);
       let nightAvg = mean(nightVals);
+      // Week target: averaged from every entry's own snapshotted target
+      // (so a day-varying target like Moves' daily Projection is honored),
+      // falling back to the live catalog target when no entry exists yet.
+      let weekTarget = targetVals.length > 0 ? mean(targetVals)! : selectedGroup.target;
       // No daily entries logged at all for this ISO week — fall back to the
       // uploaded Weekly figure if one exists. That figure is already blended
       // (the source sheet has no Day/Night split), so with only Day/Night
       // lines left on this chart it's plotted on both — the best available
-      // stand-in for a number the upload never split out.
+      // stand-in for a number the upload never split out. Its own snapshotted
+      // target also replaces the live catalog value for the same reason.
       if (dayAvg === null && nightAvg === null) {
         const fb = fallbackByWeek.get(`${getISOWeekYear(weekStart)}-${getISOWeek(weekStart)}`);
         if (fb) {
           dayAvg = fb.actual;
           nightAvg = fb.actual;
+          weekTarget = fb.target;
         }
       }
       const both = [dayAvg, nightAvg].filter((v): v is number => v !== null);
@@ -299,10 +331,10 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily', sh
         dayActual: dayAvg,
         nightActual: nightAvg,
         avgActual: avgVal,
-        target: selectedGroup.target,
-        dayMet: dayAvg === null ? null : groupMetTarget(selectedGroup, dayAvg),
-        nightMet: nightAvg === null ? null : groupMetTarget(selectedGroup, nightAvg),
-        avgMet: avgVal === null ? null : groupMetTarget(selectedGroup, avgVal),
+        target: weekTarget,
+        dayMet: dayAvg === null ? null : groupMetTarget(selectedGroup, dayAvg, weekTarget),
+        nightMet: nightAvg === null ? null : groupMetTarget(selectedGroup, nightAvg, weekTarget),
+        avgMet: avgVal === null ? null : groupMetTarget(selectedGroup, avgVal, weekTarget),
       });
     }
     return points;
@@ -412,7 +444,7 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily', sh
             </div>
             <div className="headline-values">
               {selectedGroup.single ? (
-                <div className={`headline-value ${referenceSingleEntry ? (groupMetTarget(selectedGroup, referenceSingleEntry.actual) ? 'value-good' : 'value-bad') : 'value-nodata'}`}>
+                <div className={`headline-value ${referenceSingleEntry ? (groupMetTarget(selectedGroup, referenceSingleEntry.actual, referenceSingleEntry.target) ? 'value-good' : 'value-bad') : 'value-nodata'}`}>
                   {referenceSingleEntry ? referenceSingleEntry.actual : '—'}
                   <span className="headline-unit">{selectedGroup.unit}</span>
                 </div>
@@ -420,14 +452,14 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily', sh
                 <>
                   <div className="headline-shift">
                     <span className="headline-shift-label">Day</span>
-                    <span className={`headline-value ${referenceDayEntry ? (groupMetTarget(selectedGroup, referenceDayEntry.actual) ? 'value-good' : 'value-bad') : 'value-nodata'}`}>
+                    <span className={`headline-value ${referenceDayEntry ? (groupMetTarget(selectedGroup, referenceDayEntry.actual, referenceDayEntry.target) ? 'value-good' : 'value-bad') : 'value-nodata'}`}>
                       {referenceDayEntry ? referenceDayEntry.actual : '—'}
                       <span className="headline-unit">{selectedGroup.unit}</span>
                     </span>
                   </div>
                   <div className="headline-shift">
                     <span className="headline-shift-label">Night</span>
-                    <span className={`headline-value ${referenceNightEntry ? (groupMetTarget(selectedGroup, referenceNightEntry.actual) ? 'value-good' : 'value-bad') : 'value-nodata'}`}>
+                    <span className={`headline-value ${referenceNightEntry ? (groupMetTarget(selectedGroup, referenceNightEntry.actual, referenceNightEntry.target) ? 'value-good' : 'value-bad') : 'value-nodata'}`}>
                       {referenceNightEntry ? referenceNightEntry.actual : '—'}
                       <span className="headline-unit">{selectedGroup.unit}</span>
                     </span>
