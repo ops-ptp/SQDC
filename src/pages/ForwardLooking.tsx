@@ -1,5 +1,6 @@
 import { addDays, format } from 'date-fns';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
 import { useEmployee } from '../context/EmployeeContext';
 import {
   createForecastCard,
@@ -181,6 +182,12 @@ export default function ForwardLooking() {
       <div className="page-header">
         <h1>Next 24 Hours</h1>
         <p className="muted">Forecast leading KPIs for today — what's expected, and what to watch for.</p>
+        {!employee && (
+          <p className="muted">
+            Anyone can view this board. <Link to="/login" state={{ from: '/forward-looking' }}>Log in</Link> to add,
+            edit, or delete a forecast card.
+          </p>
+        )}
       </div>
 
       {kpis.length === 0 ? (
@@ -262,14 +269,16 @@ export default function ForwardLooking() {
                       <div className="fl-card-kpi">{card.kpi.name}</div>
                       <p className="fl-card-note">{card.note}</p>
                       {card.owner_name && <div className="fl-card-owner">Owner: {card.owner_name}</div>}
-                      <div className="fl-card-actions">
-                        <button className="btn btn-ghost-light" onClick={() => openEdit(card)}>
-                          Edit
-                        </button>
-                        <button className="btn btn-ghost-light fl-btn-danger" onClick={() => handleDelete(card)}>
-                          Delete
-                        </button>
-                      </div>
+                      {employee && (
+                        <div className="fl-card-actions">
+                          <button className="btn btn-ghost-light" onClick={() => openEdit(card)}>
+                            Edit
+                          </button>
+                          <button className="btn btn-ghost-light fl-btn-danger" onClick={() => handleDelete(card)}>
+                            Delete
+                          </button>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -316,11 +325,18 @@ export default function ForwardLooking() {
                   </form>
                 )}
 
-                {addingOffset !== col.offset && (
-                  <button className="fl-add-btn" onClick={() => openAdd(col.offset)}>
-                    + Add card
-                  </button>
-                )}
+                {addingOffset !== col.offset &&
+                  (employee ? (
+                    <button className="fl-add-btn" onClick={() => openAdd(col.offset)}>
+                      + Add card
+                    </button>
+                  ) : (
+                    col.cards.length > 0 && (
+                      <div className="fl-empty">
+                        <Link to="/login" state={{ from: '/forward-looking' }}>Log in</Link> to add a forecast card
+                      </div>
+                    )
+                  ))}
               </div>
             </div>
           ))}

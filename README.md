@@ -286,8 +286,12 @@ for the SheetJS `read`/`utils.sheet_to_json` API.
   yesterday: the same huddle that looks back at yesterday's results looks
   forward at what's coming in the next 24 hours. Today's forecast cards lay
   out in a 3-column grid (2 columns on tablet, 1 on mobile), left-aligned
-  like every other page. Requires an Employee ID. Add, edit, or delete a
-  forecast card. Requires at least one KPI with `is_leading = true`.
+  like every other page. **No login required to view** — like the Board,
+  it's meant to be left open on a shared screen. Adding, editing, or
+  deleting a forecast card requires an Employee ID; a logged-out visitor
+  sees the cards read-only, with a "Log in to add, edit, or delete a
+  forecast card" prompt instead of the Edit/Delete/+ Add card controls.
+  Requires at least one KPI with `is_leading = true`.
 - **`/admin` — Admin**: gated by `employees.is_admin` (a logged-in non-admin
   is bounced back to the Board; a logged-out visitor goes to Login first).
   Two file-upload widgets for the Daily/Weekly Excel exports — see "Admin
@@ -343,9 +347,11 @@ leading (so it shows up on Forward Looking instead of the main Board), set
 
 ## Security — read before relying on this beyond a demo
 
-Employee ID login has **no password**, and only gates `/entry`,
-`/forward-looking`, and `/admin` — `/` (Board) and `/actions` (Action Log)
-never required login and still don't. There is no Supabase Auth session — the
+Employee ID login has **no password**, and only gates `/entry` and `/admin`
+— `/` (Board), `/forward-looking` (Next 24 Hours), and `/actions` (Action
+Log) never required login to *view* and still don't; `/forward-looking`
+additionally requires login to add/edit/delete a forecast card, same as the
+`/admin` caveat below. There is no Supabase Auth session — the
 browser talks to Postgres using the public `anon` key, and the Row Level
 Security policies in `schema.sql` allow that anon key to read everything and
 write to `daily_entries`/`actions`/`forecast_cards`/`weekly_entries`. This is
@@ -369,6 +375,12 @@ but it means:
   from any browser console, `is_admin` or not. Treat "who can upload the
   Daily/Weekly Excel files" as advisory until real Supabase Auth + RLS
   scoping (see below) is in place.
+- Same caveat for `/forward-looking`'s Add/Edit/Delete controls — hiding
+  them for a logged-out visitor is a UI convenience, not enforcement; the
+  anon key can call `createForecastCard`/`updateForecastCard`/
+  `deleteForecastCard`'s underlying Supabase calls directly regardless of
+  login state, since `forecast_cards`' RLS policy allows the anon role to
+  write unconditionally (same permissive model as the rest of the app).
 
 Before using this for anything beyond an internal pilot, consider upgrading to real
 Supabase Auth (email/password or magic link per employee) and rewriting the RLS policies

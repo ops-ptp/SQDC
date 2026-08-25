@@ -19,14 +19,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/login" element={<Login />} />
-            <Route
-              path="/forward-looking"
-              element={
-                <RequireEmployee>
-                  <ForwardLooking />
-                </RequireEmployee>
-              }
-            />
+            <Route path="/forward-looking" element={<ForwardLooking />} />
             <Route
               path="/entry"
               element={
