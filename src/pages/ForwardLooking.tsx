@@ -63,8 +63,7 @@ export default function ForwardLooking() {
       <div className="page-header">
         <h1>Next 24 Hours</h1>
         <p className="muted">
-          Leading indicators for the day ahead — pulled from the Admin Daily upload's "Next 24hrs" sheet, no manual
-          entry needed.
+          Leading indicators for the day ahead.
         </p>
       </div>
 
