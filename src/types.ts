@@ -154,3 +154,12 @@ export const PERFORMANCE_COLORS: Record<PerformanceStatus, string> = {
 export function metTarget(kpi: Pick<Kpi, 'is_higher_better'>, target: number, actual: number): boolean {
   return kpi.is_higher_better ? actual >= target : actual <= target;
 }
+
+/** Rounds to at most 2 decimal places for display. KPI actual/target values
+ * can carry long floating-point tails (e.g. from Excel-derived averages or
+ * percentage conversions) — this keeps the board readable without changing
+ * the underlying stored value. A whole number stays whole (round2(51) === 51,
+ * not "51.00") since this rounds the number rather than formatting a string. */
+export function round2(value: number): number {
+  return Math.round(value * 100) / 100;
+}
