@@ -1,16 +1,15 @@
 import { format, parseISO } from 'date-fns';
 import { useEffect, useMemo, useState } from 'react';
 import { fetchLatestLeadingEntries, fetchLeadingKpis } from '../lib/data';
-import { PILLAR_COLORS, type KpiWithPillar, type LeadingEntry } from '../types';
+import { PILLAR_COLORS, round2, type KpiWithPillar, type LeadingEntry } from '../types';
 
 const TODAY = new Date();
 
-/** '%' KPIs show one decimal with a % sign; everything else is a plain
- * thousands-separated number with its unit suffixed. */
+/** '%' KPIs get a % sign; everything else is a plain thousands-separated
+ * number with its unit suffixed. Both are capped at 2 decimal places. */
 function formatValue(value: number, unit: string): string {
-  if (unit === '%') return `${value.toFixed(1)}%`;
-  const rounded = Math.round(value * 100) / 100;
-  return new Intl.NumberFormat('en').format(rounded);
+  if (unit === '%') return `${round2(value)}%`;
+  return new Intl.NumberFormat('en', { maximumFractionDigits: 2 }).format(value);
 }
 
 export default function ForwardLooking() {
