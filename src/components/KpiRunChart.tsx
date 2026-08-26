@@ -10,7 +10,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { PERFORMANCE_COLORS } from '../types';
+import { PERFORMANCE_COLORS, round2 } from '../types';
 
 export interface RunPoint {
   label: string;
@@ -109,7 +109,7 @@ export default function KpiRunChart({ points, unit, showDayNight }: Props) {
           />
           <Tooltip
             contentStyle={{ fontSize: 12, borderRadius: 8 }}
-            formatter={(value, name) => [`${value} ${unit}`, String(name)]}
+            formatter={(value, name) => [`${typeof value === 'number' ? round2(value) : value} ${unit}`, String(name)]}
           />
           <Legend verticalAlign="top" align="right" height={24} wrapperStyle={{ fontSize: 11 }} iconSize={10} />
           {targetVaries ? (
