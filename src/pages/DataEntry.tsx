@@ -10,7 +10,7 @@ import {
   fetchReasonsForKpi,
   upsertDailyEntry,
 } from '../lib/data';
-import { PILLAR_COLORS, metTarget, type DailyEntry, type Kpi, type Pillar, type Reason } from '../types';
+import { PILLAR_COLORS, metTarget, round2, type DailyEntry, type Kpi, type Pillar, type Reason } from '../types';
 
 const TODAY = format(new Date(), 'yyyy-MM-dd');
 // Staff typically log the previous day's completed shift results each
@@ -449,7 +449,7 @@ export default function DataEntry() {
           <div className="entry-card-header">
             <h3>{selectedGroup.label}</h3>
             <span className="muted">
-              Target: {selectedGroup.target} {selectedGroup.unit} ({selectedGroup.isHigherBetter ? 'higher is good' : 'lower is good'})
+              Target: {round2(selectedGroup.target)} {selectedGroup.unit} ({selectedGroup.isHigherBetter ? 'higher is good' : 'lower is good'})
             </span>
           </div>
 
@@ -538,7 +538,7 @@ export default function DataEntry() {
             <>
               <div className="entry-readonly-value">
                 <span className={`headline-value ${form.existing.met_target ? 'value-good' : 'value-bad'}`}>
-                  {form.existing.actual}
+                  {round2(form.existing.actual)}
                   <span className="headline-unit">{selectedGroup.unit}</span>
                 </span>
                 <span className={`pill ${form.existing.met_target ? 'pill-good' : 'pill-bad'}`}>
