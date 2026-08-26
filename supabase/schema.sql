@@ -333,3 +333,42 @@ do $$ begin
 exception
   when duplicate_object then null;
 end $$;
+
+-- ============================================================================
+-- MIGRATION (2026-08-26): leading_entries — numeric daily values for leading
+-- KPIs, sourced from the Admin Daily Excel upload's "Next 24hrs" tab
+-- ============================================================================
+-- Leading KPIs (the Next 24 Hours board) now get their numbers from the same
+-- Daily Excel upload as the lagging KPIs, instead of manually-typed forecast
+-- cards. One row per (kpi_id, entry_date) — there's no target/pass-fail here,
+-- just the day's projected figure exactly as entered in the sheet.
+
+create table if not exists leading_entries (
+  id           uuid primary key default gen_random_uuid(),
+  kpi_id       uuid not null references kpis(id) on delete cascade,
+  entry_date   date not null,
+  value        numeric not null,
+  uploaded_by  uuid references employees(id),
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now(),
+  unique (kpi_id, entry_date)
+);
+
+drop trigger if exists trg_leading_entries_updated_at on leading_entries;
+create trigger trg_leading_entries_updated_at
+  before update on leading_entries
+  for each row execute function set_updated_at();
+
+alter table leading_entries enable row level security;
+
+drop policy if exists anon_all_leading_entries on leading_entries;
+create policy anon_all_leading_entries on leading_entries for all using (true) with check (true);
+
+-- Leading KPIs were seeded with unit = '' (no distinction existed until the
+-- sheet's real figures showed the actual mix — raw counts/rates for most,
+-- and the two QC PM & Service ones being %-style like the app's other ratio
+-- KPIs). Safe to re-run.
+update kpis set unit = 'Moves' where name in ('Moves - Projection Day Shift', 'Moves - Projection Night Shift');
+update kpis set unit = 'TEUs' where name = 'TEUs Run Rate (Forecast)';
+update kpis set unit = 'Gangs' where name in ('QC Gang - Projection Next Shift', 'Lashing - Projection Next Shift');
+update kpis set unit = '%' where name in ('QC PM & Service - MTD', 'QC PM & Service - Projection Next Day');

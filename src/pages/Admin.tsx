@@ -1,7 +1,14 @@
 import { useRef, useState } from 'react';
 import { useEmployee } from '../context/EmployeeContext';
-import { bulkUpsertDailyEntriesFromUpload, bulkUpsertWeeklyEntriesFromUpload, fetchKpisForUpload, fetchManualOverrideKeys } from '../lib/data';
-import { parseDailyWorkbook, parseWeeklyWorkbook } from '../lib/excelUpload';
+import {
+  bulkUpsertDailyEntriesFromUpload,
+  bulkUpsertLeadingEntriesFromUpload,
+  bulkUpsertWeeklyEntriesFromUpload,
+  fetchKpisForUpload,
+  fetchLeadingKpis,
+  fetchManualOverrideKeys,
+} from '../lib/data';
+import { parseDailyWorkbook, parseNext24hrsWorkbook, parseWeeklyWorkbook } from '../lib/excelUpload';
 
 interface UploadResult {
   ok: boolean;
@@ -80,10 +87,19 @@ export default function Admin() {
   const { employee } = useEmployee();
 
   async function handleDailyUpload(file: File): Promise<UploadResult> {
-    const [kpis, buffer] = await Promise.all([fetchKpisForUpload(), file.arrayBuffer()]);
+    const [kpis, leadingKpis, buffer] = await Promise.all([fetchKpisForUpload(), fetchLeadingKpis(), file.arrayBuffer()]);
     const parsed = await parseDailyWorkbook(buffer, kpis, employee?.id ?? null);
-    if (parsed.rows.length === 0) {
-      return { ok: false, message: `Read ${parsed.rowsRead} row(s) but found nothing to upload.`, warnings: parsed.warnings };
+    // Leading KPIs (Next 24 Hours board) live in the same workbook, on the
+    // "Next 24hrs" tab — parsed and written alongside the lagging KPIs from
+    // one upload rather than a separate button.
+    const parsedLeading = await parseNext24hrsWorkbook(buffer, leadingKpis, employee?.id ?? null);
+
+    if (parsed.rows.length === 0 && parsedLeading.rows.length === 0) {
+      return {
+        ok: false,
+        message: `Read ${parsed.rowsRead} daily row(s) and ${parsedLeading.rowsRead} Next 24hrs row(s) but found nothing to upload.`,
+        warnings: [...parsed.warnings, ...parsedLeading.warnings],
+      };
     }
 
     // Manual-override protection: split out rows for manual_entry KPIs and
@@ -102,12 +118,15 @@ export default function Admin() {
     const rowsToWrite = parsed.rows.filter((r) => !overrideKeys.has(`${r.kpi_id}|${r.entry_date}`));
     const skipped = parsed.rows.length - rowsToWrite.length;
 
-    const written = await bulkUpsertDailyEntriesFromUpload(rowsToWrite);
+    const [written, writtenLeading] = await Promise.all([
+      bulkUpsertDailyEntriesFromUpload(rowsToWrite),
+      bulkUpsertLeadingEntriesFromUpload(parsedLeading.rows),
+    ]);
     const skippedNote = skipped > 0 ? ` ${skipped} row(s) were skipped because a manual entry already exists for that KPI/date.` : '';
     return {
       ok: true,
-      message: `Uploaded ${written} daily row(s) from ${parsed.rowsRead} spreadsheet row(s).${skippedNote}`,
-      warnings: parsed.warnings,
+      message: `Uploaded ${written} daily row(s) from ${parsed.rowsRead} spreadsheet row(s) and ${writtenLeading} Next 24hrs figure(s) from ${parsedLeading.rowsRead} row(s).${skippedNote}`,
+      warnings: [...parsed.warnings, ...parsedLeading.warnings],
     };
   }
 
@@ -139,7 +158,7 @@ export default function Admin() {
       <div className="admin-upload-grid">
         <UploadCard
           title="Daily upload"
-          description="OPS SQDC Daily.xlsx — the “Daily Database” sheet (Date + Day/Night shift rows). Re-uploading updates matching date/shift rows only; other dates are untouched."
+          description="OPS SQDC Daily.xlsx — the “Daily Database” sheet (Date + Day/Night shift rows) plus the “Next 24hrs” sheet (leading KPI projections, shown on the Next 24 Hours board). Re-uploading updates matching date rows only; other dates are untouched."
           accept=".xlsx"
           onUpload={handleDailyUpload}
         />

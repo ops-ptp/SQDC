@@ -165,8 +165,8 @@ const LETTER_LAYOUTS: Record<string, Cell[]> = {
     { row: 8, col: 5 }, // 26
     { row: 8, col: 6 }, // 27
     { row: 8, col: 7 }, // 28
-    { row: 7, col: 6 }, // 29
-    { row: 7, col: 7 }, // 30
+    { row: 7, col: 5 }, // 29
+    { row: 7, col: 6 }, // 30
     { row: 6, col: 7 }, // 31
   ],
 };

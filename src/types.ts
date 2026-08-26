@@ -122,21 +122,17 @@ export function getDisplayStatus(action: Pick<ActionItem, 'status' | 'deadline'>
   return action.status;
 }
 
-export interface ForecastCard {
+/** A leading KPI's numeric value for one day, written by the Admin Daily
+ * Excel upload's "Next 24hrs" tab. No target/pass-fail — these are
+ * projections, displayed as a plain headline number. */
+export interface LeadingEntry {
   id: string;
   kpi_id: string;
-  pillar_id: string;
-  target_date: string; // yyyy-mm-dd
-  note: string;
-  owner_name: string | null;
-  created_by: string | null;
+  entry_date: string; // yyyy-mm-dd
+  value: number;
+  uploaded_by: string | null;
   created_at: string;
   updated_at: string;
-}
-
-export interface ForecastCardWithRefs extends ForecastCard {
-  kpi: Pick<Kpi, 'name' | 'unit'>;
-  pillar: Pick<Pillar, 'code' | 'name'>;
 }
 
 export const PILLAR_COLORS: Record<string, { base: string; soft: string; text: string }> = {

@@ -1,5 +1,5 @@
 import { supabase } from './supabaseClient';
-import type { ActionItem, DailyEntry, Employee, ForecastCardWithRefs, Kpi, KpiWithPillar, Pillar, Reason, WeeklyEntry } from '../types';
+import type { ActionItem, DailyEntry, Employee, Kpi, KpiWithPillar, LeadingEntry, Pillar, Reason, WeeklyEntry } from '../types';
 
 export async function fetchPillars(): Promise<Pillar[]> {
   const { data, error } = await supabase.from('pillars').select('*').order('sort_order');
@@ -237,58 +237,47 @@ export async function fetchEmployees(): Promise<Employee[]> {
 }
 
 // ---------------------------------------------------------------------------
-// Forward Looking board — forecast cards for leading KPIs, +1/+2/+3 days out
+// Next 24 Hours board — leading KPI numeric values (from the Admin Daily
+// Excel upload's "Next 24hrs" tab). Read-only on the board; no manual
+// add/edit/delete — the number always comes from the latest upload.
 // ---------------------------------------------------------------------------
 
-const FORECAST_CARD_SELECT = '*, kpi:kpis(name, unit), pillar:pillars(code, name)';
-
-export async function fetchForecastCards(fromDate: string, toDate: string): Promise<ForecastCardWithRefs[]> {
+/** The latest entry per KPI (up to `sinceDate`, inclusive) for a set of
+ * leading KPIs — "latest" because different KPIs can in principle lag each
+ * other by a day if an upload is partial; each is picked independently
+ * rather than assuming they all share the same most-recent date. */
+export async function fetchLatestLeadingEntries(kpiIds: string[], sinceDate: string): Promise<LeadingEntry[]> {
+  if (kpiIds.length === 0) return [];
   const { data, error } = await supabase
-    .from('forecast_cards')
-    .select(FORECAST_CARD_SELECT)
-    .gte('target_date', fromDate)
-    .lte('target_date', toDate)
-    .order('target_date')
-    .order('created_at');
+    .from('leading_entries')
+    .select('*')
+    .in('kpi_id', kpiIds)
+    .lte('entry_date', sinceDate)
+    .order('entry_date', { ascending: false });
   if (error) throw error;
-  return data as unknown as ForecastCardWithRefs[];
+  const rows = data as LeadingEntry[];
+  const latestByKpi = new Map<string, LeadingEntry>();
+  for (const row of rows) {
+    if (!latestByKpi.has(row.kpi_id)) latestByKpi.set(row.kpi_id, row);
+  }
+  return Array.from(latestByKpi.values());
 }
 
-export interface NewForecastCardInput {
+export interface UploadLeadingRow {
   kpi_id: string;
-  pillar_id: string;
-  target_date: string;
-  note: string;
-  owner_name: string | null;
-  created_by: string | null;
+  entry_date: string;
+  value: number;
+  uploaded_by: string | null;
 }
 
-export async function createForecastCard(input: NewForecastCardInput): Promise<ForecastCardWithRefs> {
-  const { data, error } = await supabase.from('forecast_cards').insert(input).select(FORECAST_CARD_SELECT).single();
-  if (error) throw error;
-  return data as unknown as ForecastCardWithRefs;
-}
-
-export interface UpdateForecastCardInput {
-  kpi_id?: string;
-  pillar_id?: string;
-  target_date?: string;
-  note?: string;
-  owner_name?: string | null;
-}
-
-export async function updateForecastCard(id: string, patch: UpdateForecastCardInput): Promise<ForecastCardWithRefs> {
-  const { data, error } = await supabase
-    .from('forecast_cards')
-    .update(patch)
-    .eq('id', id)
-    .select(FORECAST_CARD_SELECT)
-    .single();
-  if (error) throw error;
-  return data as unknown as ForecastCardWithRefs;
-}
-
-export async function deleteForecastCard(id: string): Promise<void> {
-  const { error } = await supabase.from('forecast_cards').delete().eq('id', id);
-  if (error) throw error;
+export async function bulkUpsertLeadingEntriesFromUpload(rows: UploadLeadingRow[]): Promise<number> {
+  const CHUNK = 400;
+  let written = 0;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const chunk = rows.slice(i, i + CHUNK);
+    const { error } = await supabase.from('leading_entries').upsert(chunk, { onConflict: 'kpi_id,entry_date' });
+    if (error) throw error;
+    written += chunk.length;
+  }
+  return written;
 }

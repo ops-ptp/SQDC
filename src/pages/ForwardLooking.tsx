@@ -1,178 +1,60 @@
-import { addDays, format } from 'date-fns';
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
-import { useEmployee } from '../context/EmployeeContext';
-import {
-  createForecastCard,
-  deleteForecastCard,
-  fetchForecastCards,
-  fetchLeadingKpis,
-  updateForecastCard,
-  type NewForecastCardInput,
-} from '../lib/data';
-import { PILLAR_COLORS, type ForecastCardWithRefs, type KpiWithPillar } from '../types';
+import { format, parseISO } from 'date-fns';
+import { useEffect, useMemo, useState } from 'react';
+import { fetchLatestLeadingEntries, fetchLeadingKpis } from '../lib/data';
+import { PILLAR_COLORS, type KpiWithPillar, type LeadingEntry } from '../types';
 
 const TODAY = new Date();
-// Only "Today" is shown now — Tomorrow/Day After columns were removed per spec.
-const COLUMN_OFFSETS = [0] as const;
-const COLUMN_LABELS: Record<number, string> = { 0: 'Today' };
 
-interface FormState {
-  kpiId: string;
-  note: string;
-  ownerName: string;
+/** '%' KPIs show one decimal with a % sign; everything else is a plain
+ * thousands-separated number with its unit suffixed. */
+function formatValue(value: number, unit: string): string {
+  if (unit === '%') return `${value.toFixed(1)}%`;
+  const rounded = Math.round(value * 100) / 100;
+  return new Intl.NumberFormat('en').format(rounded);
 }
 
-const EMPTY_FORM: FormState = { kpiId: '', note: '', ownerName: '' };
-
 export default function ForwardLooking() {
-  const { employee } = useEmployee();
   const [kpis, setKpis] = useState<KpiWithPillar[]>([]);
-  const [cards, setCards] = useState<ForecastCardWithRefs[]>([]);
+  const [entries, setEntries] = useState<LeadingEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Which column's "add card" form is open, if any.
-  const [addingOffset, setAddingOffset] = useState<number | null>(null);
-  const [addForm, setAddForm] = useState<FormState>(EMPTY_FORM);
-  const [addSaving, setAddSaving] = useState(false);
-  const [addError, setAddError] = useState<string | null>(null);
+  const todayStr = format(TODAY, 'yyyy-MM-dd');
 
-  // Which card is currently being edited, if any.
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<FormState>(EMPTY_FORM);
-  const [editSaving, setEditSaving] = useState(false);
-  const [editError, setEditError] = useState<string | null>(null);
-
-  const fromDate = format(TODAY, 'yyyy-MM-dd');
-  const toDate = fromDate;
-
-  function reload() {
+  useEffect(() => {
+    let cancelled = false;
     setLoading(true);
     setError(null);
-    Promise.all([fetchLeadingKpis(), fetchForecastCards(fromDate, toDate)])
-      .then(([k, c]) => {
+    fetchLeadingKpis()
+      .then((k) => {
+        if (cancelled) return [];
         setKpis(k);
-        setCards(c);
+        return fetchLatestLeadingEntries(
+          k.map((x) => x.id),
+          todayStr
+        );
       })
-      .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load Forward Looking board'))
-      .finally(() => setLoading(false));
-  }
-
-  useEffect(reload, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const columns = useMemo(() => {
-    return COLUMN_OFFSETS.map((offset) => {
-      const date = addDays(TODAY, offset);
-      const dateStr = format(date, 'yyyy-MM-dd');
-      return {
-        offset,
-        dateStr,
-        label: COLUMN_LABELS[offset],
-        dateLabel: format(date, 'EEE, d MMM'),
-        cards: cards.filter((c) => c.target_date === dateStr),
-      };
-    });
-  }, [cards]);
-
-  function kpiById(id: string) {
-    return kpis.find((k) => k.id === id);
-  }
-
-  function openAdd(offset: number) {
-    setAddingOffset(offset);
-    setAddForm({ ...EMPTY_FORM, kpiId: kpis[0]?.id ?? '' });
-    setAddError(null);
-  }
-
-  function closeAdd() {
-    setAddingOffset(null);
-    setAddForm(EMPTY_FORM);
-    setAddError(null);
-  }
-
-  async function handleAddSubmit(e: FormEvent, offset: number) {
-    e.preventDefault();
-    const kpi = kpiById(addForm.kpiId);
-    if (!kpi) {
-      setAddError('Pick a KPI.');
-      return;
-    }
-    if (!addForm.note.trim()) {
-      setAddError('Add a short forecast note.');
-      return;
-    }
-    setAddSaving(true);
-    setAddError(null);
-    const input: NewForecastCardInput = {
-      kpi_id: kpi.id,
-      pillar_id: kpi.pillar_id,
-      target_date: format(addDays(TODAY, offset), 'yyyy-MM-dd'),
-      note: addForm.note.trim(),
-      owner_name: addForm.ownerName.trim() || null,
-      created_by: employee?.id ?? null,
+      .then((e) => !cancelled && setEntries(e))
+      .catch((e) => !cancelled && setError(e instanceof Error ? e.message : 'Failed to load Next 24 Hours board'))
+      .finally(() => !cancelled && setLoading(false));
+    return () => {
+      cancelled = true;
     };
-    try {
-      const created = await createForecastCard(input);
-      setCards((prev) => [...prev, created]);
-      closeAdd();
-    } catch (err) {
-      setAddError(err instanceof Error ? err.message : 'Failed to add card');
-    } finally {
-      setAddSaving(false);
-    }
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  function openEdit(card: ForecastCardWithRefs) {
-    setEditingId(card.id);
-    setEditForm({ kpiId: card.kpi_id, note: card.note, ownerName: card.owner_name ?? '' });
-    setEditError(null);
-  }
+  const entryByKpi = useMemo(() => new Map(entries.map((e) => [e.kpi_id, e])), [entries]);
 
-  function closeEdit() {
-    setEditingId(null);
-    setEditForm(EMPTY_FORM);
-    setEditError(null);
-  }
-
-  async function handleEditSubmit(e: FormEvent, card: ForecastCardWithRefs) {
-    e.preventDefault();
-    const kpi = kpiById(editForm.kpiId);
-    if (!kpi) {
-      setEditError('Pick a KPI.');
-      return;
+  // Group the leading KPI catalog by pillar, in catalog sort order.
+  const groups = useMemo(() => {
+    const byPillar = new Map<string, { pillar: KpiWithPillar['pillar']; kpis: KpiWithPillar[] }>();
+    for (const k of kpis) {
+      const key = k.pillar.code;
+      if (!byPillar.has(key)) byPillar.set(key, { pillar: k.pillar, kpis: [] });
+      byPillar.get(key)!.kpis.push(k);
     }
-    if (!editForm.note.trim()) {
-      setEditError('Add a short forecast note.');
-      return;
-    }
-    setEditSaving(true);
-    setEditError(null);
-    try {
-      const updated = await updateForecastCard(card.id, {
-        kpi_id: kpi.id,
-        pillar_id: kpi.pillar_id,
-        note: editForm.note.trim(),
-        owner_name: editForm.ownerName.trim() || null,
-      });
-      setCards((prev) => prev.map((c) => (c.id === card.id ? updated : c)));
-      closeEdit();
-    } catch (err) {
-      setEditError(err instanceof Error ? err.message : 'Failed to save changes');
-    } finally {
-      setEditSaving(false);
-    }
-  }
-
-  async function handleDelete(card: ForecastCardWithRefs) {
-    if (!window.confirm('Delete this forecast card?')) return;
-    try {
-      await deleteForecastCard(card.id);
-      setCards((prev) => prev.filter((c) => c.id !== card.id));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete card');
-    }
-  }
+    return Array.from(byPillar.values());
+  }, [kpis]);
 
   if (loading) return <div className="page-loading">Loading Next 24 Hours board…</div>;
   if (error) return <div className="alert alert-error page-margin">{error}</div>;
@@ -181,165 +63,52 @@ export default function ForwardLooking() {
     <div className="page fl-page">
       <div className="page-header">
         <h1>Next 24 Hours</h1>
-        <p className="muted">Forecast leading KPIs for today — what's expected, and what to watch for.</p>
-        {!employee && (
-          <p className="muted">
-            Anyone can view this board. <Link to="/login" state={{ from: '/forward-looking' }}>Log in</Link> to add,
-            edit, or delete a forecast card.
-          </p>
-        )}
+        <p className="muted">
+          Leading indicators for the day ahead — pulled from the Admin Daily upload's "Next 24hrs" sheet, no manual
+          entry needed.
+        </p>
       </div>
 
       {kpis.length === 0 ? (
         <div className="empty-state">
-          No leading KPIs are configured yet. Mark a KPI as leading (<code>kpis.is_leading = true</code>) to forecast
-          it here.
+          No leading KPIs are configured yet. Mark a KPI as leading (<code>kpis.is_leading = true</code>) to show it
+          here.
         </div>
       ) : (
         <div className="fl-board">
-          {columns.map((col) => (
-            <div key={col.offset} className="fl-column">
-              <div className="fl-column-header">
-                <span className="fl-column-title">{col.label}</span>
-                <span className="fl-column-date">{col.dateLabel}</span>
-              </div>
-
-              <div className="fl-column-body">
-                {col.cards.length === 0 && addingOffset !== col.offset && (
-                  <div className="fl-empty">No forecasts yet</div>
-                )}
-
-                {col.cards.map((card) => {
-                  const colors = PILLAR_COLORS[card.pillar.code] ?? PILLAR_COLORS.S;
-                  const isEditing = editingId === card.id;
-
-                  if (isEditing) {
+          {groups.map((g) => {
+            const colors = PILLAR_COLORS[g.pillar.code] ?? PILLAR_COLORS.S;
+            return (
+              <div key={g.pillar.code} className="fl-column">
+                <div className="fl-column-header">
+                  <span className="fl-column-title">{g.pillar.name}</span>
+                </div>
+                <div className="fl-column-body">
+                  {g.kpis.map((k) => {
+                    const entry = entryByKpi.get(k.id);
                     return (
-                      <form
-                        key={card.id}
-                        className="fl-card fl-card-form"
-                        style={{ borderLeftColor: colors.base }}
-                        onSubmit={(e) => handleEditSubmit(e, card)}
-                      >
-                        <label className="field-label">KPI</label>
-                        <select
-                          className="input"
-                          value={editForm.kpiId}
-                          onChange={(e) => setEditForm((f) => ({ ...f, kpiId: e.target.value }))}
-                        >
-                          {kpis.map((k) => (
-                            <option key={k.id} value={k.id}>
-                              {k.pillar.name} — {k.name}
-                            </option>
-                          ))}
-                        </select>
-                        <label className="field-label">Forecast note</label>
-                        <textarea
-                          className="input fl-textarea"
-                          value={editForm.note}
-                          onChange={(e) => setEditForm((f) => ({ ...f, note: e.target.value }))}
-                          rows={3}
-                        />
-                        <label className="field-label">Owner (optional)</label>
-                        <input
-                          className="input"
-                          value={editForm.ownerName}
-                          onChange={(e) => setEditForm((f) => ({ ...f, ownerName: e.target.value }))}
-                        />
-                        {editError && <div className="alert alert-error">{editError}</div>}
-                        <div className="fl-card-actions">
-                          <button type="button" className="btn btn-ghost-light" onClick={closeEdit}>
-                            Cancel
-                          </button>
-                          <button type="submit" className="btn btn-primary" disabled={editSaving}>
-                            {editSaving ? 'Saving…' : 'Save'}
-                          </button>
-                        </div>
-                      </form>
+                      <div key={k.id} className="fl-card" style={{ borderLeftColor: colors.base }}>
+                        <div className="fl-card-kpi">{k.name}</div>
+                        {entry ? (
+                          <>
+                            <div className="fl-card-value">
+                              {formatValue(entry.value, k.unit)}
+                              {k.unit && k.unit !== '%' && <span className="fl-card-unit">{k.unit}</span>}
+                            </div>
+                            <div className="fl-card-asof">
+                              As of {entry.entry_date === todayStr ? 'today' : format(parseISO(entry.entry_date), 'EEE, d MMM')}
+                            </div>
+                          </>
+                        ) : (
+                          <div className="fl-card-nodata">No data uploaded yet</div>
+                        )}
+                      </div>
                     );
-                  }
-
-                  return (
-                    <div key={card.id} className="fl-card" style={{ borderLeftColor: colors.base }}>
-                      <div className="fl-card-top">
-                        <span className="pillar-tag" style={{ background: colors.soft, color: colors.text }}>
-                          {card.pillar.name}
-                        </span>
-                      </div>
-                      <div className="fl-card-kpi">{card.kpi.name}</div>
-                      <p className="fl-card-note">{card.note}</p>
-                      {card.owner_name && <div className="fl-card-owner">Owner: {card.owner_name}</div>}
-                      {employee && (
-                        <div className="fl-card-actions">
-                          <button className="btn btn-ghost-light" onClick={() => openEdit(card)}>
-                            Edit
-                          </button>
-                          <button className="btn btn-ghost-light fl-btn-danger" onClick={() => handleDelete(card)}>
-                            Delete
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-
-                {addingOffset === col.offset && (
-                  <form className="fl-card fl-card-form fl-card-new" onSubmit={(e) => handleAddSubmit(e, col.offset)}>
-                    <label className="field-label">KPI</label>
-                    <select
-                      className="input"
-                      value={addForm.kpiId}
-                      onChange={(e) => setAddForm((f) => ({ ...f, kpiId: e.target.value }))}
-                    >
-                      {kpis.map((k) => (
-                        <option key={k.id} value={k.id}>
-                          {k.pillar.name} — {k.name}
-                        </option>
-                      ))}
-                    </select>
-                    <label className="field-label">Forecast note</label>
-                    <textarea
-                      className="input fl-textarea"
-                      placeholder="What's expected, or what to watch for…"
-                      value={addForm.note}
-                      onChange={(e) => setAddForm((f) => ({ ...f, note: e.target.value }))}
-                      rows={3}
-                      autoFocus
-                    />
-                    <label className="field-label">Owner (optional)</label>
-                    <input
-                      className="input"
-                      placeholder="Who owns this"
-                      value={addForm.ownerName}
-                      onChange={(e) => setAddForm((f) => ({ ...f, ownerName: e.target.value }))}
-                    />
-                    {addError && <div className="alert alert-error">{addError}</div>}
-                    <div className="fl-card-actions">
-                      <button type="button" className="btn btn-ghost-light" onClick={closeAdd}>
-                        Cancel
-                      </button>
-                      <button type="submit" className="btn btn-primary" disabled={addSaving}>
-                        {addSaving ? 'Adding…' : 'Add card'}
-                      </button>
-                    </div>
-                  </form>
-                )}
-
-                {addingOffset !== col.offset &&
-                  (employee ? (
-                    <button className="fl-add-btn" onClick={() => openAdd(col.offset)}>
-                      + Add card
-                    </button>
-                  ) : (
-                    col.cards.length > 0 && (
-                      <div className="fl-empty">
-                        <Link to="/login" state={{ from: '/forward-looking' }}>Log in</Link> to add a forecast card
-                      </div>
-                    )
-                  ))}
+                  })}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

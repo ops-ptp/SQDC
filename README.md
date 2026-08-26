@@ -8,8 +8,8 @@ target — 3 KPIs (Accident During Operation, QC Preventive Maintenance & Servic
 Average Litres per Vessel Call) still get their Performance value typed in manually,
 since they aren't reliably captured by the upload. The dashboard renders each pillar
 with a large S/Q/D/C letter mosaic, a run chart vs. target, a Pareto of reasons, and the
-pillar's action list. A **Next 24 Hours** board lets the team forecast leading KPIs for
-today.
+pillar's action list. A **Next 24 Hours** board shows the day's leading KPI projections —
+also from the Admin Excel upload, no manual entry needed.
 
 Stack: **React + TypeScript + Vite**, **Supabase** (Postgres + REST), deployed on **Vercel**.
 
@@ -18,19 +18,20 @@ Stack: **React + TypeScript + Vite**, **Supabase** (Postgres + REST), deployed o
 1. Go to [supabase.com](https://supabase.com) → New project. Pick any name/region.
 2. Once it's provisioned, open **SQL Editor** and run the two files in this repo, in order:
    - `supabase/schema.sql` — creates all tables, the view, Row Level Security policies,
-     the `is_leading` KPI flag + `forecast_cards` table, and (2026-08-25 migration)
-     `employees.is_admin`, `kpis.manual_entry`, `daily_entries.is_manual_override`, and
-     the `weekly_entries` table used by the Admin upload — see "Admin Excel upload"
-     below. **Already ran schema.sql on an existing project?** It's safe to re-run in
-     full — every statement is guarded (`if not exists` / `drop ... if exists`), so it
-     just applies the new migration at the bottom without touching your existing data.
+     the `is_leading` KPI flag, and (2026-08-25/26 migrations) `employees.is_admin`,
+     `kpis.manual_entry`, `daily_entries.is_manual_override`, the `weekly_entries` table
+     used by the Admin upload, and the `leading_entries` table used by the Next 24 Hours
+     board — see "Admin Excel upload" below. **Already ran schema.sql on an existing
+     project?** It's safe to re-run in full — every statement is guarded (`if not exists`
+     / `drop ... if exists`), so it just applies the new migration at the bottom without
+     touching your existing data.
    - `supabase/seed.sql` — loads the 4 pillars, the real terminal-ops KPI catalog (20
      lagging KPIs tracked daily + 7 leading KPIs for Next 24 Hours — see below, 3 of the
      20 flagged `manual_entry = true`), 8 sample employees (one, `000003`/Aiman, seeded as
      `is_admin = true` — the demo Admin/Superuser), curated reason lists, ~20 days of
-     demo daily entries, a couple of demo actions, and a few demo forecast cards — so the
-     app is fully demoable immediately. Employee IDs are 6-digit, zero-padded numbers
-     (`000001`, `000002`, …) — enforced by a check constraint in `schema.sql`.
+     demo daily entries, a couple of demo actions, and one day of demo leading KPI figures
+     — so the app is fully demoable immediately. Employee IDs are 6-digit, zero-padded
+     numbers (`000001`, `000002`, …) — enforced by a check constraint in `schema.sql`.
 3. Go to **Project Settings → API** and copy:
    - **Project URL**
    - **anon public** key
@@ -107,11 +108,16 @@ example set:
 The 3 manual-entry KPIs are flagged `kpis.manual_entry = true` — everything else is
 remarks-only once the Admin upload is populating it. See "Admin Excel upload" below.
 
-| Pillar | Leading KPIs (forecast on Next 24 Hours) |
-|---|---|
-| **Q** | QC Gang - Projection Next Shift |
-| **D** | Moves - Projection Day/Night Shift, TEUs Run Rate (Forecast), Lashing - Projection Next Shift |
-| **C** | QC PM & Service - MTD, QC PM & Service - Projection Next Day |
+| Pillar | Leading KPIs (Next 24 Hours board) | Unit |
+|---|---|---|
+| **Q** | QC Gang - Projection Next Shift | Gangs |
+| **D** | Moves - Projection Day/Night Shift | Moves |
+| **D** | TEUs Run Rate (Forecast) | TEUs |
+| **D** | Lashing - Projection Next Shift | Gangs |
+| **C** | QC PM & Service - MTD, QC PM & Service - Projection Next Day | % |
+
+Leading KPIs are read-only on the board — their numbers come from the Admin Daily
+upload's **"Next 24hrs"** tab (see "Admin Excel upload" below), not manual entry.
 
 A few modeling decisions worth knowing about:
 
@@ -131,9 +137,14 @@ A few modeling decisions worth knowing about:
   target for just that row and flags it in the upload warnings.) The Trend chart shows
   the target as a dashed line that moves with the data for Moves, and stays a flat
   reference line for every other KPI, whose target genuinely is fixed.
-- **Leading KPIs have no daily target/actual** — in your sheet they're forecast/
-  discussion items with no data columns, which maps directly onto `forecast_cards`
-  (Forward Looking) rather than `daily_entries`.
+- **Leading KPIs have no target, just a daily projected value** — one number per KPI
+  per day, sourced from the "Next 24hrs" tab into `leading_entries` (a separate table
+  from `daily_entries` since there's no target/pass-fail to compute, just a figure to
+  display). The Next 24 Hours board shows each KPI's latest uploaded value, independent
+  per KPI (if one KPI's column is missing from an upload, the others still update). The
+  older `forecast_cards` table (manually-typed forecast notes) still exists in the
+  schema but the app no longer reads or writes it — safe to ignore or drop if you don't
+  need it.
 - The demo `daily_entries` seeded by `seed.sql` are **synthetic** (deterministic
   pseudo-random values around each KPI's target), not the literal Aug-2026 numbers
   from your workbook. Let me know if you'd like the real historical figures imported
@@ -150,7 +161,7 @@ A few modeling decisions worth knowing about:
 | Blended weekly figures from the Weekly Excel upload (fallback for the Weekly board) | `weekly_entries` (keyed by pillar + KPI base name, not `kpi_id` — see below) |
 | Curated reasons feeding the Pareto, picked when a daily entry misses target | `reasons` |
 | Action list (Related reason/issue, Action, Owner, Deadline, Status) | `actions` (`status`: not_started / in_progress / dropped / completed — "Overdue" is a 5th *display* state derived client-side from `status` + `deadline`, not stored) |
-| Next 24 Hours forecast cards (today only, leading KPIs only) | `forecast_cards` |
+| Next 24 Hours leading KPI values, one row per KPI per day | `leading_entries` |
 | Who can see/use the Admin tab | `employees.is_admin` |
 
 Most lagging KPIs are still stored as two DB rows — e.g. `kpis` rows named
@@ -223,6 +234,17 @@ below) and written straight to Supabase. Parsing logic lives in
   week. Since that fallback number is blended, it's plotted on **both** the
   Day and Night lines (the best available stand-in for a number the upload
   never split out) — a documented simplification, not a data quality claim.
+- **The same Daily upload also reads the "Next 24hrs" sheet** (one row per
+  date, one column per leading KPI) and **upserts `leading_entries` by
+  `(kpi_id, entry_date)`** — no separate button, since it's the same
+  workbook. Column headers are matched directly against `kpis.name` (they're
+  the exact KPI names in this sheet, not a translated header like the Daily
+  Database mapping above), and % KPIs get the same raw × 100 conversion as
+  everywhere else. A date row with some KPI columns still blank (not yet
+  entered) only writes the columns that have a value — it doesn't clear or
+  skip the others. The Next 24 Hours board always shows each KPI's most
+  recently uploaded value, so re-uploading with a new day's row just
+  advances the board forward.
 
 ### Why exceljs, not xlsx
 
@@ -285,17 +307,12 @@ for the SheetJS `read`/`utils.sheet_to_json` API.
   count per quadrant must match the subgrid's row count (`repeat(7, auto)`
   daily / `repeat(6, auto)` weekly in `index.css`) or the extra section
   overlaps the next one; keep that in mind before adding/removing a section.
-- **`/forward-looking` — Next 24 Hours**: a board for **leading** KPIs,
-  forecasting **today only** — the flip side of the Board reviewing
-  yesterday: the same huddle that looks back at yesterday's results looks
-  forward at what's coming in the next 24 hours. Today's forecast cards lay
-  out in a 3-column grid (2 columns on tablet, 1 on mobile), left-aligned
-  like every other page. **No login required to view** — like the Board,
-  it's meant to be left open on a shared screen. Adding, editing, or
-  deleting a forecast card requires an Employee ID; a logged-out visitor
-  sees the cards read-only, with a "Log in to add, edit, or delete a
-  forecast card" prompt instead of the Edit/Delete/+ Add card controls.
-  Requires at least one KPI with `is_leading = true`.
+- **`/forward-looking` — Next 24 Hours**: a read-only board for **leading**
+  KPIs — each one's most recently uploaded value (see "Admin Excel upload"
+  above), grouped by pillar. No forms, no login required at all — like the
+  Board, it's meant to be left open on a shared screen. A KPI with no
+  `leading_entries` row yet shows "No data uploaded yet" instead of a blank
+  or zero. Requires at least one KPI with `is_leading = true`.
 - **`/admin` — Admin**: gated by `employees.is_admin` (a logged-in non-admin
   is bounced back to the Board; a logged-out visitor goes to Login first).
   Two file-upload widgets for the Daily/Weekly Excel exports — see "Admin
@@ -344,21 +361,22 @@ for the SheetJS `read`/`utils.sheet_to_json` API.
 
 This MVP doesn't ship an admin UI yet. To add/change KPIs, targets, reason lists, or who's
 assigned to what, use the Supabase **Table Editor** (Project → Table Editor) or SQL Editor
-directly on `pillars`, `kpis`, `kpi_assignments`, `reasons`, and `forecast_cards`.
+directly on `pillars`, `kpis`, `kpi_assignments`, and `reasons`.
 `supabase/seed.sql` is a good reference for the shape of each insert. To mark a KPI as
-leading (so it shows up on Forward Looking instead of the main Board), set
-`kpis.is_leading = true`.
+leading (so it shows up on Next 24 Hours instead of the main Board), set
+`kpis.is_leading = true` — its numbers then come from the Daily upload's "Next 24hrs"
+sheet, so its `kpis.name` needs to exactly match that sheet's column header.
 
 ## Security — read before relying on this beyond a demo
 
 Employee ID login has **no password**, and only gates `/entry` and `/admin`
 — `/` (Board), `/forward-looking` (Next 24 Hours), and `/actions` (Action
-Log) never required login to *view* and still don't; `/forward-looking`
-additionally requires login to add/edit/delete a forecast card, same as the
-`/admin` caveat below. There is no Supabase Auth session — the
-browser talks to Postgres using the public `anon` key, and the Row Level
+Log) never required login to *view* and still don't; `/forward-looking` is
+now fully read-only for everyone (no login-gated actions on that page at
+all — see "Admin Excel upload" above). There is no Supabase Auth session —
+the browser talks to Postgres using the public `anon` key, and the Row Level
 Security policies in `schema.sql` allow that anon key to read everything and
-write to `daily_entries`/`actions`/`forecast_cards`/`weekly_entries`. This is
+write to `daily_entries`/`actions`/`weekly_entries`/`leading_entries`. This is
 intentional for an MVP used on a trusted shop-floor terminal/network (matches
 the "anyone on shift can update the board" behavior of the physical board),
 but it means:
@@ -378,13 +396,9 @@ but it means:
   `bulkUpsertWeeklyEntriesFromUpload`'s underlying Supabase calls directly
   from any browser console, `is_admin` or not. Treat "who can upload the
   Daily/Weekly Excel files" as advisory until real Supabase Auth + RLS
-  scoping (see below) is in place.
-- Same caveat for `/forward-looking`'s Add/Edit/Delete controls — hiding
-  them for a logged-out visitor is a UI convenience, not enforcement; the
-  anon key can call `createForecastCard`/`updateForecastCard`/
-  `deleteForecastCard`'s underlying Supabase calls directly regardless of
-  login state, since `forecast_cards`' RLS policy allows the anon role to
-  write unconditionally (same permissive model as the rest of the app).
+  scoping (see below) is in place. Same caveat applies to `leading_entries` —
+  it's written by the same upload flow and shares the same permissive RLS
+  policy.
 
 Before using this for anything beyond an internal pilot, consider upgrading to real
 Supabase Auth (email/password or magic link per employee) and rewriting the RLS policies

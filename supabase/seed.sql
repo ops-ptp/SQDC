@@ -22,9 +22,12 @@
 --     representative target (~the Aug-2026 average projection) rather than
 --     a day-by-day target — flagged as a follow-up if you want the daily
 --     projection itself editable.
---   * The Leading KPI rows in the sheet have no target/actual columns at
---     all — they're forecast/discussion items, which maps directly onto
---     this app's Forward Looking board (forecast_cards), not daily_entries.
+--   * Leading KPI rows have no target — they're numeric projections (Moves
+--     Day/Night, TEUs Run Rate, QC Gang, Lashing, QC PM & Service MTD/Next
+--     Day), one figure per day, sourced from the Daily upload's "Next 24hrs"
+--     tab into `leading_entries` and shown as a read-only headline number on
+--     the Next 24 Hours board (no more manual add-a-card forecast_cards flow —
+--     that table still exists but the UI no longer writes to it).
 --   * Demo daily_entries below are synthetic (deterministic pseudo-random
 --     around each KPI's target), not the literal Aug-2026 figures from the
 --     workbook — say the word if you'd like the real historical numbers
@@ -36,6 +39,7 @@
 
 -- ---- Clean slate for demo tables (order matters for FKs) -------------------
 delete from forecast_cards;
+delete from leading_entries;
 delete from actions;
 delete from daily_entries;
 delete from reasons;
@@ -111,22 +115,25 @@ insert into kpis (pillar_id, name, unit, is_higher_better, target, info, sort_or
   ('Average Litres per Vessel Call',      'Litres/Call',  false, 425, 'Fuel consumption / operating cost efficiency — target is ≤425 litres per vessel call.', 2)
 ) as v(name, unit, higher, target, info, ord) where pillars.code = 'C';
 
--- ---- Leading KPIs (Forward Looking board — no daily target/actual) --------
-insert into kpis (pillar_id, name, unit, is_higher_better, target, info, sort_order, is_leading) select id, v.name, '', true, 0, v.info, v.ord, true from pillars, (values
-  ('Moves - Projection Day Shift',   'Forecast of tomorrow''s day-shift moves — used to flag resourcing gaps ahead of time.', 20),
-  ('Moves - Projection Night Shift', 'Forecast of tomorrow''s night-shift moves — used to flag resourcing gaps ahead of time.', 21),
-  ('TEUs Run Rate (Forecast)',       'Forward-looking TEU throughput forecast, used to flag capacity/resourcing risk.', 22),
-  ('Lashing - Projection Next Shift','Forecast of lashing gang requirement for the next shift.', 23)
-) as v(name, info, ord) where pillars.code = 'D';
+-- ---- Leading KPIs (Next 24 Hours board — numeric value, no target) --------
+-- Units reflect what the sheet's "Next 24hrs" tab actually contains: raw
+-- projected counts/rates for most, % (raw value × 100, same convention as
+-- the app's other ratio KPIs) for the two QC PM & Service ones.
+insert into kpis (pillar_id, name, unit, is_higher_better, target, info, sort_order, is_leading) select id, v.name, v.unit, true, 0, v.info, v.ord, true from pillars, (values
+  ('Moves - Projection Day Shift',   'Moves', 'Forecast of tomorrow''s day-shift moves — used to flag resourcing gaps ahead of time.', 20),
+  ('Moves - Projection Night Shift', 'Moves', 'Forecast of tomorrow''s night-shift moves — used to flag resourcing gaps ahead of time.', 21),
+  ('TEUs Run Rate (Forecast)',       'TEUs',  'Forward-looking TEU throughput forecast, used to flag capacity/resourcing risk.', 22),
+  ('Lashing - Projection Next Shift','Gangs', 'Forecast of lashing gang requirement for the next shift.', 23)
+) as v(name, unit, info, ord) where pillars.code = 'D';
 
-insert into kpis (pillar_id, name, unit, is_higher_better, target, info, sort_order, is_leading) select id, v.name, '', true, 0, v.info, v.ord, true from pillars, (values
-  ('QC Gang - Projection Next Shift', 'Forecast of QC gang labour supply needed for the next shift.', 20)
-) as v(name, info, ord) where pillars.code = 'Q';
+insert into kpis (pillar_id, name, unit, is_higher_better, target, info, sort_order, is_leading) select id, v.name, v.unit, true, 0, v.info, v.ord, true from pillars, (values
+  ('QC Gang - Projection Next Shift', 'Gangs', 'Forecast of QC gang labour supply needed for the next shift.', 20)
+) as v(name, unit, info, ord) where pillars.code = 'Q';
 
-insert into kpis (pillar_id, name, unit, is_higher_better, target, info, sort_order, is_leading) select id, v.name, '', true, 0, v.info, v.ord, true from pillars, (values
-  ('QC PM & Service - MTD',                 'Month-to-date view of preventive maintenance & service completed, discussed forward-looking against plan.', 20),
-  ('QC PM & Service - Projection Next Day', 'Forecast of preventive maintenance & service planned for the next day.', 21)
-) as v(name, info, ord) where pillars.code = 'C';
+insert into kpis (pillar_id, name, unit, is_higher_better, target, info, sort_order, is_leading) select id, v.name, v.unit, true, 0, v.info, v.ord, true from pillars, (values
+  ('QC PM & Service - MTD',                 '%', 'Month-to-date view of preventive maintenance & service completed, discussed forward-looking against plan.', 20),
+  ('QC PM & Service - Projection Next Day', '%', 'Forecast of preventive maintenance & service planned for the next day.', 21)
+) as v(name, unit, info, ord) where pillars.code = 'C';
 
 -- ---- KPI assignments (who is responsible for updating each KPI) -----------
 -- Only lagging KPIs are assigned — leading KPIs are forecast on the Forward
@@ -313,23 +320,21 @@ select p.id, k.id, 'Unplanned absenteeism',
 from pillars p join kpis k on k.pillar_id = p.id and k.name = 'Labour Supply as Required – QC Gang (Day)'
 where p.code = 'Q';
 
--- ---- Demo Forward Looking cards (leading KPIs, today/tomorrow/day after) --
-insert into forecast_cards (kpi_id, pillar_id, target_date, note, owner_name)
-select k.id, k.pillar_id, current_date,
-  'Two mainliner calls back-to-back — expect ~13,000 moves, need full gang complement.', 'Hassan'
-from kpis k where k.name = 'Moves - Projection Day Shift';
-
-insert into forecast_cards (kpi_id, pillar_id, target_date, note, owner_name)
-select k.id, k.pillar_id, current_date,
-  'Lighter night vessel call — lashing gang can be trimmed by one team.', 'Marcus'
-from kpis k where k.name = 'Lashing - Projection Next Shift';
-
-insert into forecast_cards (kpi_id, pillar_id, target_date, note, owner_name)
-select k.id, k.pillar_id, current_date + 1,
-  'Two QC operators due for certification renewal — confirm backfill gang.', 'Farah'
-from kpis k where k.name = 'QC Gang - Projection Next Shift';
-
-insert into forecast_cards (kpi_id, pillar_id, target_date, note, owner_name)
-select k.id, k.pillar_id, current_date + 2,
-  'Scheduled crane service due — plan for reduced GMPH that day.', 'Zaid'
-from kpis k where k.name = 'QC PM & Service - Projection Next Day';
+-- ---- Demo leading KPI figures (Next 24 Hours board) -------------------------
+-- One row per leading KPI for today, in the same shape the real Admin Daily
+-- upload writes from the workbook's "Next 24hrs" tab — a plain projected
+-- number, no target/pass-fail. (forecast_cards is no longer written to by
+-- the app — the Next 24 Hours board reads leading_entries instead — so no
+-- demo rows are seeded there any more.)
+insert into leading_entries (kpi_id, entry_date, value)
+select k.id, current_date, v.value
+from kpis k join (values
+  ('Moves - Projection Day Shift',             12400),
+  ('Moves - Projection Night Shift',           11800),
+  ('TEUs Run Rate (Forecast)',                1250000),
+  ('Lashing - Projection Next Shift',               49),
+  ('QC Gang - Projection Next Shift',               49),
+  ('QC PM & Service - MTD',                       82.0),
+  ('QC PM & Service - Projection Next Day',       88.0)
+) as v(name, value) on v.name = k.name
+on conflict (kpi_id, entry_date) do nothing;

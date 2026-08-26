@@ -2,7 +2,7 @@ import ExcelJS from 'exceljs';
 import { getISOWeekYear } from 'date-fns';
 import { metTarget } from '../types';
 import type { Kpi } from '../types';
-import type { UploadDailyRow, UploadWeeklyRow } from './data';
+import type { UploadDailyRow, UploadLeadingRow, UploadWeeklyRow } from './data';
 
 // ============================================================================
 // Column mapping — OPS SQDC Daily.xlsx / OPS SQDC Weekly.xlsx are a fixed,
@@ -284,6 +284,92 @@ export async function parseWeeklyWorkbook(buffer: ArrayBuffer, kpis: Kpi[], uplo
         met_target: metTarget(kpi, kpi.target, actual),
         uploaded_by: uploadedBy,
       });
+    }
+  }
+
+  return { rows, warnings, rowsRead };
+}
+
+export interface ParsedLeadingResult {
+  rows: UploadLeadingRow[];
+  warnings: string[];
+  rowsRead: number;
+}
+
+/** Parses the "Next 24hrs" sheet of the Daily workbook — one row per date,
+ * one column per leading KPI, each cell a plain projected number (no
+ * target). Unlike the Daily Database mapping above, headers here are
+ * matched directly against `kpis.name` rather than through a translation
+ * table, since the sheet's column headers already are the exact KPI names. */
+export async function parseNext24hrsWorkbook(
+  buffer: ArrayBuffer,
+  leadingKpis: Kpi[],
+  uploadedBy: string | null
+): Promise<ParsedLeadingResult> {
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buffer);
+  const sheet = wb.worksheets.find((s) => /next\s*24/i.test(s.name));
+  if (!sheet) {
+    return {
+      rows: [],
+      warnings: ['No "Next 24hrs" sheet found in this file — leading KPI figures were not updated.'],
+      rowsRead: 0,
+    };
+  }
+
+  const kpiByName = new Map(leadingKpis.map((k) => [k.name, k]));
+
+  // Header row: whichever row has the most cells matching a known leading
+  // KPI name (defensive — the known template has it in row 3).
+  let headerRowNum = -1;
+  let bestMatchCount = 0;
+  for (let r = 1; r <= Math.min(sheet.rowCount, 10); r++) {
+    const row = sheet.getRow(r);
+    let matches = 0;
+    for (let c = 1; c <= sheet.columnCount; c++) {
+      if (kpiByName.has(norm(row.getCell(c).value))) matches++;
+    }
+    if (matches > bestMatchCount) {
+      bestMatchCount = matches;
+      headerRowNum = r;
+    }
+  }
+  if (headerRowNum === -1) {
+    return {
+      rows: [],
+      warnings: [
+        'Could not find the "Next 24hrs" header row (expected leading KPI names as column headings) — leading KPI figures were not updated.',
+      ],
+      rowsRead: 0,
+    };
+  }
+
+  const headerRow = sheet.getRow(headerRowNum);
+  const colCount = sheet.columnCount;
+  const cols: { col: number; kpi: Kpi }[] = [];
+  for (let c = 1; c <= colCount; c++) {
+    const kpi = kpiByName.get(norm(headerRow.getCell(c).value));
+    if (kpi) cols.push({ col: c, kpi });
+  }
+
+  const warnings: string[] = leadingKpis
+    .filter((k) => !cols.some((c) => c.kpi.id === k.id))
+    .map((k) => `"${k.name}" has no matching column in the Next 24hrs sheet — skipped.`);
+
+  const rows: UploadLeadingRow[] = [];
+  let rowsRead = 0;
+
+  for (let r = headerRowNum + 1; r <= sheet.rowCount; r++) {
+    const row = sheet.getRow(r);
+    const date = cellDate(row.getCell(2).value); // column B, known template
+    if (!date) continue; // blank/trailer row
+    rowsRead++;
+    const dateStr = date.toISOString().slice(0, 10);
+
+    for (const { col, kpi } of cols) {
+      const raw = cellNumber(row.getCell(col).value);
+      if (raw === null) continue; // not yet entered for this date
+      rows.push({ kpi_id: kpi.id, entry_date: dateStr, value: convertValue(raw, kpi), uploaded_by: uploadedBy });
     }
   }
 

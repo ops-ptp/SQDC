@@ -901,7 +901,8 @@ p {
 }
 
 /* ---------------- Next 24 Hours board ---------------- */
-/* Single "Today" column only — Tomorrow/Day After were removed per spec.
+/* One section per pillar, each holding that pillar's leading KPI cards —
+ * read-only, values come from the Admin Daily upload's Next 24hrs sheet.
  * Uses the standard .page width (not narrowed) so the title and content
  * line up flush left under the navbar like every other page. */
 .fl-board {
@@ -1017,64 +1018,32 @@ p {
 .fl-card-kpi {
   font-size: 13px;
   font-weight: 700;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 
-.fl-card-note {
-  font-size: 13px;
+.fl-card-value {
+  font-size: 22px;
+  font-weight: 800;
   color: var(--text);
-  line-height: 1.4;
-  margin-bottom: 8px;
-  white-space: pre-wrap;
+  line-height: 1.15;
 }
 
-.fl-card-owner {
+.fl-card-unit {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-left: 4px;
+}
+
+.fl-card-asof {
   font-size: 11.5px;
   color: var(--muted);
   font-weight: 600;
-  margin-bottom: 8px;
+  margin-top: 4px;
 }
 
-.fl-card-actions {
-  display: flex;
-  gap: 6px;
-  justify-content: flex-end;
-}
-
-.fl-btn-danger {
-  color: var(--bad);
-}
-
-.fl-card-form {
-  display: flex;
-  flex-direction: column;
-}
-
-.fl-card-form .input {
-  margin-bottom: 8px;
-}
-
-.fl-textarea {
-  resize: vertical;
-  font-family: inherit;
-}
-
-.fl-card-new {
-  border-left-color: var(--primary);
-}
-
-.fl-add-btn {
-  border: 1px dashed var(--border);
-  background: transparent;
-  color: var(--muted);
-  border-radius: 10px;
-  padding: 10px;
+.fl-card-nodata {
   font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.fl-add-btn:hover {
-  background: rgba(255, 255, 255, 0.6);
-  color: var(--text);
+  color: var(--muted);
+  font-style: italic;
 }
