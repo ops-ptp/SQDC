@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { format, startOfMonth, getDaysInMonth, startOfWeek, subWeeks, subDays, addDays, getISOWeek, getISOWeekYear } from 'date-fns';
 import { fetchActions, fetchEntriesForKpi, fetchEntriesForKpisOnDate, fetchReasonsForKpi, fetchWeeklyEntriesForKpiBase } from '../lib/data';
 import { useEmployee } from '../context/EmployeeContext';
-import { metTarget, PILLAR_COLORS, type ActionItem, type DailyEntry, type Kpi, type Pillar, type PerformanceStatus, type WeeklyEntry } from '../types';
+import { metTarget, PILLAR_COLORS, round2, type ActionItem, type DailyEntry, type Kpi, type Pillar, type PerformanceStatus, type WeeklyEntry } from '../types';
 import KpiRunChart, { type RunPoint } from './KpiRunChart';
 import ParetoChart, { type ParetoDatum } from './ParetoChart';
 import ActionTable from './ActionTable';
@@ -439,13 +439,13 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily', sh
             <div>
               <h3>{selectedGroup.label}</h3>
               <span className="muted">
-                Target {selectedGroup.target} {selectedGroup.unit}
+                Target {round2(selectedGroup.target)} {selectedGroup.unit}
               </span>
             </div>
             <div className="headline-values">
               {selectedGroup.single ? (
                 <div className={`headline-value ${referenceSingleEntry ? (groupMetTarget(selectedGroup, referenceSingleEntry.actual, referenceSingleEntry.target) ? 'value-good' : 'value-bad') : 'value-nodata'}`}>
-                  {referenceSingleEntry ? referenceSingleEntry.actual : '—'}
+                  {referenceSingleEntry ? round2(referenceSingleEntry.actual) : '—'}
                   <span className="headline-unit">{selectedGroup.unit}</span>
                 </div>
               ) : (
@@ -453,14 +453,14 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily', sh
                   <div className="headline-shift">
                     <span className="headline-shift-label">Day</span>
                     <span className={`headline-value ${referenceDayEntry ? (groupMetTarget(selectedGroup, referenceDayEntry.actual, referenceDayEntry.target) ? 'value-good' : 'value-bad') : 'value-nodata'}`}>
-                      {referenceDayEntry ? referenceDayEntry.actual : '—'}
+                      {referenceDayEntry ? round2(referenceDayEntry.actual) : '—'}
                       <span className="headline-unit">{selectedGroup.unit}</span>
                     </span>
                   </div>
                   <div className="headline-shift">
                     <span className="headline-shift-label">Night</span>
                     <span className={`headline-value ${referenceNightEntry ? (groupMetTarget(selectedGroup, referenceNightEntry.actual, referenceNightEntry.target) ? 'value-good' : 'value-bad') : 'value-nodata'}`}>
-                      {referenceNightEntry ? referenceNightEntry.actual : '—'}
+                      {referenceNightEntry ? round2(referenceNightEntry.actual) : '—'}
                       <span className="headline-unit">{selectedGroup.unit}</span>
                     </span>
                   </div>
