@@ -312,6 +312,14 @@ export async function parseDailyTargetSheet(buffer: ArrayBuffer, kpis: Kpi[]): P
   const warnings: string[] = [];
   const targets: UploadTargetRow[] = [];
   let rowsRead = 0;
+  // An unsplit KPI (no "(Day)"/"(Night)" catalog rows — e.g. QC Preventive
+  // Maintenance & Service, Average Litres per Vessel Call) has both a Day
+  // and a Night row in this sheet for the same date, and both resolve to
+  // the SAME single kpi_id — without deduping, that pushes two rows with
+  // an identical (kpi_id, entry_date) key into one upsert batch, which
+  // Postgres rejects outright ("ON CONFLICT DO UPDATE command cannot affect
+  // row a second time"), matching parseDailyWorkbook's `singleWritten` dedup.
+  const written = new Set<string>();
 
   for (let r = headerRowNum + 1; r <= sheet.rowCount; r++) {
     const row = sheet.getRow(r);
@@ -329,6 +337,9 @@ export async function parseDailyTargetSheet(buffer: ArrayBuffer, kpis: Kpi[]): P
       for (const base of bases) {
         const kpi = findShiftKpi(kpis, base, shift) ?? findRepresentativeKpi(kpis, base);
         if (!kpi) continue; // unmapped KPI — already warned about during the Daily Database parse
+        const key = `${kpi.id}|${dateStr}`;
+        if (written.has(key)) continue;
+        written.add(key);
         targets.push({ kpi_id: kpi.id, entry_date: dateStr, target: convertValue(raw, kpi) });
       }
     }
