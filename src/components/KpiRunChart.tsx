@@ -24,6 +24,11 @@ export interface RunPoint {
   dayMet: boolean | null;
   nightMet: boolean | null;
   avgMet: boolean | null;
+  /** Old-calculation Day/Night figures (Mainliner Load GMPH only) — plotted
+   * as dimmed, thinner reference lines alongside the primary (new
+   * calculation) ones. No pass/fail semantics of their own. */
+  oldDayActual?: number | null;
+  oldNightActual?: number | null;
 }
 
 interface Props {
@@ -31,13 +36,21 @@ interface Props {
   unit: string;
   /** false for KPIs with no Day/Night split — only the single "Actual" line is shown. */
   showDayNight: boolean;
+  /** true only for Mainliner Load GMPH — adds two dimmed, thinner Day/Night
+   * lines for the old calculation alongside the normal-weight new ones, so
+   * the two methods' figures can be visually compared on one chart. */
+  showOldCalc?: boolean;
 }
 
 // Day is dark orange, Night is dark blue — per spec, not the softer defaults
-// recharts would otherwise pick.
+// recharts would otherwise pick. Old-calculation lines reuse the same hues
+// at reduced opacity so they read as "the same series, superseded" rather
+// than an unrelated third color.
 const DAY_COLOR = '#c2410c';
 const NIGHT_COLOR = '#1e3a8a';
 const AVG_COLOR = '#1e293b';
+const DAY_COLOR_DIM = 'rgba(194, 65, 12, 0.4)';
+const NIGHT_COLOR_DIM = 'rgba(30, 58, 138, 0.4)';
 
 const formatYTick = (value: number) => new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(value);
 
@@ -64,6 +77,8 @@ function useYDomain(points: RunPoint[]): [number, number] {
       if (p.dayActual !== null) values.push(p.dayActual);
       if (p.nightActual !== null) values.push(p.nightActual);
       if (p.avgActual !== null) values.push(p.avgActual);
+      if (p.oldDayActual != null) values.push(p.oldDayActual);
+      if (p.oldNightActual != null) values.push(p.oldNightActual);
       values.push(p.target);
     }
     if (values.length === 0) return [0, 1];
@@ -79,7 +94,7 @@ function useYDomain(points: RunPoint[]): [number, number] {
   }, [points]);
 }
 
-export default function KpiRunChart({ points, unit, showDayNight }: Props) {
+export default function KpiRunChart({ points, unit, showDayNight, showOldCalc = false }: Props) {
   const [yMin, yMax] = useYDomain(points);
   const hasData = points.some((p) => p.dayActual !== null || p.nightActual !== null || p.avgActual !== null);
 
@@ -163,6 +178,32 @@ export default function KpiRunChart({ points, unit, showDayNight }: Props) {
               strokeWidth={2.25}
               dot={makeStatusDot('avgMet', AVG_COLOR)}
               activeDot={{ r: 4.5 }}
+              connectNulls
+              isAnimationActive={false}
+            />
+          )}
+          {showOldCalc && (
+            <Line
+              type="monotone"
+              dataKey="oldDayActual"
+              name="Day (old calc)"
+              stroke={DAY_COLOR_DIM}
+              strokeWidth={1}
+              dot={false}
+              activeDot={{ r: 3 }}
+              connectNulls
+              isAnimationActive={false}
+            />
+          )}
+          {showOldCalc && (
+            <Line
+              type="monotone"
+              dataKey="oldNightActual"
+              name="Night (old calc)"
+              stroke={NIGHT_COLOR_DIM}
+              strokeWidth={1}
+              dot={false}
+              activeDot={{ r: 3 }}
               connectNulls
               isAnimationActive={false}
             />

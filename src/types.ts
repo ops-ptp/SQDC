@@ -30,6 +30,11 @@ export interface Kpi {
    * Average Litres per Vessel Call) — everything else is remarks-only, its
    * Performance values coming from the Admin Excel upload instead. */
   manual_entry: boolean;
+  /** True for a secondary/comparison metric (e.g. "Mainliner Load GMPH
+   * (Old)", the superseded calculation kept for reference next to the
+   * current figure) — never itself selectable in Enter Remarks or the
+   * Action Log's KPI picker, and never counted in "needs a remark". */
+  is_secondary: boolean;
 }
 
 export interface KpiWithPillar extends Kpi {

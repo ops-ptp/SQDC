@@ -12,6 +12,14 @@ function formatValue(value: number, unit: string): string {
   return new Intl.NumberFormat('en', { maximumFractionDigits: 2 }).format(value);
 }
 
+// Requested board order: Quality, Delivery, Cost (Safety has no leading
+// KPIs today, but is placed last as a safe default if one is ever added).
+const PILLAR_DISPLAY_ORDER = ['Q', 'D', 'C', 'S'];
+function pillarOrderIndex(code: string): number {
+  const idx = PILLAR_DISPLAY_ORDER.indexOf(code);
+  return idx === -1 ? PILLAR_DISPLAY_ORDER.length : idx;
+}
+
 export default function ForwardLooking() {
   const [kpis, setKpis] = useState<KpiWithPillar[]>([]);
   const [entries, setEntries] = useState<LeadingEntry[]>([]);
@@ -44,7 +52,8 @@ export default function ForwardLooking() {
 
   const entryByKpi = useMemo(() => new Map(entries.map((e) => [e.kpi_id, e])), [entries]);
 
-  // Group the leading KPI catalog by pillar, in catalog sort order.
+  // Group the leading KPI catalog by pillar, in catalog sort order, then
+  // reorder the sections themselves to Quality, Delivery, Cost.
   const groups = useMemo(() => {
     const byPillar = new Map<string, { pillar: KpiWithPillar['pillar']; kpis: KpiWithPillar[] }>();
     for (const k of kpis) {
@@ -52,7 +61,7 @@ export default function ForwardLooking() {
       if (!byPillar.has(key)) byPillar.set(key, { pillar: k.pillar, kpis: [] });
       byPillar.get(key)!.kpis.push(k);
     }
-    return Array.from(byPillar.values());
+    return Array.from(byPillar.values()).sort((a, b) => pillarOrderIndex(a.pillar.code) - pillarOrderIndex(b.pillar.code));
   }, [kpis]);
 
   if (loading) return <div className="page-loading">Loading Next 24 Hours board…</div>;

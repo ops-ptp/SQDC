@@ -43,7 +43,7 @@ export default function ActionLog() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const kpisForFormPillar = useMemo(() => kpis.filter((k) => k.pillar_id === form.pillar_id), [kpis, form.pillar_id]);
+  const kpisForFormPillar = useMemo(() => kpis.filter((k) => k.pillar_id === form.pillar_id && !k.is_secondary), [kpis, form.pillar_id]);
 
   const grouped = useMemo(() => {
     const filtered = filterPillar === 'all' ? actions : actions.filter((a) => a.pillar_id === filterPillar);

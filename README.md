@@ -162,7 +162,12 @@ A few modeling decisions worth knowing about:
 | Curated reasons feeding the Pareto, picked when a daily entry misses target | `reasons` |
 | Action list (Related reason/issue, Action, Owner, Deadline, Status) | `actions` (`status`: not_started / in_progress / dropped / completed — "Overdue" is a 5th *display* state derived client-side from `status` + `deadline`, not stored) |
 | Next 24 Hours leading KPI values, one row per KPI per day | `leading_entries` |
+| Per-day/shift KPI target, from the Daily workbook's Target sheet | `kpi_daily_targets` (falls back to `kpis.target` when no row exists yet) |
 | Who can see/use the Admin tab | `employees.is_admin` |
+
+`kpis.is_secondary` marks a comparison-only metric (currently just Mainliner
+Load GMPH's old-calculation pair) — shown on the Board as a dimmed secondary
+number/line, but excluded from Enter Remarks and the Action Log's KPI picker.
 
 Most lagging KPIs are still stored as two DB rows — e.g. `kpis` rows named
 `"Moves (Day)"` and `"Moves (Night)"` — but the **Board only shows one pill per
@@ -205,21 +210,53 @@ parsed entirely in the browser (via `exceljs`, see "Why exceljs, not xlsx"
 below) and written straight to Supabase. Parsing logic lives in
 `src/lib/excelUpload.ts`.
 
-- **Daily upload** reads the "Daily Database" sheet (Date + Day/Night shift
-  rows) and **upserts `daily_entries` by `(kpi_id, entry_date)`** — re-uploading
-  updates matching rows only, every other date is untouched. A handful of the
-  sheet's column headers don't match this app's KPI names 1:1 (documented in
-  `excelUpload.ts`) — e.g. "Labour Supply (QC Gang)" → "Labour Supply as
-  Required – QC Gang", "Truck Turnaround Time >1 hour" → "Gate Truck Waiting
-  Time >1 hour", and "Mainliner Load GMPH (new calculation)" is preferred over
-  "(old calculation)" when both are present. Percentage-style KPIs are
-  converted the same way as the seed data (raw × 100).
+- **Daily upload** reads three tabs from one workbook — **Daily Database**,
+  **Target**, and **Next 24hrs** — in that order, since Target's values feed
+  Daily Database's own target snapshot. Date is column A, Shift is column B
+  in the real file (detected by header text, not hardcoded, since an earlier
+  version of the sheet had them one column over — worth knowing if the
+  layout ever shifts again). **Upserts `daily_entries` by `(kpi_id,
+  entry_date)`** — re-uploading updates matching rows only, every other date
+  is untouched. A handful of column headers don't match this app's KPI names
+  1:1 (documented in `excelUpload.ts`) — e.g. "Labour Supply (QC Gang)" →
+  "Labour Supply as Required – QC Gang", "Truck Turnaround Time >1 hour" →
+  "Gate Truck Waiting Time >1 hour". Percentage-style KPIs are converted the
+  same way as the seed data (raw × 100).
+- **Target sheet → per-day/shift targets, for every KPI.** Unlike a single
+  flat target row, this tab is Date+Shift rows just like Daily Database, so a
+  KPI's target can genuinely change over time (confirmed from the real
+  file — several KPIs step to a new target partway through). Parsed into
+  `kpi_daily_targets` (`kpi_id`, `entry_date`, `target`); the Daily upload
+  looks a row up there first when snapshotting each `daily_entries.target`,
+  falling back to the `kpis.target` catalog value only when no Target-sheet
+  row exists yet. Enter Remarks does the same lookup for the 3 manual-entry
+  KPIs, so a manually-typed value is judged against the right day's target.
+  A textual threshold like "≤425" (seen on Average Litres per Vessel Call)
+  has its numeric part extracted automatically.
+- **Mainliner Load GMPH — both calculations captured.** The sheet's "(old
+  calculation)" and "(new calculation)" columns are both written now (the
+  old calculation used to be discarded, keeping only new). New calculation
+  goes to the existing "Mainliner Load GMPH (Day)"/"(Night)" KPIs (unchanged
+  meaning — this is what drives the letter grid and remark-required logic);
+  old calculation goes to new `is_secondary = true` KPIs, "Mainliner Load
+  GMPH (Old) (Day)"/"(Night)", shown as a dimmed secondary number on the
+  headline and two dimmed/thinner lines on the same trend chart. Secondary
+  KPIs never appear in Enter Remarks or the Action Log's KPI picker, and the
+  Target sheet's single "Mainliner Load GMPH" column applies to both.
 - **The 3 manual-entry KPIs are still read from the Daily upload** (their
   columns exist in the sheet) **but only as a fallback** — before writing,
   the upload checks which `(kpi_id, date)` pairs already have
   `is_manual_override = true` and skips those rows entirely, so a value a
   person typed into Enter Remarks is never silently overwritten by a later
   upload. The upload's own writes always set `is_manual_override = false`.
+- **New spreadsheet columns are auto-created in the catalog.** If Daily
+  Database or Next 24hrs has a column whose header doesn't match any known
+  KPI (e.g. a newly added "Yard Density Projection"), the upload creates a
+  best-guess `kpis` row for it before parsing the rest of the file — pillar
+  guessed from the merged category header above the column ("QUALITY" →
+  Quality), unit blank, target 0, higher-is-better — so that same upload's
+  values land immediately. Review/fix the guessed fields afterward in the
+  Admin page's **KPI Management** table.
 - **Weekly upload** reads the "Weekly Database" sheet (ISO week rows, e.g.
   "Week 27") and **upserts `weekly_entries` by `(pillar_id, kpi_base_name,
   iso_year, iso_week)`**. Two things worth knowing: the sheet's week labels
@@ -227,7 +264,8 @@ below) and written straight to Supabase. Parsing logic lives in
   a warning after each upload); and the sheet's figures are already blended
   (no Day/Night split) while most KPIs only exist as split rows in `kpis` —
   so `weekly_entries` is keyed by KPI *base name* + pillar instead of a
-  `kpi_id` FK.
+  `kpi_id` FK. The Weekly upload's target is still a flat catalog value —
+  the per-date Target sheet above is a Daily-workbook-only concept for now.
 - **The Weekly board view** aggregates live from `daily_entries` first (same
   as before); for any of the last-8-ISO-weeks that has **no daily data
   logged at all**, it falls back to `weekly_entries` if a row exists for that
@@ -244,7 +282,20 @@ below) and written straight to Supabase. Parsing logic lives in
   entered) only writes the columns that have a value — it doesn't clear or
   skip the others. The Next 24 Hours board always shows each KPI's most
   recently uploaded value, so re-uploading with a new day's row just
-  advances the board forward.
+  advances the board forward. Sections are shown in Quality → Delivery →
+  Cost order.
+
+### KPI Management (Admin page)
+
+One combined, editable list of every KPI — Board (lagging) and Next 24 Hours
+(leading) together — for showing/hiding and fixing up auto-created entries.
+"Visible" maps straight to `kpis.active`: it's **one global setting for the
+whole board**, not a per-admin saved view, since this is a shared shift
+screen. Edits (pillar, unit, target, higher/lower-is-good, visibility) are
+staged locally and committed together via "Save changes". A KPI flagged
+`is_secondary` (currently just Mainliner Load GMPH's old-calculation pair) is
+labeled as such in the list — it's a real, editable catalog row, just never
+offered as its own remarks/action target elsewhere in the app.
 
 ### Why exceljs, not xlsx
 

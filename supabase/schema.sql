@@ -372,3 +372,73 @@ update kpis set unit = 'Moves' where name in ('Moves - Projection Day Shift', 'M
 update kpis set unit = 'TEUs' where name = 'TEUs Run Rate (Forecast)';
 update kpis set unit = 'Gangs' where name in ('QC Gang - Projection Next Shift', 'Lashing - Projection Next Shift');
 update kpis set unit = '%' where name in ('QC PM & Service - MTD', 'QC PM & Service - Projection Next Day');
+
+-- ============================================================================
+-- MIGRATION (2026-08-27): per-date/shift Target sheet, Mainliner Load GMPH
+-- old-calculation secondary metric, and Admin KPI catalog management
+-- ============================================================================
+-- Three changes, all driven by the restructured OPS_SQDC_-_Daily.xlsx
+-- (now 3 tabs: Daily Database / Target / Next 24hrs, all in one file):
+--
+--   * kpi_daily_targets — the Target tab is no longer a single flat target
+--     row; it's now Date+Shift rows just like Daily Database, so a KPI's
+--     target can genuinely change over time (confirmed from the real file —
+--     e.g. Labour Supply's target steps down mid-month). This table holds
+--     that per-(kpi, date) target, populated by the Admin Daily upload.
+--     daily_entries.target keeps meaning "snapshot at entry time" — the
+--     Admin upload looks up this table first and falls back to the kpis.target
+--     catalog value only when no row exists yet (same fallback pattern the
+--     Moves KPI already used before this table existed). Manual-entry KPIs
+--     (Accident, QC PM & Service, Litres/Vessel) also read their target from
+--     here now — Enter Remarks looks it up for the date being entered.
+--
+--   * kpis.is_secondary — marks a KPI as a secondary/comparison metric that
+--     should never appear as its own selectable item in Enter Remarks or the
+--     Action Log's KPI picker, and is excluded from "needs a remark" counts.
+--     Used for "Mainliner Load GMPH (Old)", added below: the sheet's old
+--     calculation method, kept only as a dimmed secondary line/number next
+--     to the current ("new calculation") figure — never itself judged
+--     pass/fail. The existing "Mainliner Load GMPH (Day)"/"(Night)" rows are
+--     unchanged and keep meaning the new calculation.
+--
+--   * Admin's new combined KPI Management screen (show/hide + edit) needs no
+--     new schema — it reads/writes the existing kpis.active, unit, target,
+--     is_higher_better, pillar_id columns directly. "Save view" is a single
+--     global state (kpis.active), not per-admin presets, per your answer.
+-- ----------------------------------------------------------------------------
+
+alter table kpis add column if not exists is_secondary boolean not null default false;
+
+create table if not exists kpi_daily_targets (
+  id          uuid primary key default gen_random_uuid(),
+  kpi_id      uuid not null references kpis(id) on delete cascade,
+  entry_date  date not null,
+  target      numeric not null,
+  updated_at  timestamptz not null default now(),
+  unique (kpi_id, entry_date)
+);
+
+drop trigger if exists trg_kpi_daily_targets_updated_at on kpi_daily_targets;
+create trigger trg_kpi_daily_targets_updated_at
+  before update on kpi_daily_targets
+  for each row execute function set_updated_at();
+
+alter table kpi_daily_targets enable row level security;
+
+drop policy if exists anon_all_kpi_daily_targets on kpi_daily_targets;
+create policy anon_all_kpi_daily_targets on kpi_daily_targets for all using (true) with check (true);
+
+-- "Mainliner Load GMPH (Old) (Day)"/"(Night)" — created from the existing
+-- new-calculation rows so pillar/unit/target/shift-split match exactly.
+-- Guarded by NOT EXISTS so this is safe to re-run.
+insert into kpis (pillar_id, name, unit, is_higher_better, target, info, sort_order, is_leading, manual_entry, is_secondary)
+select k.pillar_id,
+       replace(k.name, 'Mainliner Load GMPH', 'Mainliner Load GMPH (Old)'),
+       k.unit, k.is_higher_better, k.target,
+       'Superseded calculation method, shown for comparison only — "Mainliner Load GMPH" (new calculation) is the current figure and the one judged against target.',
+       k.sort_order, k.is_leading, k.manual_entry, true
+from kpis k
+where k.name in ('Mainliner Load GMPH (Day)', 'Mainliner Load GMPH (Night)')
+  and not exists (
+    select 1 from kpis k2 where k2.name = replace(k.name, 'Mainliner Load GMPH', 'Mainliner Load GMPH (Old)')
+  );

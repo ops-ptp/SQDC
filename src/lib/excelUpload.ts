@@ -2,7 +2,7 @@ import ExcelJS from 'exceljs';
 import { getISOWeekYear } from 'date-fns';
 import { metTarget } from '../types';
 import type { Kpi } from '../types';
-import type { UploadDailyRow, UploadLeadingRow, UploadWeeklyRow } from './data';
+import type { UploadDailyRow, UploadLeadingRow, UploadTargetRow, UploadWeeklyRow } from './data';
 
 // ============================================================================
 // Column mapping — OPS SQDC Daily.xlsx / OPS SQDC Weekly.xlsx are a fixed,
@@ -20,6 +20,7 @@ const DAILY_HEADER_TO_BASE: Record<string, string> = {
   // Sheet says "Labour Supply (QC Gang)"; the seeded KPI is named
   // "Labour Supply as Required – QC Gang".
   'Labour Supply (QC Gang)': 'Labour Supply as Required – QC Gang',
+  Moves: 'Moves',
   'GMPH Mainliner': 'GMPH Mainliner',
   'GMPH Feeder': 'GMPH Feeder',
   // Sheet says "Truck Turnaround Time >1 hour"; the seeded KPI is named
@@ -27,6 +28,25 @@ const DAILY_HEADER_TO_BASE: Record<string, string> = {
   'Truck Turnaround Time >1 hour': 'Gate Truck Waiting Time >1 hour',
   'QC Preventive Maintenance & Service': 'QC Preventive Maintenance & Service',
   'Average Litres per Vessel Call': 'Average Litres per Vessel Call',
+};
+
+// The Target tab's headers mostly match Daily Database's, with a couple of
+// its own quirks (confirmed from the real restructured file): "Labour
+// Supply" carries "& Lashing" in its header here, and "Mainliner Load GMPH"
+// is a single column (no old/new split) whose one target value applies to
+// BOTH the new- and old-calculation KPIs — hence two base names for that key.
+const TARGET_HEADER_TO_BASES: Record<string, string[]> = {
+  'Accident During Operation': ['Accident During Operation'],
+  'Delay – Waiting for CHE (L&D)': ['Delay – Waiting for CHE (L&D)'],
+  'Overall Mixing Yard': ['Overall Mixing Yard'],
+  'Labour Supply (QC Gang & Lashing)': ['Labour Supply as Required – QC Gang'],
+  Moves: ['Moves'],
+  'GMPH Mainliner': ['GMPH Mainliner'],
+  'GMPH Feeder': ['GMPH Feeder'],
+  'Mainliner Load GMPH': ['Mainliner Load GMPH', 'Mainliner Load GMPH (Old)'],
+  'Truck Turnaround Time >1 hour': ['Gate Truck Waiting Time >1 hour'],
+  'QC Preventive Maintenance & Service': ['QC Preventive Maintenance & Service'],
+  'Average Litres per Vessel Call': ['Average Litres per Vessel Call'],
 };
 
 const WEEKLY_HEADER_TO_BASE: Record<string, string> = {
@@ -39,6 +59,13 @@ const WEEKLY_HEADER_TO_BASE: Record<string, string> = {
   'QC Preventive Maintenance & Service': 'QC Preventive Maintenance & Service',
 };
 
+const CATEGORY_TO_PILLAR_CODE: Record<string, 'S' | 'Q' | 'D' | 'C'> = {
+  SAFETY: 'S',
+  QUALITY: 'Q',
+  DELIVERY: 'D',
+  COST: 'C',
+};
+
 function norm(s: unknown): string {
   return String(s ?? '').replace(/\s+/g, ' ').trim();
 }
@@ -49,6 +76,19 @@ function cellNumber(v: ExcelJS.CellValue): number | null {
   if (typeof v === 'string') {
     const n = Number(v.trim());
     return Number.isFinite(n) && v.trim() !== '' ? n : null;
+  }
+  return null;
+}
+
+/** Like cellNumber, but also handles a threshold written as text (e.g. the
+ * Target sheet's "Average Litres per Vessel Call" column contains the
+ * literal string "≤425" rather than a number) — pulls out the numeric part. */
+function cellNumberOrThreshold(v: ExcelJS.CellValue): number | null {
+  const n = cellNumber(v);
+  if (n !== null) return n;
+  if (typeof v === 'string') {
+    const m = /[\d.]+/.exec(v);
+    if (m) return Number(m[0]);
   }
   return null;
 }
@@ -86,6 +126,31 @@ function convertValue(raw: number, kpi: Kpi): number {
   return kpi.unit === '%' ? raw * 100 : raw;
 }
 
+/** Finds the header row (the row containing "Accident During Operation" as
+ * a column heading, scanning defensively within the first several rows) —
+ * shared by the Daily Database and Target sheets, which use the same
+ * layout. Returns -1 if not found. */
+function findHeaderRowByAccident(sheet: ExcelJS.Worksheet): number {
+  for (let r = 1; r <= Math.min(sheet.rowCount, 10); r++) {
+    const row = sheet.getRow(r);
+    if (Array.from({ length: row.cellCount }, (_, i) => norm(row.getCell(i + 1).value)).some((v) => v === 'Accident During Operation')) {
+      return r;
+    }
+  }
+  return -1;
+}
+
+/** Locates a column by its exact header text (case-insensitive), falling
+ * back to a hardcoded position when the label isn't present as text — the
+ * Target sheet's Date/Shift columns carry no header label of their own
+ * (confirmed from the real file), unlike Daily Database's labeled ones. */
+function findColumnByHeader(headers: string[], colCount: number, label: string, fallback: number): number {
+  for (let c = 1; c <= colCount; c++) {
+    if (headers[c]?.toLowerCase() === label.toLowerCase()) return c;
+  }
+  return fallback;
+}
+
 export interface ParsedDailyResult {
   rows: UploadDailyRow[];
   warnings: string[];
@@ -94,23 +159,24 @@ export interface ParsedDailyResult {
 
 /** Parses the "Daily Database" sheet of OPS SQDC Daily.xlsx into upsert-ready
  * daily_entries rows. Does NOT check manual-override protection — that's a
- * separate pre-write step in Admin.tsx (needs a DB round trip). */
-export async function parseDailyWorkbook(buffer: ArrayBuffer, kpis: Kpi[], uploadedBy: string | null): Promise<ParsedDailyResult> {
+ * separate pre-write step in Admin.tsx (needs a DB round trip).
+ *
+ * `targetMap` (keyed `${kpi_id}|${entry_date}`) comes from parsing the same
+ * workbook's Target sheet first — every KPI's row target is looked up there,
+ * falling back to the KPI catalog's fixed target only when no Target-sheet
+ * row exists yet for that date. */
+export async function parseDailyWorkbook(
+  buffer: ArrayBuffer,
+  kpis: Kpi[],
+  uploadedBy: string | null,
+  targetMap?: Map<string, number>
+): Promise<ParsedDailyResult> {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(buffer);
   const sheet = wb.worksheets.find((s) => /daily database/i.test(s.name)) ?? wb.worksheets[0];
   if (!sheet) throw new Error('Could not find a "Daily Database" sheet in this file.');
 
-  // Header row: the row containing "Accident During Operation" in column D
-  // onward (row 4 in the known template, but scan defensively).
-  let headerRowNum = -1;
-  for (let r = 1; r <= Math.min(sheet.rowCount, 10); r++) {
-    const row = sheet.getRow(r);
-    if (Array.from({ length: row.cellCount }, (_, i) => norm(row.getCell(i + 1).value)).some((v) => v === 'Accident During Operation')) {
-      headerRowNum = r;
-      break;
-    }
-  }
+  const headerRowNum = findHeaderRowByAccident(sheet);
   if (headerRowNum === -1) throw new Error('Could not find the header row (expected "Accident During Operation" as a column heading).');
 
   const headerRow = sheet.getRow(headerRowNum);
@@ -118,21 +184,18 @@ export async function parseDailyWorkbook(buffer: ArrayBuffer, kpis: Kpi[], uploa
   const headers: string[] = [];
   for (let c = 1; c <= colCount; c++) headers[c] = norm(headerRow.getCell(c).value);
 
-  // Moves: the merged "Moves" header has both a "Projection" sub-column and
-  // an "Actual" one. Projection is the day's real target (Moves has no fixed
-  // catalog target — it's re-projected daily), so it's written into the
-  // row's own `target` instead of falling back to the KPI catalog value.
-  let movesActualCol = -1;
-  let movesProjectionCol = -1;
-  for (let c = 1; c <= colCount; c++) {
-    if (headers[c] === 'Projection' && headers[c + 1] === 'Actual') {
-      movesProjectionCol = c;
-      movesActualCol = c + 1;
-      break;
-    }
-  }
+  // Date is column A, Shift is column B in the real file — detected by
+  // label text rather than hardcoded, so a future column reshuffle doesn't
+  // silently misread every row (this app already got bitten by one such
+  // reshuffle: an earlier version of this parser assumed Date/Shift sat one
+  // column over from where they actually are in this restructured file).
+  const dateCol = findColumnByHeader(headers, colCount, 'Date', 1);
+  const shiftCol = findColumnByHeader(headers, colCount, 'Shift', 2);
 
-  // Mainliner Load GMPH: prefer "(new calculation)", fall back to "(old calculation)".
+  // Mainliner Load GMPH: the sheet has separate old/new calculation columns.
+  // Both are now captured — new calculation into the existing "Mainliner
+  // Load GMPH (Day)/(Night)" KPIs (unchanged meaning), old calculation into
+  // the "(Old)" secondary KPIs — rather than discarding one as before.
   let mainlinerNewCol = -1;
   let mainlinerOldCol = -1;
   for (let c = 1; c <= colCount; c++) {
@@ -156,10 +219,9 @@ export async function parseDailyWorkbook(buffer: ArrayBuffer, kpis: Kpi[], uploa
 
   for (let r = headerRowNum + 1; r <= sheet.rowCount; r++) {
     const row = sheet.getRow(r);
-    const dateCell = row.getCell(2).value; // column B
-    const date = cellDate(dateCell);
+    const date = cellDate(row.getCell(dateCol).value);
     if (!date) continue; // blank/trailer row
-    const shiftRaw = norm(row.getCell(3).value); // column C
+    const shiftRaw = norm(row.getCell(shiftCol).value);
     const shift: 'Day' | 'Night' | null = /night/i.test(shiftRaw) ? 'Night' : /day/i.test(shiftRaw) ? 'Day' : null;
     if (!shift) {
       warnings.push(`Row ${r}: unrecognised shift "${shiftRaw}" — skipped.`);
@@ -168,10 +230,7 @@ export async function parseDailyWorkbook(buffer: ArrayBuffer, kpis: Kpi[], uploa
     rowsRead++;
     const dateStr = date.toISOString().slice(0, 10);
 
-    // `rawTarget`: when given, overrides the KPI catalog's fixed target with
-    // a value read from the sheet itself (e.g. Moves' daily "Projection"
-    // column) — the row keeps its own snapshotted target either way.
-    function writeValue(base: string, raw: number | null, rawTarget?: number | null) {
+    function writeValue(base: string, raw: number | null) {
       if (raw === null) return;
       const shiftKpi = findShiftKpi(kpis, base, shift!);
       const target = shiftKpi ?? findRepresentativeKpi(kpis, base);
@@ -189,7 +248,7 @@ export async function parseDailyWorkbook(buffer: ArrayBuffer, kpis: Kpi[], uploa
         return;
       }
       const actual = convertValue(raw, target);
-      const rowTarget = rawTarget != null ? convertValue(rawTarget, target) : target.target;
+      const rowTarget = targetMap?.get(`${target.id}|${dateStr}`) ?? target.target;
       rows.push({
         kpi_id: target.id,
         entry_date: dateStr,
@@ -201,22 +260,81 @@ export async function parseDailyWorkbook(buffer: ArrayBuffer, kpis: Kpi[], uploa
     }
 
     for (const { col, base } of simpleCols) writeValue(base, cellNumber(row.getCell(col).value));
-    if (movesActualCol > 0) {
-      const movesActual = cellNumber(row.getCell(movesActualCol).value);
-      const movesProjection = movesProjectionCol > 0 ? cellNumber(row.getCell(movesProjectionCol).value) : null;
-      if (movesActual !== null && movesProjection === null) {
-        warnings.push(`Moves (${shift}) on ${dateStr}: no Projection value found — used the catalog's fixed target instead.`);
-      }
-      writeValue('Moves', movesActual, movesProjection);
-    }
-    if (mainlinerNewCol > 0 || mainlinerOldCol > 0) {
-      const newVal = mainlinerNewCol > 0 ? cellNumber(row.getCell(mainlinerNewCol).value) : null;
-      const oldVal = mainlinerOldCol > 0 ? cellNumber(row.getCell(mainlinerOldCol).value) : null;
-      writeValue('Mainliner Load GMPH', newVal ?? oldVal);
-    }
+    if (mainlinerNewCol > 0) writeValue('Mainliner Load GMPH', cellNumber(row.getCell(mainlinerNewCol).value));
+    if (mainlinerOldCol > 0) writeValue('Mainliner Load GMPH (Old)', cellNumber(row.getCell(mainlinerOldCol).value));
   }
 
   return { rows, warnings, rowsRead };
+}
+
+export interface ParsedTargetResult {
+  targets: UploadTargetRow[];
+  warnings: string[];
+  rowsRead: number;
+}
+
+/** Parses the "Target" sheet of the Daily workbook — Date+Shift rows, one
+ * column per KPI, just like Daily Database. Unlike a single flat target
+ * row, this lets a KPI's target genuinely change over time (confirmed from
+ * the real file: several KPIs' targets step to a new value partway through
+ * the sheet). Feeds `kpi_daily_targets`, which the Admin upload consults
+ * when snapshotting each daily_entries row's own target. */
+export async function parseDailyTargetSheet(buffer: ArrayBuffer, kpis: Kpi[]): Promise<ParsedTargetResult> {
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buffer);
+  const sheet = wb.worksheets.find((s) => /^target$/i.test(s.name.trim()));
+  if (!sheet) {
+    return { targets: [], warnings: ['No "Target" sheet found in this file — per-day targets were not updated.'], rowsRead: 0 };
+  }
+
+  const headerRowNum = findHeaderRowByAccident(sheet);
+  if (headerRowNum === -1) {
+    return { targets: [], warnings: ["Could not find the Target sheet's header row — per-day targets were not updated."], rowsRead: 0 };
+  }
+
+  const headerRow = sheet.getRow(headerRowNum);
+  const colCount = sheet.columnCount;
+  const headers: string[] = [];
+  for (let c = 1; c <= colCount; c++) headers[c] = norm(headerRow.getCell(c).value);
+
+  // The Target sheet's Date/Shift columns carry no header text of their own
+  // (confirmed from the real file) — fall back to columns A/B, matching
+  // Daily Database's actual layout.
+  const dateCol = findColumnByHeader(headers, colCount, 'Date', 1);
+  const shiftCol = findColumnByHeader(headers, colCount, 'Shift', 2);
+
+  const cols: { col: number; bases: string[] }[] = [];
+  for (let c = 1; c <= colCount; c++) {
+    const bases = TARGET_HEADER_TO_BASES[headers[c]];
+    if (bases) cols.push({ col: c, bases });
+  }
+
+  const warnings: string[] = [];
+  const targets: UploadTargetRow[] = [];
+  let rowsRead = 0;
+
+  for (let r = headerRowNum + 1; r <= sheet.rowCount; r++) {
+    const row = sheet.getRow(r);
+    const date = cellDate(row.getCell(dateCol).value);
+    if (!date) continue; // blank/trailer row
+    const shiftRaw = norm(row.getCell(shiftCol).value);
+    const shift: 'Day' | 'Night' | null = /night/i.test(shiftRaw) ? 'Night' : /day/i.test(shiftRaw) ? 'Day' : null;
+    if (!shift) continue;
+    rowsRead++;
+    const dateStr = date.toISOString().slice(0, 10);
+
+    for (const { col, bases } of cols) {
+      const raw = cellNumberOrThreshold(row.getCell(col).value);
+      if (raw === null) continue;
+      for (const base of bases) {
+        const kpi = findShiftKpi(kpis, base, shift) ?? findRepresentativeKpi(kpis, base);
+        if (!kpi) continue; // unmapped KPI — already warned about during the Daily Database parse
+        targets.push({ kpi_id: kpi.id, entry_date: dateStr, target: convertValue(raw, kpi) });
+      }
+    }
+  }
+
+  return { targets, warnings, rowsRead };
 }
 
 export interface ParsedWeeklyResult {
@@ -234,14 +352,7 @@ export async function parseWeeklyWorkbook(buffer: ArrayBuffer, kpis: Kpi[], uplo
   const sheet = wb.worksheets.find((s) => /weekly database/i.test(s.name)) ?? wb.worksheets[0];
   if (!sheet) throw new Error('Could not find a "Weekly Database" sheet in this file.');
 
-  let headerRowNum = -1;
-  for (let r = 1; r <= Math.min(sheet.rowCount, 10); r++) {
-    const row = sheet.getRow(r);
-    if (Array.from({ length: row.cellCount }, (_, i) => norm(row.getCell(i + 1).value)).some((v) => v === 'Accident During Operation')) {
-      headerRowNum = r;
-      break;
-    }
-  }
+  const headerRowNum = findHeaderRowByAccident(sheet);
   if (headerRowNum === -1) throw new Error('Could not find the header row (expected "Accident During Operation" as a column heading).');
 
   const headerRow = sheet.getRow(headerRowNum);
@@ -374,4 +485,81 @@ export async function parseNext24hrsWorkbook(
   }
 
   return { rows, warnings, rowsRead };
+}
+
+export interface DetectedNewColumn {
+  header: string;
+  /** Best-guess pillar, read from the merged category header directly above
+   * the column (e.g. "QUALITY") — null when it can't be determined. */
+  categoryGuess: 'S' | 'Q' | 'D' | 'C' | null;
+}
+
+/** Scans the Daily Database sheet for column headers that don't map to any
+ * known KPI — i.e. a new column the admin added to the spreadsheet. Used by
+ * Admin.tsx to auto-create catalog entries before the main parse, so a new
+ * column is picked up in the same upload rather than needing a second pass. */
+export async function detectNewDailyColumns(buffer: ArrayBuffer): Promise<DetectedNewColumn[]> {
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buffer);
+  const sheet = wb.worksheets.find((s) => /daily database/i.test(s.name)) ?? wb.worksheets[0];
+  if (!sheet) return [];
+
+  const headerRowNum = findHeaderRowByAccident(sheet);
+  if (headerRowNum === -1) return [];
+
+  const headerRow = sheet.getRow(headerRowNum);
+  const categoryRow = headerRowNum > 1 ? sheet.getRow(headerRowNum - 1) : null;
+  const colCount = sheet.columnCount;
+  const known = new Set(Object.keys(DAILY_HEADER_TO_BASE));
+  known.add('Date');
+  known.add('Shift');
+
+  const found: DetectedNewColumn[] = [];
+  for (let c = 1; c <= colCount; c++) {
+    const header = norm(headerRow.getCell(c).value);
+    if (!header || known.has(header)) continue;
+    if (/mainliner load gmph/i.test(header)) continue; // handled specially, not "new"
+    const cat = categoryRow ? norm(categoryRow.getCell(c).value).toUpperCase() : '';
+    found.push({ header, categoryGuess: CATEGORY_TO_PILLAR_CODE[cat] ?? null });
+  }
+  return found;
+}
+
+/** Same idea for the Next 24hrs sheet — a column whose header doesn't match
+ * any existing leading KPI's name (e.g. "Yard Density Projection", added to
+ * the sheet with no data yet at the time of writing). */
+export async function detectNewLeadingColumns(buffer: ArrayBuffer, leadingKpis: Kpi[]): Promise<DetectedNewColumn[]> {
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buffer);
+  const sheet = wb.worksheets.find((s) => /next\s*24/i.test(s.name));
+  if (!sheet) return [];
+
+  const kpiNames = new Set(leadingKpis.map((k) => k.name));
+  let headerRowNum = -1;
+  let bestMatchCount = 0;
+  for (let r = 1; r <= Math.min(sheet.rowCount, 10); r++) {
+    const row = sheet.getRow(r);
+    let matches = 0;
+    for (let c = 1; c <= sheet.columnCount; c++) {
+      if (kpiNames.has(norm(row.getCell(c).value))) matches++;
+    }
+    if (matches > bestMatchCount) {
+      bestMatchCount = matches;
+      headerRowNum = r;
+    }
+  }
+  if (headerRowNum === -1) return [];
+
+  const headerRow = sheet.getRow(headerRowNum);
+  const categoryRow = headerRowNum > 1 ? sheet.getRow(headerRowNum - 1) : null;
+  const colCount = sheet.columnCount;
+
+  const found: DetectedNewColumn[] = [];
+  for (let c = 1; c <= colCount; c++) {
+    const header = norm(headerRow.getCell(c).value);
+    if (!header || header.toLowerCase() === 'date' || kpiNames.has(header)) continue;
+    const cat = categoryRow ? norm(categoryRow.getCell(c).value).toUpperCase() : '';
+    found.push({ header, categoryGuess: CATEGORY_TO_PILLAR_CODE[cat] ?? null });
+  }
+  return found;
 }

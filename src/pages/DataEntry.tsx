@@ -5,6 +5,7 @@ import { useEmployee } from '../context/EmployeeContext';
 import {
   fetchEntriesForKpisOnDate,
   fetchEntryForKpiAndDate,
+  fetchKpiDailyTarget,
   fetchKpis,
   fetchPillars,
   fetchReasonsForKpi,
@@ -46,6 +47,11 @@ interface FormState {
   reasonId: string; // '' | OTHER_SENTINEL | a real reason uuid
   reasonOther: string;
   existing: DailyEntry | null;
+  /** This date's target — from the Admin upload's Target-sheet data
+   * (kpi_daily_targets) when available, falling back to the KPI catalog's
+   * fixed target otherwise. Used for the manual-entry met/missed check and
+   * the target shown in the header, since targets can now vary by day. */
+  resolvedTarget: number;
   loading: boolean;
   saving: boolean;
   saved: boolean;
@@ -60,6 +66,7 @@ const EMPTY_FORM: FormState = {
   reasonId: '',
   reasonOther: '',
   existing: null,
+  resolvedTarget: 0,
   loading: true,
   saving: false,
   saved: false,
@@ -72,7 +79,11 @@ function baseNameOf(name: string): string {
 
 function buildGroups(kpis: Kpi[]): KpiGroup[] {
   const map = new Map<string, KpiGroup>();
-  for (const k of kpis) {
+  // Secondary/comparison KPIs (e.g. "Mainliner Load GMPH (Old)") are shown
+  // on the Board as a dimmed reference line/number, but never themselves a
+  // remarks target — the primary ("new calculation") KPI already covers
+  // pass/fail and remark-required logic for that metric.
+  for (const k of kpis.filter((k) => !k.is_secondary)) {
     const isDay = /\(Day\)\s*$/i.test(k.name);
     const isNight = /\(Night\)\s*$/i.test(k.name);
     const base = baseNameOf(k.name);
@@ -210,12 +221,17 @@ export default function DataEntry() {
     const kpi = activeKpi(selectedGroup, shift);
     if (!kpi) return;
     setForm((f) => ({ ...f, shift, loading: true }));
-    Promise.all([fetchReasonsForKpi(kpi.id), fetchEntryForKpiAndDate(kpi.id, selectedDate)])
-      .then(([reasons, existing]) => {
+    Promise.all([
+      fetchReasonsForKpi(kpi.id),
+      fetchEntryForKpiAndDate(kpi.id, selectedDate),
+      fetchKpiDailyTarget(kpi.id, selectedDate).catch(() => null),
+    ])
+      .then(([reasons, existing, dailyTarget]) => {
         setForm({
           shift,
           reasons,
           existing,
+          resolvedTarget: dailyTarget ?? selectedGroup.target,
           actualInput: existing ? String(existing.actual) : '',
           remarks: existing?.remarks ?? '',
           reasonId: existing?.reason_id ?? (existing?.reason_other ? OTHER_SENTINEL : ''),
@@ -236,11 +252,16 @@ export default function DataEntry() {
     if (!kpi) return;
     setForm((f) => ({ ...f, shift, loading: true }));
     try {
-      const [reasons, existing] = await Promise.all([fetchReasonsForKpi(kpi.id), fetchEntryForKpiAndDate(kpi.id, selectedDate)]);
+      const [reasons, existing, dailyTarget] = await Promise.all([
+        fetchReasonsForKpi(kpi.id),
+        fetchEntryForKpiAndDate(kpi.id, selectedDate),
+        fetchKpiDailyTarget(kpi.id, selectedDate).catch(() => null),
+      ]);
       setForm({
         shift,
         reasons,
         existing,
+        resolvedTarget: dailyTarget ?? selectedGroup.target,
         actualInput: existing ? String(existing.actual) : '',
         remarks: existing?.remarks ?? '',
         reasonId: existing?.reason_id ?? (existing?.reason_other ? OTHER_SENTINEL : ''),
@@ -272,7 +293,7 @@ export default function DataEntry() {
       patch({ error: 'Enter a numeric value.' });
       return;
     }
-    const met = metTarget({ is_higher_better: selectedGroup.isHigherBetter }, selectedGroup.target, actual);
+    const met = metTarget({ is_higher_better: selectedGroup.isHigherBetter }, form.resolvedTarget, actual);
     const hasReason = (form.reasonId && form.reasonId !== OTHER_SENTINEL) || (form.reasonId === OTHER_SENTINEL && form.reasonOther.trim());
     if (!met && !hasReason) {
       patch({ error: 'Target missed — please select a reason category (or "Other" and specify it).' });
@@ -288,7 +309,7 @@ export default function DataEntry() {
       const saved = await upsertDailyEntry({
         kpi_id: kpi.id,
         entry_date: selectedDate,
-        target: selectedGroup.target,
+        target: form.resolvedTarget,
         actual,
         met_target: met,
         reason_id: met ? null : form.reasonId && form.reasonId !== OTHER_SENTINEL ? form.reasonId : null,
@@ -349,7 +370,7 @@ export default function DataEntry() {
 
   const actualNum = Number(form.actualInput);
   const hasValidActual = form.actualInput.trim() !== '' && !Number.isNaN(actualNum);
-  const manualMet = selectedGroup && hasValidActual ? metTarget({ is_higher_better: selectedGroup.isHigherBetter }, selectedGroup.target, actualNum) : null;
+  const manualMet = selectedGroup && hasValidActual ? metTarget({ is_higher_better: selectedGroup.isHigherBetter }, form.resolvedTarget, actualNum) : null;
   const hasShiftToggle = Boolean(selectedGroup?.day && selectedGroup?.night);
   const needsRemarkCount = groups.filter((g) => groupNeedsRemark(g, dateEntries)).length;
 
@@ -449,7 +470,7 @@ export default function DataEntry() {
           <div className="entry-card-header">
             <h3>{selectedGroup.label}</h3>
             <span className="muted">
-              Target: {round2(selectedGroup.target)} {selectedGroup.unit} ({selectedGroup.isHigherBetter ? 'higher is good' : 'lower is good'})
+              Target: {round2(form.loading ? selectedGroup.target : form.resolvedTarget)} {selectedGroup.unit} ({selectedGroup.isHigherBetter ? 'higher is good' : 'lower is good'})
             </span>
           </div>
 

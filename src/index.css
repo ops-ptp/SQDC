@@ -520,6 +520,31 @@ p {
   border-radius: 8px;
 }
 
+/* ---------------- Admin KPI Management table ---------------- */
+.admin-kpi-table th,
+.admin-kpi-table td {
+  vertical-align: middle;
+}
+
+.admin-kpi-input {
+  margin-bottom: 0;
+  padding: 5px 8px;
+  font-size: 12.5px;
+  min-width: 120px;
+}
+
+.admin-kpi-input-sm {
+  min-width: 70px;
+}
+
+.admin-kpi-secondary-tag {
+  margin-left: 8px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  vertical-align: middle;
+}
+
 /* ---------------- Data entry ---------------- */
 .entry-pillar-pills,
 .entry-kpi-pills {
@@ -1047,6 +1072,18 @@ p {
   margin-left: 3px;
   color: var(--muted);
   white-space: nowrap;
+}
+
+/* Old-calculation figure (Mainliner Load GMPH only) — shown beneath the
+ * current/new-calculation number, dimmed since it's reference-only and
+ * never itself judged pass/fail. */
+.headline-value-secondary {
+  display: block;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--muted);
+  opacity: 0.75;
+  margin-top: 1px;
 }
 
 @media (max-width: 640px) {

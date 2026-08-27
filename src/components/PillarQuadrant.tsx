@@ -22,7 +22,11 @@ interface Props {
 }
 
 /** One logical KPI as shown on the board: a single pill, backed by up to a
- * Day entry, a Night entry, or (for KPIs with no shift split) one entry. */
+ * Day entry, a Night entry, or (for KPIs with no shift split) one entry.
+ * `oldDay`/`oldNight` are only populated for "Mainliner Load GMPH", whose
+ * sheet carries both an old- and new-calculation figure — the group still
+ * renders as ONE pill/card, with the old calculation shown as a dimmed
+ * secondary number/line next to the (primary, pass/fail-driving) new one. */
 interface KpiGroup {
   key: string;
   label: string;
@@ -33,10 +37,12 @@ interface KpiGroup {
   day?: Kpi;
   night?: Kpi;
   single?: Kpi;
+  oldDay?: Kpi;
+  oldNight?: Kpi;
 }
 
 function baseNameOf(name: string): string {
-  return name.replace(/\s*\((Day|Night)\)\s*$/i, '').trim();
+  return name.replace(/\s*\((Day|Night)\)\s*$/i, '').replace(/\s*\(Old\)\s*$/i, '').trim();
 }
 
 function buildGroups(kpis: Kpi[]): KpiGroup[] {
@@ -44,6 +50,7 @@ function buildGroups(kpis: Kpi[]): KpiGroup[] {
   for (const k of kpis) {
     const isDay = /\(Day\)\s*$/i.test(k.name);
     const isNight = /\(Night\)\s*$/i.test(k.name);
+    const isOld = /\(Old\)/i.test(k.name);
     const base = baseNameOf(k.name);
     let g = map.get(base);
     if (!g) {
@@ -51,7 +58,10 @@ function buildGroups(kpis: Kpi[]): KpiGroup[] {
       map.set(base, g);
     }
     g.sortOrder = Math.min(g.sortOrder, k.sort_order);
-    if (isDay) g.day = k;
+    if (isOld) {
+      if (isDay) g.oldDay = k;
+      else if (isNight) g.oldNight = k;
+    } else if (isDay) g.day = k;
     else if (isNight) g.night = k;
     else g.single = k;
   }
@@ -59,7 +69,7 @@ function buildGroups(kpis: Kpi[]): KpiGroup[] {
 }
 
 function groupKpiIds(g: KpiGroup): string[] {
-  return [g.day?.id, g.night?.id, g.single?.id].filter((id): id is string => Boolean(id));
+  return [g.day?.id, g.night?.id, g.single?.id, g.oldDay?.id, g.oldNight?.id].filter((id): id is string => Boolean(id));
 }
 
 function indexByDate(entries: DailyEntry[]): Map<string, DailyEntry> {
@@ -238,6 +248,11 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily', sh
   const referenceDayEntry = selectedGroup ? referenceEntries.find((e) => e.kpi_id === selectedGroup.day?.id) : undefined;
   const referenceNightEntry = selectedGroup ? referenceEntries.find((e) => e.kpi_id === selectedGroup.night?.id) : undefined;
   const referenceSingleEntry = selectedGroup ? referenceEntries.find((e) => e.kpi_id === selectedGroup.single?.id) : undefined;
+  // Secondary ("old calculation") reference values — Mainliner Load GMPH
+  // only. Shown as a dimmed number beneath the primary (new calculation)
+  // one; never drives pass/fail coloring.
+  const referenceOldDayEntry = selectedGroup?.oldDay ? referenceEntries.find((e) => e.kpi_id === selectedGroup.oldDay!.id) : undefined;
+  const referenceOldNightEntry = selectedGroup?.oldNight ? referenceEntries.find((e) => e.kpi_id === selectedGroup.oldNight!.id) : undefined;
 
   // ---- Chart: Day / Night / Average lines, last 7 days or last 4 work-weeks
   const chartPoints: RunPoint[] = useMemo(() => {
@@ -245,6 +260,11 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily', sh
     const dayIdx = indexByDate(windowEntries.filter((e) => e.kpi_id === selectedGroup.day?.id));
     const nightIdx = indexByDate(windowEntries.filter((e) => e.kpi_id === selectedGroup.night?.id));
     const singleIdx = indexByDate(windowEntries.filter((e) => e.kpi_id === selectedGroup.single?.id));
+    // Old-calculation series (Mainliner Load GMPH only) — plotted dimmed/
+    // thinner on the same chart, purely for comparison against the new
+    // calculation; never factors into met/missed anywhere.
+    const oldDayIdx = indexByDate(windowEntries.filter((e) => e.kpi_id === selectedGroup.oldDay?.id));
+    const oldNightIdx = indexByDate(windowEntries.filter((e) => e.kpi_id === selectedGroup.oldNight?.id));
 
     if (granularity === 'daily') {
       const points: RunPoint[] = [];
@@ -274,6 +294,8 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily', sh
           dayMet: dayVal === null ? null : groupMetTarget(selectedGroup, dayVal, dayEntry?.target),
           nightMet: nightVal === null ? null : groupMetTarget(selectedGroup, nightVal, nightEntry?.target),
           avgMet: avgVal === null ? null : groupMetTarget(selectedGroup, avgVal, pointTarget),
+          oldDayActual: oldDayIdx.get(dateStr)?.actual ?? null,
+          oldNightActual: oldNightIdx.get(dateStr)?.actual ?? null,
         });
       }
       return points;
@@ -288,6 +310,8 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily', sh
       const dayVals: number[] = [];
       const nightVals: number[] = [];
       const targetVals: number[] = [];
+      const oldDayVals: number[] = [];
+      const oldNightVals: number[] = [];
       for (let d = 0; d < 7; d++) {
         const date = addDays(weekStart, d);
         if (date > referenceDate) break;
@@ -302,6 +326,10 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily', sh
           nightVals.push(nEntry.actual);
           targetVals.push(nEntry.target);
         }
+        const oldD = oldDayIdx.get(dateStr);
+        const oldN = oldNightIdx.get(dateStr);
+        if (oldD !== undefined) oldDayVals.push(oldD.actual);
+        if (oldN !== undefined) oldNightVals.push(oldN.actual);
       }
       let dayAvg = mean(dayVals);
       let nightAvg = mean(nightVals);
@@ -335,6 +363,8 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily', sh
         dayMet: dayAvg === null ? null : groupMetTarget(selectedGroup, dayAvg, weekTarget),
         nightMet: nightAvg === null ? null : groupMetTarget(selectedGroup, nightAvg, weekTarget),
         avgMet: avgVal === null ? null : groupMetTarget(selectedGroup, avgVal, weekTarget),
+        oldDayActual: mean(oldDayVals),
+        oldNightActual: mean(oldNightVals),
       });
     }
     return points;
@@ -456,6 +486,12 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily', sh
                       {referenceDayEntry ? round2(referenceDayEntry.actual) : '—'}
                       <span className="headline-unit">{selectedGroup.unit}</span>
                     </span>
+                    {selectedGroup.oldDay && (
+                      <span className="headline-value-secondary" title="Old calculation — reference only, not judged against target">
+                        {referenceOldDayEntry ? round2(referenceOldDayEntry.actual) : '—'}
+                        <span className="headline-unit">{selectedGroup.unit} (old)</span>
+                      </span>
+                    )}
                   </div>
                   <div className="headline-shift">
                     <span className="headline-shift-label">Night</span>
@@ -463,6 +499,12 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily', sh
                       {referenceNightEntry ? round2(referenceNightEntry.actual) : '—'}
                       <span className="headline-unit">{selectedGroup.unit}</span>
                     </span>
+                    {selectedGroup.oldNight && (
+                      <span className="headline-value-secondary" title="Old calculation — reference only, not judged against target">
+                        {referenceOldNightEntry ? round2(referenceOldNightEntry.actual) : '—'}
+                        <span className="headline-unit">{selectedGroup.unit} (old)</span>
+                      </span>
+                    )}
                   </div>
                 </>
               )}
@@ -476,7 +518,12 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily', sh
             {loading ? (
               <div className="empty-state">Loading…</div>
             ) : (
-              <KpiRunChart points={chartPoints} unit={selectedGroup.unit} showDayNight={!selectedGroup.single} />
+              <KpiRunChart
+                points={chartPoints}
+                unit={selectedGroup.unit}
+                showDayNight={!selectedGroup.single}
+                showOldCalc={Boolean(selectedGroup.oldDay || selectedGroup.oldNight)}
+              />
             )}
           </div>
 

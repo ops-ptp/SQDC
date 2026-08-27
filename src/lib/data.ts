@@ -158,6 +158,109 @@ export async function bulkUpsertDailyEntriesFromUpload(rows: UploadDailyRow[]): 
   return written;
 }
 
+// ---------------------------------------------------------------------------
+// Per-date/shift KPI targets (from the Daily workbook's "Target" sheet) —
+// every lagging KPI's target can now vary by day, not just Moves. Admin
+// upload upserts here; daily_entries.target snapshots from this (or the
+// kpis.target catalog fallback) at write time; Enter Remarks looks here up
+// too for the 3 manual-entry KPIs so a manually-typed value is judged
+// against the right day's target.
+// ---------------------------------------------------------------------------
+
+export interface UploadTargetRow {
+  kpi_id: string;
+  entry_date: string;
+  target: number;
+}
+
+export async function bulkUpsertKpiDailyTargets(rows: UploadTargetRow[]): Promise<number> {
+  const CHUNK = 400;
+  let written = 0;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const chunk = rows.slice(i, i + CHUNK);
+    const { error } = await supabase.from('kpi_daily_targets').upsert(chunk, { onConflict: 'kpi_id,entry_date' });
+    if (error) throw error;
+    written += chunk.length;
+  }
+  return written;
+}
+
+/** The per-day target for one KPI, if the Admin upload has ever supplied
+ * one for that date — falls back to the KPI catalog's fixed target when
+ * there's no row yet (e.g. before the first Target-sheet upload). */
+export async function fetchKpiDailyTarget(kpiId: string, date: string): Promise<number | null> {
+  const { data, error } = await supabase
+    .from('kpi_daily_targets')
+    .select('target')
+    .eq('kpi_id', kpiId)
+    .eq('entry_date', date)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? (data as { target: number }).target : null;
+}
+
+// ---------------------------------------------------------------------------
+// Admin KPI catalog management — combined lagging + leading list, show/hide,
+// and auto-creating a KPI when the upload detects a brand-new spreadsheet
+// column.
+// ---------------------------------------------------------------------------
+
+/** Every KPI regardless of active/leading status — the full catalog for the
+ * Admin KPI Management screen (unlike fetchKpis/fetchLeadingKpis, which
+ * only return active ones for the live board). */
+export async function fetchAllKpisAdmin(): Promise<KpiWithPillar[]> {
+  const { data, error } = await supabase
+    .from('kpis')
+    .select('*, pillar:pillars(code, name)')
+    .order('is_leading')
+    .order('sort_order');
+  if (error) throw error;
+  return data as unknown as KpiWithPillar[];
+}
+
+export interface KpiAdminUpdate {
+  id: string;
+  pillar_id: string;
+  unit: string;
+  is_higher_better: boolean;
+  target: number;
+  active: boolean;
+}
+
+/** Saves the Admin KPI Management screen's pending edits — "save view" is
+ * one global state stored directly on kpis (active/unit/target/direction/
+ * pillar), not per-admin presets. */
+export async function saveKpiAdminUpdates(updates: KpiAdminUpdate[]): Promise<void> {
+  for (const u of updates) {
+    const { error } = await supabase
+      .from('kpis')
+      .update({ pillar_id: u.pillar_id, unit: u.unit, is_higher_better: u.is_higher_better, target: u.target, active: u.active })
+      .eq('id', u.id);
+    if (error) throw error;
+  }
+}
+
+export interface NewKpiInput {
+  pillar_id: string;
+  name: string;
+  unit: string;
+  is_higher_better: boolean;
+  target: number;
+  is_leading: boolean;
+  sort_order: number;
+}
+
+/** Auto-creates a catalog row for a brand-new spreadsheet column detected
+ * during Admin upload — best-guess settings (unit blank, higher-is-better,
+ * target 0), left inactive-by-default is NOT applied here (it starts
+ * active so this same upload's value shows up right away); the admin edits
+ * it properly afterward in KPI Management. */
+export async function createKpi(input: NewKpiInput): Promise<Kpi> {
+  const { data, error } = await supabase.from('kpis').insert(input).select('*').single();
+  if (error) throw error;
+  return data as Kpi;
+}
+
 export interface UploadWeeklyRow {
   pillar_id: string;
   kpi_base_name: string;
