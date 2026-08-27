@@ -220,22 +220,17 @@ export async function fetchAllKpisAdmin(): Promise<KpiWithPillar[]> {
 
 export interface KpiAdminUpdate {
   id: string;
-  pillar_id: string;
-  unit: string;
-  is_higher_better: boolean;
-  target: number;
   active: boolean;
 }
 
-/** Saves the Admin KPI Management screen's pending edits — "save view" is
- * one global state stored directly on kpis (active/unit/target/direction/
- * pillar), not per-admin presets. */
+/** Saves the Admin KPI Management screen's pending show/hide changes —
+ * "save view" is one global state stored on `kpis.active`, not per-admin
+ * presets. This is intentionally show/hide only, not a general KPI editor —
+ * fixing an auto-created KPI's pillar/unit/target/direction still goes
+ * through the Supabase Table Editor, same as the rest of the catalog. */
 export async function saveKpiAdminUpdates(updates: KpiAdminUpdate[]): Promise<void> {
   for (const u of updates) {
-    const { error } = await supabase
-      .from('kpis')
-      .update({ pillar_id: u.pillar_id, unit: u.unit, is_higher_better: u.is_higher_better, target: u.target, active: u.active })
-      .eq('id', u.id);
+    const { error } = await supabase.from('kpis').update({ active: u.active }).eq('id', u.id);
     if (error) throw error;
   }
 }
@@ -251,10 +246,11 @@ export interface NewKpiInput {
 }
 
 /** Auto-creates a catalog row for a brand-new spreadsheet column detected
- * during Admin upload — best-guess settings (unit blank, higher-is-better,
- * target 0), left inactive-by-default is NOT applied here (it starts
- * active so this same upload's value shows up right away); the admin edits
- * it properly afterward in KPI Management. */
+ * during Admin upload — best-guess settings (pillar from the sheet's
+ * category header, unit inferred by sampling the column's own values,
+ * higher-is-better, target 0) so that upload's value shows up right away.
+ * A wrong guess is corrected via the Supabase Table Editor — KPI Management
+ * only offers show/hide, not a full editor. */
 export async function createKpi(input: NewKpiInput): Promise<Kpi> {
   const { data, error } = await supabase.from('kpis').insert(input).select('*').single();
   if (error) throw error;

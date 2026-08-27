@@ -254,9 +254,12 @@ below) and written straight to Supabase. Parsing logic lives in
   KPI (e.g. a newly added "Yard Density Projection"), the upload creates a
   best-guess `kpis` row for it before parsing the rest of the file — pillar
   guessed from the merged category header above the column ("QUALITY" →
-  Quality), unit blank, target 0, higher-is-better — so that same upload's
-  values land immediately. Review/fix the guessed fields afterward in the
-  Admin page's **KPI Management** table.
+  Quality), unit guessed by sampling up to 30 of the column's own numeric
+  values (all strictly between -1 and 1 → `%`, same raw-ratio convention as
+  every other percentage KPI in this app; otherwise blank), target 0,
+  higher-is-better — so that same upload's values land immediately. A wrong
+  guess is fixed via the Supabase Table Editor, not in-app (KPI Management is
+  show/hide only — see below).
 - **Weekly upload** reads the "Weekly Database" sheet (ISO week rows, e.g.
   "Week 27") and **upserts `weekly_entries` by `(pillar_id, kpi_base_name,
   iso_year, iso_week)`**. Two things worth knowing: the sheet's week labels
@@ -287,15 +290,20 @@ below) and written straight to Supabase. Parsing logic lives in
 
 ### KPI Management (Admin page)
 
-One combined, editable list of every KPI — Board (lagging) and Next 24 Hours
-(leading) together — for showing/hiding and fixing up auto-created entries.
-"Visible" maps straight to `kpis.active`: it's **one global setting for the
-whole board**, not a per-admin saved view, since this is a shared shift
-screen. Edits (pillar, unit, target, higher/lower-is-good, visibility) are
+One combined list of every KPI — Board (lagging) and Next 24 Hours (leading)
+together — for **show/hide only**, not general editing. "Visible" maps
+straight to `kpis.active`: it's **one global setting for the whole board**,
+not a per-admin saved view, since this is a shared shift screen. Changes are
 staged locally and committed together via "Save changes". A KPI flagged
 `is_secondary` (currently just Mainliner Load GMPH's old-calculation pair) is
-labeled as such in the list — it's a real, editable catalog row, just never
-offered as its own remarks/action target elsewhere in the app.
+labeled as such in the list, purely for context — it's still just a show/hide
+toggle, same as any other row.
+
+Pillar/unit/target/direction are intentionally **not** editable from this
+screen. A newly auto-created KPI (see "New spreadsheet columns" above) gets
+a best-guess pillar and unit; if either guess is wrong, fix it via the
+Supabase Table Editor — same as every other catalog edit in this app (adding
+a pillar, a reason, an employee, etc.).
 
 ### Why exceljs, not xlsx
 

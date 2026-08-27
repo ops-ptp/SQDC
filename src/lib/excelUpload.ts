@@ -503,6 +503,29 @@ export interface DetectedNewColumn {
   /** Best-guess pillar, read from the merged category header directly above
    * the column (e.g. "QUALITY") — null when it can't be determined. */
   categoryGuess: 'S' | 'Q' | 'D' | 'C' | null;
+  /** Best-guess unit, inferred by sampling the column's own numeric values
+   * (see guessUnitFromColumn) — '%' when they all look like a raw ratio
+   * (e.g. 0.85), '' otherwise. Only a starting point — same as every other
+   * auto-created field, wrong guesses are fixed via the Supabase Table
+   * Editor, not an in-app edit screen (KPI Management is show/hide only). */
+  unitGuess: string;
+}
+
+/** Samples up to 30 numeric values already present in a column (below the
+ * header row) and guesses '%' when every one of them sits strictly between
+ * -1 and 1 — the same raw-ratio convention every other percentage-style KPI
+ * in this app already uses (sheet's 0.11 -> stored/shown as 11%). An empty
+ * or all-zero column can't be distinguished this way and falls back to '',
+ * same as before this heuristic existed. */
+function guessUnitFromColumn(sheet: ExcelJS.Worksheet, col: number, headerRowNum: number): string {
+  let sampled = 0;
+  for (let r = headerRowNum + 1; r <= sheet.rowCount && sampled < 30; r++) {
+    const v = cellNumber(sheet.getRow(r).getCell(col).value);
+    if (v === null) continue;
+    sampled++;
+    if (Math.abs(v) >= 1) return '';
+  }
+  return sampled > 0 ? '%' : '';
 }
 
 /** Scans the Daily Database sheet for column headers that don't map to any
@@ -531,7 +554,7 @@ export async function detectNewDailyColumns(buffer: ArrayBuffer): Promise<Detect
     if (!header || known.has(header)) continue;
     if (/mainliner load gmph/i.test(header)) continue; // handled specially, not "new"
     const cat = categoryRow ? norm(categoryRow.getCell(c).value).toUpperCase() : '';
-    found.push({ header, categoryGuess: CATEGORY_TO_PILLAR_CODE[cat] ?? null });
+    found.push({ header, categoryGuess: CATEGORY_TO_PILLAR_CODE[cat] ?? null, unitGuess: guessUnitFromColumn(sheet, c, headerRowNum) });
   }
   return found;
 }
@@ -570,7 +593,7 @@ export async function detectNewLeadingColumns(buffer: ArrayBuffer, leadingKpis: 
     const header = norm(headerRow.getCell(c).value);
     if (!header || header.toLowerCase() === 'date' || kpiNames.has(header)) continue;
     const cat = categoryRow ? norm(categoryRow.getCell(c).value).toUpperCase() : '';
-    found.push({ header, categoryGuess: CATEGORY_TO_PILLAR_CODE[cat] ?? null });
+    found.push({ header, categoryGuess: CATEGORY_TO_PILLAR_CODE[cat] ?? null, unitGuess: guessUnitFromColumn(sheet, c, headerRowNum) });
   }
   return found;
 }

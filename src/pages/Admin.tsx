@@ -22,7 +22,7 @@ import {
   parseNext24hrsWorkbook,
   parseWeeklyWorkbook,
 } from '../lib/excelUpload';
-import { errorMessage, type KpiWithPillar, type Pillar } from '../types';
+import { errorMessage, type KpiWithPillar } from '../types';
 
 interface UploadResult {
   ok: boolean;
@@ -99,21 +99,18 @@ function UploadCard({
 
 // ---------------------------------------------------------------------------
 // KPI Management — one combined list of every Board (lagging) + Next 24
-// Hours (leading) KPI. Admin can show/hide (kpis.active — one global state,
-// not per-admin views) and edit the basic best-guess fields an auto-created
-// KPI needs filling in (pillar, unit, direction, target). Edits are staged
-// locally and committed together via "Save changes".
+// Hours (leading) KPI, show/hide only (kpis.active — one global state, not
+// per-admin views). Pillar/unit/target/direction aren't editable here by
+// design — fixing an auto-created KPI's guessed fields still goes through
+// the Supabase Table Editor, same as the rest of the catalog.
 // ---------------------------------------------------------------------------
 
 interface EditableKpi {
   id: string;
   name: string;
+  pillarName: string;
   is_leading: boolean;
   is_secondary: boolean;
-  pillar_id: string;
-  unit: string;
-  is_higher_better: boolean;
-  target: number;
   active: boolean;
 }
 
@@ -121,12 +118,9 @@ function toEditable(k: KpiWithPillar): EditableKpi {
   return {
     id: k.id,
     name: k.name,
+    pillarName: k.pillar?.name ?? '—',
     is_leading: k.is_leading,
     is_secondary: k.is_secondary,
-    pillar_id: k.pillar_id,
-    unit: k.unit,
-    is_higher_better: k.is_higher_better,
-    target: k.target,
     active: k.active,
   };
 }
@@ -134,13 +128,11 @@ function toEditable(k: KpiWithPillar): EditableKpi {
 function KpiManagementTable({
   title,
   rows,
-  pillars,
   onChange,
 }: {
   title: string;
   rows: EditableKpi[];
-  pillars: Pillar[];
-  onChange: (id: string, patch: Partial<EditableKpi>) => void;
+  onChange: (id: string, active: boolean) => void;
 }) {
   if (rows.length === 0) return null;
   return (
@@ -154,9 +146,6 @@ function KpiManagementTable({
             <tr>
               <th>Name</th>
               <th>Pillar</th>
-              <th>Unit</th>
-              <th>Direction</th>
-              <th>Target</th>
               <th>Visible</th>
             </tr>
           </thead>
@@ -167,43 +156,9 @@ function KpiManagementTable({
                   {r.name}
                   {r.is_secondary && <span className="pill pill-bad admin-kpi-secondary-tag">secondary</span>}
                 </td>
+                <td>{r.pillarName}</td>
                 <td>
-                  <select className="input admin-kpi-input" value={r.pillar_id} onChange={(e) => onChange(r.id, { pillar_id: e.target.value })}>
-                    {pillars.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-                <td>
-                  <input
-                    className="input admin-kpi-input admin-kpi-input-sm"
-                    value={r.unit}
-                    onChange={(e) => onChange(r.id, { unit: e.target.value })}
-                  />
-                </td>
-                <td>
-                  <select
-                    className="input admin-kpi-input"
-                    value={r.is_higher_better ? 'higher' : 'lower'}
-                    onChange={(e) => onChange(r.id, { is_higher_better: e.target.value === 'higher' })}
-                  >
-                    <option value="higher">Higher is good</option>
-                    <option value="lower">Lower is good</option>
-                  </select>
-                </td>
-                <td>
-                  <input
-                    type="number"
-                    step="any"
-                    className="input admin-kpi-input admin-kpi-input-sm"
-                    value={r.target}
-                    onChange={(e) => onChange(r.id, { target: Number(e.target.value) })}
-                  />
-                </td>
-                <td>
-                  <input type="checkbox" checked={r.active} onChange={(e) => onChange(r.id, { active: e.target.checked })} />
+                  <input type="checkbox" checked={r.active} onChange={(e) => onChange(r.id, e.target.checked)} />
                 </td>
               </tr>
             ))}
@@ -215,49 +170,43 @@ function KpiManagementTable({
 }
 
 function KpiManagementSection() {
-  const [pillars, setPillars] = useState<Pillar[]>([]);
   const [rows, setRows] = useState<EditableKpi[]>([]);
-  const [original, setOriginal] = useState<Map<string, EditableKpi>>(new Map());
+  const [original, setOriginal] = useState<Map<string, boolean>>(new Map());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([fetchPillars(), fetchAllKpisAdmin()])
-      .then(([p, kpis]) => {
-        setPillars(p);
+    fetchAllKpisAdmin()
+      .then((kpis) => {
         const editable = kpis.map(toEditable);
         setRows(editable);
-        setOriginal(new Map(editable.map((r) => [r.id, r])));
+        setOriginal(new Map(editable.map((r) => [r.id, r.active])));
       })
       .catch((e) => setError(errorMessage(e, 'Failed to load KPI catalog')))
       .finally(() => setLoading(false));
   }, []);
 
-  function handleChange(id: string, patch: Partial<EditableKpi>) {
+  function handleChange(id: string, active: boolean) {
     setMessage(null);
-    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, active } : r)));
   }
 
   function isDirty(r: EditableKpi): boolean {
-    const o = original.get(r.id);
-    if (!o) return true;
-    return o.pillar_id !== r.pillar_id || o.unit !== r.unit || o.is_higher_better !== r.is_higher_better || o.target !== r.target || o.active !== r.active;
+    return original.get(r.id) !== r.active;
   }
 
   const dirtyCount = rows.filter(isDirty).length;
 
   async function handleSave() {
-    const changed: KpiAdminUpdate[] = rows
-      .filter(isDirty)
-      .map((r) => ({ id: r.id, pillar_id: r.pillar_id, unit: r.unit, is_higher_better: r.is_higher_better, target: r.target, active: r.active }));
+    const changed: KpiAdminUpdate[] = rows.filter(isDirty).map((r) => ({ id: r.id, active: r.active }));
     if (changed.length === 0) return;
     setSaving(true);
     setError(null);
     try {
       await saveKpiAdminUpdates(changed);
-      setOriginal(new Map(rows.map((r) => [r.id, r])));
+      setOriginal(new Map(rows.map((r) => [r.id, r.active])));
       setMessage(`Saved ${changed.length} change${changed.length === 1 ? '' : 's'}.`);
     } catch (e) {
       setError(errorMessage(e, 'Failed to save changes'));
@@ -276,9 +225,7 @@ function KpiManagementSection() {
           <h3>KPI Management</h3>
           <p className="muted">
             Every KPI across the Board (lagging) and Next 24 Hours (leading), in one list. Untick "Visible" to hide a
-            KPI everywhere — this is one shared setting for the whole board, not a per-person view. A newly detected
-            spreadsheet column shows up here automatically after an upload; fill in its pillar/unit/target/direction
-            before relying on it.
+            KPI everywhere — this is one shared setting for the whole board, not a per-person view.
           </p>
         </div>
         <button type="button" className="btn btn-primary" disabled={saving || dirtyCount === 0} onClick={handleSave}>
@@ -293,8 +240,8 @@ function KpiManagementSection() {
         <div className="empty-state">Loading KPI catalog…</div>
       ) : (
         <>
-          <KpiManagementTable title="Board (Lagging KPIs)" rows={lagging} pillars={pillars} onChange={handleChange} />
-          <KpiManagementTable title="Next 24 Hours (Leading KPIs)" rows={leading} pillars={pillars} onChange={handleChange} />
+          <KpiManagementTable title="Board (Lagging KPIs)" rows={lagging} onChange={handleChange} />
+          <KpiManagementTable title="Next 24 Hours (Leading KPIs)" rows={leading} onChange={handleChange} />
         </>
       )}
     </div>
@@ -324,13 +271,13 @@ export default function Admin() {
     for (const col of newDailyCols) {
       const pillar = pillars.find((p) => p.code === col.categoryGuess) ?? fallbackPillar;
       if (!pillar) continue;
-      const created = await createKpi({ pillar_id: pillar.id, name: col.header, unit: '', is_higher_better: true, target: 0, is_leading: false, sort_order: 999 });
+      const created = await createKpi({ pillar_id: pillar.id, name: col.header, unit: col.unitGuess, is_higher_better: true, target: 0, is_leading: false, sort_order: 999 });
       createdNames.push(created.name);
     }
     for (const col of newLeadingCols) {
       const pillar = pillars.find((p) => p.code === col.categoryGuess) ?? fallbackPillar;
       if (!pillar) continue;
-      const created = await createKpi({ pillar_id: pillar.id, name: col.header, unit: '', is_higher_better: true, target: 0, is_leading: true, sort_order: 999 });
+      const created = await createKpi({ pillar_id: pillar.id, name: col.header, unit: col.unitGuess, is_higher_better: true, target: 0, is_leading: true, sort_order: 999 });
       createdNames.push(created.name);
     }
 

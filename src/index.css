@@ -526,17 +526,6 @@ p {
   vertical-align: middle;
 }
 
-.admin-kpi-input {
-  margin-bottom: 0;
-  padding: 5px 8px;
-  font-size: 12.5px;
-  min-width: 120px;
-}
-
-.admin-kpi-input-sm {
-  min-width: 70px;
-}
-
 .admin-kpi-secondary-tag {
   margin-left: 8px;
   font-size: 10px;

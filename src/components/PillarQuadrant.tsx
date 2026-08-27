@@ -254,6 +254,32 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily', sh
   const referenceOldDayEntry = selectedGroup?.oldDay ? referenceEntries.find((e) => e.kpi_id === selectedGroup.oldDay!.id) : undefined;
   const referenceOldNightEntry = selectedGroup?.oldNight ? referenceEntries.find((e) => e.kpi_id === selectedGroup.oldNight!.id) : undefined;
 
+  // ---- Header "Target" line: the REVIEWED DATE's actual target(s), not the
+  // static catalog default — targets can vary day to day (from the Admin
+  // upload's Target sheet), so this reflects whatever's snapshotted on that
+  // date's own daily_entries row. Falls back to the catalog value only when
+  // no entry exists yet for that date (nothing else to show). Shows one
+  // number when Day and Night share the same target, or "Day X · Night Y"
+  // when they genuinely differ.
+  const targetLabel = (() => {
+    if (!selectedGroup) return '';
+    if (selectedGroup.single) {
+      const t = referenceSingleEntry?.target ?? selectedGroup.target;
+      return `Target ${round2(t)} ${selectedGroup.unit}`;
+    }
+    const dayT = referenceDayEntry?.target;
+    const nightT = referenceNightEntry?.target;
+    if (dayT === undefined && nightT === undefined) {
+      return `Target ${round2(selectedGroup.target)} ${selectedGroup.unit}`;
+    }
+    const resolvedDay = dayT ?? nightT!;
+    const resolvedNight = nightT ?? dayT!;
+    if (round2(resolvedDay) === round2(resolvedNight)) {
+      return `Target ${round2(resolvedDay)} ${selectedGroup.unit}`;
+    }
+    return `Day target ${round2(resolvedDay)} · Night target ${round2(resolvedNight)} ${selectedGroup.unit}`;
+  })();
+
   // ---- Chart: Day / Night / Average lines, last 7 days or last 4 work-weeks
   const chartPoints: RunPoint[] = useMemo(() => {
     if (!selectedGroup) return [];
@@ -468,9 +494,7 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily', sh
           <div className="kpi-headline">
             <div>
               <h3>{selectedGroup.label}</h3>
-              <span className="muted">
-                Target {round2(selectedGroup.target)} {selectedGroup.unit}
-              </span>
+              <span className="muted">{targetLabel}</span>
             </div>
             <div className="headline-values">
               {selectedGroup.single ? (
