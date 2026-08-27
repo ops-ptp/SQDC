@@ -199,6 +199,21 @@ export async function fetchKpiDailyTarget(kpiId: string, date: string): Promise<
   return data ? (data as { target: number }).target : null;
 }
 
+/** Same idea as fetchKpiDailyTarget, batched — the Board's target display
+ * needs this independent of whether an actual has been entered for that
+ * date yet. Targets are typically uploaded well ahead of actuals (the
+ * Target sheet is filled in for months in advance), so a KPI can have a
+ * known target for a date with no daily_entries row at all — reading the
+ * target only off daily_entries (as met/missed pass-fail correctly does,
+ * since that's meaningless without an actual anyway) would show a stale
+ * catalog default on any date the day's actual hasn't been uploaded yet. */
+export async function fetchKpiDailyTargetsForDate(kpiIds: string[], date: string): Promise<Map<string, number>> {
+  if (kpiIds.length === 0) return new Map();
+  const { data, error } = await supabase.from('kpi_daily_targets').select('kpi_id, target').in('kpi_id', kpiIds).eq('entry_date', date);
+  if (error) throw error;
+  return new Map((data as { kpi_id: string; target: number }[]).map((r) => [r.kpi_id, r.target]));
+}
+
 // ---------------------------------------------------------------------------
 // Admin KPI catalog management — combined lagging + leading list, show/hide,
 // and auto-creating a KPI when the upload detects a brand-new spreadsheet

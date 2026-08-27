@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format, startOfMonth, getDaysInMonth, startOfWeek, subWeeks, subDays, addDays, getISOWeek, getISOWeekYear } from 'date-fns';
-import { fetchActions, fetchEntriesForKpi, fetchEntriesForKpisOnDate, fetchReasonsForKpi, fetchWeeklyEntriesForKpiBase } from '../lib/data';
+import { fetchActions, fetchEntriesForKpi, fetchEntriesForKpisOnDate, fetchKpiDailyTargetsForDate, fetchReasonsForKpi, fetchWeeklyEntriesForKpiBase } from '../lib/data';
 import { useEmployee } from '../context/EmployeeContext';
 import { metTarget, PILLAR_COLORS, round2, type ActionItem, type DailyEntry, type Kpi, type Pillar, type PerformanceStatus, type WeeklyEntry } from '../types';
 import KpiRunChart, { type RunPoint } from './KpiRunChart';
@@ -98,6 +98,13 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily', sh
   const selectedGroup = groups.find((g) => g.key === selectedKey) ?? groups[0];
 
   const [referenceEntries, setReferenceEntries] = useState<DailyEntry[]>([]);
+  // Per-date targets from kpi_daily_targets, independent of whether an
+  // actual has been entered for the reference date yet — targets are
+  // typically uploaded well ahead of actuals (the Target sheet is filled in
+  // months in advance), so on a date with no daily_entries row at all,
+  // referenceEntries alone would have nothing to show and the header would
+  // silently fall back to the stale catalog default.
+  const [referenceTargets, setReferenceTargets] = useState<Map<string, number>>(new Map());
   const [monthEntries, setMonthEntries] = useState<DailyEntry[]>([]);
   const [windowEntries, setWindowEntries] = useState<DailyEntry[]>([]);
   // Pareto has its own lookback window, independent of the Trend chart's —
@@ -130,11 +137,15 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily', sh
     const ids = kpis.map((k) => k.id);
     if (ids.length === 0) {
       setReferenceEntries([]);
+      setReferenceTargets(new Map());
       return;
     }
     fetchEntriesForKpisOnDate(ids, referenceDateStr)
       .then(setReferenceEntries)
       .catch(() => setReferenceEntries([]));
+    fetchKpiDailyTargetsForDate(ids, referenceDateStr)
+      .then(setReferenceTargets)
+      .catch(() => setReferenceTargets(new Map()));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kpis]);
 
@@ -255,20 +266,22 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily', sh
   const referenceOldNightEntry = selectedGroup?.oldNight ? referenceEntries.find((e) => e.kpi_id === selectedGroup.oldNight!.id) : undefined;
 
   // ---- Header "Target" line: the REVIEWED DATE's actual target(s), not the
-  // static catalog default — targets can vary day to day (from the Admin
-  // upload's Target sheet), so this reflects whatever's snapshotted on that
-  // date's own daily_entries row. Falls back to the catalog value only when
-  // no entry exists yet for that date (nothing else to show). Shows one
+  // static catalog default. Reads kpi_daily_targets FIRST — that's populated
+  // straight from the Target sheet regardless of whether an actual has been
+  // uploaded for this date yet (targets are typically filled in months
+  // ahead of actuals) — falling back to the entry's own snapshotted target
+  // (should normally agree once an actual exists) and finally the catalog
+  // default only when neither source has anything for this date. Shows one
   // number when Day and Night share the same target, or "Day X · Night Y"
   // when they genuinely differ.
   const targetLabel = (() => {
     if (!selectedGroup) return '';
     if (selectedGroup.single) {
-      const t = referenceSingleEntry?.target ?? selectedGroup.target;
+      const t = referenceTargets.get(selectedGroup.single.id) ?? referenceSingleEntry?.target ?? selectedGroup.target;
       return `Target ${round2(t)} ${selectedGroup.unit}`;
     }
-    const dayT = referenceDayEntry?.target;
-    const nightT = referenceNightEntry?.target;
+    const dayT = (selectedGroup.day && referenceTargets.get(selectedGroup.day.id)) ?? referenceDayEntry?.target;
+    const nightT = (selectedGroup.night && referenceTargets.get(selectedGroup.night.id)) ?? referenceNightEntry?.target;
     if (dayT === undefined && nightT === undefined) {
       return `Target ${round2(selectedGroup.target)} ${selectedGroup.unit}`;
     }

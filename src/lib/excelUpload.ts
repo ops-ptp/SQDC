@@ -310,6 +310,19 @@ export async function parseDailyTargetSheet(buffer: ArrayBuffer, kpis: Kpi[]): P
   }
 
   const warnings: string[] = [];
+  // Every expected Target header that's genuinely present in the sheet but
+  // resolves to no catalog KPI at all — surfaces a naming mismatch loudly
+  // instead of silently falling back to the KPI's static catalog target
+  // (which is exactly what happened here before this check existed: it
+  // looked fine because most targets never change, until one — Labour
+  // Supply — actually did).
+  for (const [header, bases] of Object.entries(TARGET_HEADER_TO_BASES)) {
+    if (!headers.includes(header)) continue;
+    for (const base of bases) {
+      const hasAny = findRepresentativeKpi(kpis, base) || kpis.some((k) => k.name.startsWith(`${base} (`));
+      if (!hasAny) warnings.push(`Target column "${header}" found, but no catalog KPI matches "${base}" — its per-day target was not written.`);
+    }
+  }
   const targets: UploadTargetRow[] = [];
   let rowsRead = 0;
   // An unsplit KPI (no "(Day)"/"(Night)" catalog rows — e.g. QC Preventive
