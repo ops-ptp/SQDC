@@ -442,3 +442,17 @@ where k.name in ('Mainliner Load GMPH (Day)', 'Mainliner Load GMPH (Night)')
   and not exists (
     select 1 from kpis k2 where k2.name = replace(k.name, 'Mainliner Load GMPH', 'Mainliner Load GMPH (Old)')
   );
+
+-- kpis was select-only for the anon key until now (2026-08-25's
+-- anon_select_kpis policy) because nothing in the app ever wrote to it
+-- before this round — the catalog was managed via SQL/Table Editor only.
+-- The new Admin features write to it directly: auto-creating a KPI when
+-- the upload detects a brand-new spreadsheet column, and KPI Management's
+-- "Save changes" (pillar/unit/target/direction/active edits). Adds
+-- insert/update without touching the existing select policy or removing
+-- delete protection (the app never deletes a kpis row).
+drop policy if exists anon_insert_kpis on kpis;
+create policy anon_insert_kpis on kpis for insert with check (true);
+
+drop policy if exists anon_update_kpis on kpis;
+create policy anon_update_kpis on kpis for update using (true) with check (true);

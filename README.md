@@ -427,10 +427,12 @@ now fully read-only for everyone (no login-gated actions on that page at
 all — see "Admin Excel upload" above). There is no Supabase Auth session —
 the browser talks to Postgres using the public `anon` key, and the Row Level
 Security policies in `schema.sql` allow that anon key to read everything and
-write to `daily_entries`/`actions`/`weekly_entries`/`leading_entries`. This is
-intentional for an MVP used on a trusted shop-floor terminal/network (matches
-the "anyone on shift can update the board" behavior of the physical board),
-but it means:
+write to `daily_entries`/`actions`/`weekly_entries`/`leading_entries`/
+`kpi_daily_targets`, plus (as of the 2026-08-27 migration, needed for
+auto-creating a KPI on upload and for KPI Management's edits) `kpis` itself
+— insert and update, not delete. This is intentional for an MVP used on a
+trusted shop-floor terminal/network (matches the "anyone on shift can update
+the board" behavior of the physical board), but it means:
 
 - Anyone who has the app URL and knows (or guesses) an Employee ID can log an
   entry as them — for **any** KPI, not just ones "assigned" to them.
@@ -438,18 +440,20 @@ but it means:
   longer reads it to restrict access; it's vestigial unless you wire it back
   in.
 - Anyone with the anon key (visible in browser dev tools — it's meant to be
-  public) can read and write `daily_entries`/`actions`/`weekly_entries`
-  directly via the API, not just through the UI.
+  public) can read and write `daily_entries`/`actions`/`weekly_entries`/
+  `kpis` directly via the API, not just through the UI — including changing
+  a KPI's pillar, target, or visibility outside the Admin KPI Management
+  screen.
 - The `/admin` route's `is_admin` gate is a **client-side UI convenience,
   not a security boundary** — it hides the Admin nav link and redirects
   non-admins away from the page, but the same anon key that powers the rest
   of the app can call `bulkUpsertDailyEntriesFromUpload`/
-  `bulkUpsertWeeklyEntriesFromUpload`'s underlying Supabase calls directly
-  from any browser console, `is_admin` or not. Treat "who can upload the
-  Daily/Weekly Excel files" as advisory until real Supabase Auth + RLS
-  scoping (see below) is in place. Same caveat applies to `leading_entries` —
-  it's written by the same upload flow and shares the same permissive RLS
-  policy.
+  `bulkUpsertWeeklyEntriesFromUpload`/`saveKpiAdminUpdates`/`createKpi`'s
+  underlying Supabase calls directly from any browser console, `is_admin` or
+  not. Treat "who can upload the Daily/Weekly Excel files" or edit the KPI
+  catalog as advisory until real Supabase Auth + RLS scoping (see below) is
+  in place. Same caveat applies to `leading_entries` — it's written by the
+  same upload flow and shares the same permissive RLS policy.
 
 Before using this for anything beyond an internal pilot, consider upgrading to real
 Supabase Auth (email/password or magic link per employee) and rewriting the RLS policies
@@ -458,10 +462,11 @@ to the logged-in person.
 
 ## What's intentionally out of scope for this MVP
 
-- Admin UI for managing pillars/KPIs/targets/reasons/employees — the `/admin` tab
-  only covers *daily performance data* (via the Daily/Weekly Excel upload); adding or
-  editing pillars, KPI definitions/targets, reasons, or employees (including promoting
-  someone to `is_admin`) still requires the Supabase Table Editor.
+- Admin UI for managing pillars/reasons/employees — the `/admin` tab's KPI
+  Management table now covers KPI pillar/unit/target/direction/visibility
+  edits and auto-creates a KPI from a new spreadsheet column, but adding or
+  editing pillars, reasons, or employees (including promoting someone to
+  `is_admin`) still requires the Supabase Table Editor.
 - Editing/deleting past daily entries beyond today's (the app only lets you enter/update
   *today's* value per KPI — `daily_entries` is unique per `kpi_id, entry_date` so a
   correction just re-saves that day).
