@@ -45,10 +45,6 @@ p {
 
 /* ---------------- Navbar ---------------- */
 .navbar {
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  padding: 10px 24px;
   background: #0f172a;
   color: white;
   position: sticky;
@@ -56,11 +52,20 @@ p {
   z-index: 20;
 }
 
+.navbar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 24px;
+}
+
 .navbar-brand {
   display: flex;
   align-items: baseline;
   gap: 10px;
   font-weight: 700;
+  min-width: 0;
 }
 
 .navbar-logo {
@@ -70,18 +75,83 @@ p {
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+  flex-shrink: 0;
 }
 
 .navbar-title {
   font-size: 13px;
   font-weight: 500;
   color: #cbd5e1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Hamburger toggle — hidden on desktop, shown only under the mobile
+   breakpoint below. */
+.navbar-toggle {
+  display: none;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  position: relative;
+}
+
+.navbar-toggle-bar,
+.navbar-toggle-bar::before,
+.navbar-toggle-bar::after {
+  position: absolute;
+  left: 7px;
+  right: 7px;
+  height: 2px;
+  background: white;
+  border-radius: 2px;
+  transition: transform 0.18s ease, opacity 0.18s ease, top 0.18s ease;
+}
+
+.navbar-toggle-bar {
+  top: 17px;
+}
+
+.navbar-toggle-bar::before {
+  content: '';
+  top: -8px;
+}
+
+.navbar-toggle-bar::after {
+  content: '';
+  top: 8px;
+}
+
+.navbar-toggle-bar.is-open {
+  background: transparent;
+}
+
+.navbar-toggle-bar.is-open::before {
+  top: 0;
+  transform: rotate(45deg);
+}
+
+.navbar-toggle-bar.is-open::after {
+  top: 0;
+  transform: rotate(-45deg);
+}
+
+.navbar-collapse {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 0 24px;
 }
 
 .navbar-links {
   display: flex;
   gap: 4px;
   flex: 1;
+  flex-wrap: wrap;
 }
 
 .navbar-links a {
@@ -110,6 +180,63 @@ p {
   color: #94a3b8;
 }
 
+/* ---------------- Mobile navbar ---------------- */
+@media (max-width: 780px) {
+  .navbar-row {
+    padding: 10px 16px;
+  }
+
+  .navbar-toggle {
+    display: block;
+  }
+
+  /* Collapsible panel: collapsed to zero height (not display:none) so the
+     open/close transition can animate instead of snapping. */
+  .navbar-collapse {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+    max-height: 0;
+    overflow: hidden;
+    padding: 0 16px;
+    transition: max-height 0.2s ease, padding 0.2s ease;
+  }
+
+  .navbar-collapse.is-open {
+    max-height: 480px;
+    padding: 8px 16px 16px;
+  }
+
+  .navbar-links {
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .navbar-links a {
+    padding: 11px 12px;
+    font-size: 15px;
+  }
+
+  .navbar-user {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+    margin-top: 4px;
+  }
+
+  .navbar-user .btn,
+  .navbar-user a.btn {
+    width: 100%;
+    text-align: center;
+  }
+
+  .navbar-employee {
+    font-size: 14px;
+  }
+}
+
 /* ---------------- Buttons / inputs ---------------- */
 .btn {
   border: none;
@@ -124,6 +251,24 @@ p {
 .btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+@media (max-width: 640px) {
+  /* Slightly taller tap targets across the board's small interactive
+     controls, without changing their look on desktop. */
+  .btn,
+  .chip,
+  .entry-pill,
+  .kpi-pill,
+  .segmented-btn {
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+
+  .kpi-pill {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
 }
 
 .btn-primary {
@@ -207,6 +352,8 @@ p {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .center-page {
@@ -215,6 +362,37 @@ p {
   align-items: center;
   justify-content: center;
   padding: 24px;
+}
+
+@media (max-width: 640px) {
+  .page {
+    padding: 14px;
+  }
+
+  .page-margin {
+    margin: 14px;
+  }
+
+  .center-page {
+    padding: 14px;
+  }
+
+  .page-header-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .page-header-row .date-picker {
+    align-items: stretch;
+  }
+
+  .page-header-row .date-picker .input {
+    width: 100%;
+  }
+
+  h1 {
+    font-size: 20px;
+  }
 }
 
 .card {
@@ -263,6 +441,12 @@ p {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: 16px;
+}
+
+@media (max-width: 400px) {
+  .admin-upload-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .admin-upload-card {
@@ -366,6 +550,12 @@ p {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 16px;
+}
+
+@media (max-width: 340px) {
+  .entry-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .entry-card {
@@ -476,6 +666,16 @@ p {
   flex-wrap: wrap;
 }
 
+@media (max-width: 560px) {
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .span-2 {
+    grid-column: span 1;
+  }
+}
+
 .chip {
   border: 1px solid var(--border);
   background: white;
@@ -580,6 +780,29 @@ p {
   flex-wrap: wrap;
 }
 
+@media (max-width: 640px) {
+  .board-page {
+    padding: 14px 14px 32px;
+  }
+
+  .board-page-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .board-page-controls {
+    justify-content: space-between;
+  }
+
+  .board-reviewing-badge {
+    display: block;
+    margin-left: 0;
+    margin-top: 6px;
+    width: fit-content;
+  }
+}
+
 .board-reviewing-badge {
   display: inline-block;
   margin-left: 10px;
@@ -660,6 +883,7 @@ p {
 @media (max-width: 700px) {
   .board-grid {
     grid-template-columns: 1fr;
+    gap: 12px;
   }
 }
 
@@ -696,6 +920,12 @@ p {
 
 .letter-grid-svg {
   display: block;
+  /* The component sets explicit width/height pixel attributes (so the
+     layout math for cell size stays simple), but those act only as the
+     SVG's intrinsic size — capping to the card's width here lets it shrink
+     on narrow phone screens instead of overflowing/forcing a scrollbar. */
+  max-width: 100%;
+  height: auto;
 }
 
 .letter-grid-empty {
@@ -789,6 +1019,36 @@ p {
   margin-left: 3px;
   color: var(--muted);
   white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .quadrant-hero {
+    padding: 14px 10px;
+  }
+
+  .headline-value {
+    font-size: 28px;
+  }
+
+  .kpi-headline {
+    padding: 10px 10px 0;
+  }
+
+  .kpi-pills {
+    padding: 8px 10px 0;
+  }
+
+  .quadrant-block-title {
+    padding: 12px 10px 4px;
+  }
+
+  .remarks-summary {
+    padding: 0 10px 10px;
+  }
+
+  .quadrant .table-scroll {
+    padding: 0 10px 10px;
+  }
 }
 
 .value-good {
