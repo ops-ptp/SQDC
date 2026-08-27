@@ -44,7 +44,18 @@ p {
 }
 
 /* ---------------- Navbar ---------------- */
+/* Desktop/laptop/TV: identical single-row flex layout to before —
+   .navbar-row and .navbar-collapse are just wrapper divs (needed so the
+   mobile hamburger panel has something to collapse), and `display: contents`
+   removes them from layout entirely so their children (.navbar-brand,
+   .navbar-links, .navbar-user) act as direct flex items of .navbar, exactly
+   as they did when they were literally direct children. Only below the
+   mobile breakpoint do these wrappers become real flex containers. */
 .navbar {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 10px 24px;
   background: #0f172a;
   color: white;
   position: sticky;
@@ -53,11 +64,11 @@ p {
 }
 
 .navbar-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 24px;
+  display: contents;
+}
+
+.navbar-collapse {
+  display: contents;
 }
 
 .navbar-brand {
@@ -65,7 +76,6 @@ p {
   align-items: baseline;
   gap: 10px;
   font-weight: 700;
-  min-width: 0;
 }
 
 .navbar-logo {
@@ -75,16 +85,12 @@ p {
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  flex-shrink: 0;
 }
 
 .navbar-title {
   font-size: 13px;
   font-weight: 500;
   color: #cbd5e1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* Hamburger toggle — hidden on desktop, shown only under the mobile
@@ -151,7 +157,6 @@ p {
   display: flex;
   gap: 4px;
   flex: 1;
-  flex-wrap: wrap;
 }
 
 .navbar-links a {
@@ -182,7 +187,16 @@ p {
 
 /* ---------------- Mobile navbar ---------------- */
 @media (max-width: 780px) {
+  .navbar {
+    display: block;
+    padding: 0;
+  }
+
   .navbar-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
     padding: 10px 16px;
   }
 
@@ -193,6 +207,7 @@ p {
   /* Collapsible panel: collapsed to zero height (not display:none) so the
      open/close transition can animate instead of snapping. */
   .navbar-collapse {
+    display: flex;
     flex-direction: column;
     align-items: stretch;
     gap: 4px;
@@ -234,6 +249,20 @@ p {
 
   .navbar-employee {
     font-size: 14px;
+  }
+
+  .navbar-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .navbar-brand {
+    min-width: 0;
+  }
+
+  .navbar-logo {
+    flex-shrink: 0;
   }
 }
 
@@ -352,8 +381,6 @@ p {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
 }
 
 .center-page {
@@ -380,6 +407,7 @@ p {
   .page-header-row {
     flex-direction: column;
     align-items: stretch;
+    gap: 10px;
   }
 
   .page-header-row .date-picker {
