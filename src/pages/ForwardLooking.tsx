@@ -1,7 +1,7 @@
 import { format, parseISO } from 'date-fns';
 import { useEffect, useMemo, useState } from 'react';
 import { fetchLatestLeadingEntries, fetchLeadingKpis } from '../lib/data';
-import { PILLAR_COLORS, round2, type KpiWithPillar, type LeadingEntry } from '../types';
+import { PILLAR_COLORS, errorMessage, round2, type KpiWithPillar, type LeadingEntry } from '../types';
 
 const TODAY = new Date();
 
@@ -42,7 +42,7 @@ export default function ForwardLooking() {
         );
       })
       .then((e) => !cancelled && setEntries(e))
-      .catch((e) => !cancelled && setError(e instanceof Error ? e.message : 'Failed to load Next 24 Hours board'))
+      .catch((e) => !cancelled && setError(errorMessage(e, 'Failed to load Next 24 Hours board')))
       .finally(() => !cancelled && setLoading(false));
     return () => {
       cancelled = true;

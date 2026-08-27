@@ -11,7 +11,7 @@ import {
   fetchReasonsForKpi,
   upsertDailyEntry,
 } from '../lib/data';
-import { PILLAR_COLORS, metTarget, round2, type DailyEntry, type Kpi, type Pillar, type Reason } from '../types';
+import { PILLAR_COLORS, errorMessage, metTarget, round2, type DailyEntry, type Kpi, type Pillar, type Reason } from '../types';
 
 const TODAY = format(new Date(), 'yyyy-MM-dd');
 // Staff typically log the previous day's completed shift results each
@@ -180,7 +180,7 @@ export default function DataEntry() {
         const first = built.find((g) => g.pillarId === p[0]?.id) ?? built[0];
         if (first) setSelectedGroupKey(first.key);
       })
-      .catch((e) => setLoadError(e instanceof Error ? e.message : 'Failed to load the KPI catalog'))
+      .catch((e) => setLoadError(errorMessage(e, 'Failed to load the KPI catalog')))
       .finally(() => setLoading(false));
   }, []);
 
@@ -242,7 +242,7 @@ export default function DataEntry() {
           error: null,
         });
       })
-      .catch((e) => setForm((f) => ({ ...f, loading: false, error: e instanceof Error ? e.message : 'Failed to load entry' })));
+      .catch((e) => setForm((f) => ({ ...f, loading: false, error: errorMessage(e, 'Failed to load entry') })));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedGroup?.key, selectedDate]);
 
@@ -272,7 +272,7 @@ export default function DataEntry() {
         error: null,
       });
     } catch (e) {
-      setForm((f) => ({ ...f, loading: false, error: e instanceof Error ? e.message : 'Failed to load entry' }));
+      setForm((f) => ({ ...f, loading: false, error: errorMessage(e, 'Failed to load entry') }));
     }
   }
 
@@ -321,7 +321,7 @@ export default function DataEntry() {
       patch({ saving: false, saved: true, existing: saved });
       setDateEntries((prev) => [...prev.filter((e) => e.kpi_id !== kpi.id), saved]);
     } catch (e) {
-      patch({ saving: false, error: e instanceof Error ? e.message : 'Failed to save' });
+      patch({ saving: false, error: errorMessage(e, 'Failed to save') });
     }
   }
 
@@ -361,7 +361,7 @@ export default function DataEntry() {
       patch({ saving: false, saved: true, existing: saved });
       setDateEntries((prev) => [...prev.filter((e) => e.kpi_id !== kpi.id), saved]);
     } catch (e) {
-      patch({ saving: false, error: e instanceof Error ? e.message : 'Failed to save' });
+      patch({ saving: false, error: errorMessage(e, 'Failed to save') });
     }
   }
 

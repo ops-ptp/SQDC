@@ -22,7 +22,7 @@ import {
   parseNext24hrsWorkbook,
   parseWeeklyWorkbook,
 } from '../lib/excelUpload';
-import type { KpiWithPillar, Pillar } from '../types';
+import { errorMessage, type KpiWithPillar, type Pillar } from '../types';
 
 interface UploadResult {
   ok: boolean;
@@ -54,7 +54,7 @@ function UploadCard({
       const res = await onUpload(file);
       setResult(res);
     } catch (e) {
-      setResult({ ok: false, message: e instanceof Error ? e.message : 'Upload failed', warnings: [] });
+      setResult({ ok: false, message: errorMessage(e, 'Upload failed'), warnings: [] });
     } finally {
       setBusy(false);
     }
@@ -231,7 +231,7 @@ function KpiManagementSection() {
         setRows(editable);
         setOriginal(new Map(editable.map((r) => [r.id, r])));
       })
-      .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load KPI catalog'))
+      .catch((e) => setError(errorMessage(e, 'Failed to load KPI catalog')))
       .finally(() => setLoading(false));
   }, []);
 
@@ -260,7 +260,7 @@ function KpiManagementSection() {
       setOriginal(new Map(rows.map((r) => [r.id, r])));
       setMessage(`Saved ${changed.length} change${changed.length === 1 ? '' : 's'}.`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to save changes');
+      setError(errorMessage(e, 'Failed to save changes'));
     } finally {
       setSaving(false);
     }

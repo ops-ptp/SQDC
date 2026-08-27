@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useEmployee } from '../context/EmployeeContext';
 import { createAction, fetchActions, fetchKpis, fetchPillars, setActionStatus } from '../lib/data';
-import { PILLAR_COLORS, type ActionItem, type ActionStatus, type Kpi, type Pillar } from '../types';
+import { PILLAR_COLORS, errorMessage, type ActionItem, type ActionStatus, type Kpi, type Pillar } from '../types';
 import ActionTable from '../components/ActionTable';
 
 export default function ActionLog() {
@@ -88,7 +88,7 @@ export default function ActionLog() {
       setForm((f) => ({ ...f, kpi_id: '', related_issue: '', action: '', deadline: '' }));
       setShowForm(false);
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Failed to add action');
+      setFormError(errorMessage(err, 'Failed to add action'));
     } finally {
       setSubmitting(false);
     }

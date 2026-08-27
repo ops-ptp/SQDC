@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { supabase } from '../lib/supabaseClient';
-import type { Employee } from '../types';
+import { errorMessage, type Employee } from '../types';
 
 const STORAGE_KEY = 'sqdc.employee_code';
 
@@ -60,7 +60,7 @@ export function EmployeeProvider({ children }: { children: ReactNode }) {
       setEmployee(emp);
       return emp;
     } catch (e) {
-      const message = e instanceof Error ? e.message : 'Login failed';
+      const message = errorMessage(e, 'Login failed');
       setError(message);
       throw e;
     }

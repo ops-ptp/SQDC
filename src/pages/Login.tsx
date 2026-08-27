@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useEmployee } from '../context/EmployeeContext';
+import { errorMessage } from '../types';
 
 export default function Login() {
   const { loginWithCode } = useEmployee();
@@ -20,7 +21,7 @@ export default function Login() {
       await loginWithCode(code);
       navigate(from, { replace: true });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed');
+      setError(errorMessage(err, 'Login failed'));
     } finally {
       setSubmitting(false);
     }

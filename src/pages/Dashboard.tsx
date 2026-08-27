@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { format, subDays } from 'date-fns';
 import { fetchKpis, fetchPillars } from '../lib/data';
 import type { Kpi, Pillar } from '../types';
+import { errorMessage } from '../types';
 import PillarQuadrant, { type Granularity } from '../components/PillarQuadrant';
 
 export default function Dashboard() {
@@ -20,7 +21,7 @@ export default function Dashboard() {
         setPillars(p);
         setKpis(k);
       })
-      .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load board'))
+      .catch((e) => setError(errorMessage(e, 'Failed to load board')))
       .finally(() => setLoading(false));
   }, []);
 

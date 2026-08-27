@@ -160,6 +160,21 @@ export function metTarget(kpi: Pick<Kpi, 'is_higher_better'>, target: number, ac
   return kpi.is_higher_better ? actual >= target : actual <= target;
 }
 
+/** Extracts a human-readable message from anything a try/catch might throw.
+ * `instanceof Error` alone isn't enough here — Supabase's PostgrestError
+ * (thrown throughout this app's data layer as `if (error) throw error`) is a
+ * plain object with its own `.message`, not a real Error instance, so an
+ * `e instanceof Error` check alone was silently discarding it and falling
+ * back to a generic "failed" string with no clue what actually went wrong. */
+export function errorMessage(e: unknown, fallback: string): string {
+  if (e instanceof Error) return e.message;
+  if (e && typeof e === 'object' && 'message' in e && typeof (e as { message: unknown }).message === 'string') {
+    return (e as { message: string }).message;
+  }
+  if (typeof e === 'string') return e;
+  return fallback;
+}
+
 /** Rounds to at most 2 decimal places for display. KPI actual/target values
  * can carry long floating-point tails (e.g. from Excel-derived averages or
  * percentage conversions) — this keeps the board readable without changing
