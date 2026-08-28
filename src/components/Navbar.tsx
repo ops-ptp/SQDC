@@ -13,7 +13,7 @@ export default function Navbar() {
     <header className="navbar">
       <div className="navbar-row">
         <div className="navbar-brand">
-          <span className="navbar-logo">SQDC</span>
+          <img src="/logo-lean-for-all.png" alt="Lean For All" className="navbar-logo-img" />
           <span className="navbar-title">Operations Division</span>
         </div>
 

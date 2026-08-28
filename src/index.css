@@ -7,8 +7,13 @@
   --grid-line: #eef2f7;
   --good: #16a34a;
   --bad: #dc2626;
-  --primary: #1d4ed8;
-  --primary-dark: #1e3a8a;
+  /* Brand palette, from the "Lean For All" logo: orange as the primary
+     action color, dark teal for the navbar (both sampled from the mark).
+     --good/--bad stay green/red regardless — those are pass/fail semantics,
+     not brand color, and shouldn't shift with a rebrand. */
+  --primary: #f5821e;
+  --primary-dark: #c2650f;
+  --navbar-bg: #2a544f;
   color-scheme: light;
 }
 
@@ -43,6 +48,24 @@ p {
   font-size: 13px;
 }
 
+/* ---------------- App footer ---------------- */
+.app-footer {
+  text-align: center;
+  padding: 14px 16px 18px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.app-footer a {
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.app-footer a:hover {
+  color: var(--text);
+}
+
 /* ---------------- Navbar ---------------- */
 /* Desktop/laptop/TV: identical single-row flex layout to before —
    .navbar-row and .navbar-collapse are just wrapper divs (needed so the
@@ -56,7 +79,7 @@ p {
   align-items: center;
   gap: 24px;
   padding: 10px 24px;
-  background: #0f172a;
+  background: var(--navbar-bg);
   color: white;
   position: sticky;
   top: 0;
@@ -73,18 +96,15 @@ p {
 
 .navbar-brand {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 10px;
   font-weight: 700;
 }
 
-.navbar-logo {
-  font-size: 18px;
-  letter-spacing: 1px;
-  background: linear-gradient(135deg, #2563eb, #16a34a);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+.navbar-logo-img {
+  height: 30px;
+  width: auto;
+  display: block;
 }
 
 .navbar-title {
@@ -179,6 +199,11 @@ p {
   align-items: center;
   gap: 10px;
   font-size: 13px;
+  /* Belt-and-braces: .navbar-links already has flex:1 to push this to the
+     right, but margin-left:auto guarantees it regardless — it pins this to
+     the end of the flex row on its own, independent of any sibling's
+     flex-grow behavior. */
+  margin-left: auto;
 }
 
 .navbar-employee-code {
@@ -239,6 +264,7 @@ p {
     padding-top: 8px;
     border-top: 1px solid rgba(255, 255, 255, 0.12);
     margin-top: 4px;
+    margin-left: 0;
   }
 
   .navbar-user .btn,
@@ -261,7 +287,7 @@ p {
     min-width: 0;
   }
 
-  .navbar-logo {
+  .navbar-logo-img {
     flex-shrink: 0;
   }
 }
@@ -850,8 +876,8 @@ p {
   margin-left: 10px;
   padding: 2px 9px;
   border-radius: 999px;
-  background: #dbeafe;
-  color: #1d4ed8;
+  background: #fdecd8;
+  color: var(--primary-dark);
   font-size: 11.5px;
   font-weight: 700;
 }

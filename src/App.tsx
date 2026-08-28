@@ -1,6 +1,7 @@
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import { EmployeeProvider } from './context/EmployeeContext';
 import Navbar from './components/Navbar';
+import Footer from './components/Footer';
 import RequireEmployee from './components/RequireEmployee';
 import RequireAdmin from './components/RequireAdmin';
 import Dashboard from './pages/Dashboard';
@@ -39,6 +40,7 @@ export default function App() {
             />
           </Routes>
         </main>
+        <Footer />
       </BrowserRouter>
     </EmployeeProvider>
   );
