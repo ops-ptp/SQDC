@@ -23,11 +23,12 @@
 --     a day-by-day target — flagged as a follow-up if you want the daily
 --     projection itself editable.
 --   * Leading KPI rows have no target — they're numeric projections (Moves
---     Day/Night, TEUs Run Rate, QC Gang, Lashing, QC PM & Service MTD/Next
---     Day), one figure per day, sourced from the Daily upload's "Next 24hrs"
---     tab into `leading_entries` and shown as a read-only headline number on
---     the Next 24 Hours board (no more manual add-a-card forecast_cards flow —
---     that table still exists but the UI no longer writes to it).
+--     Day/Night, TEUs Run Rate, QC Gang, Lashing, QC PM & Service MTD/
+--     Projection Today), one figure per day, sourced from the Daily upload's
+--     "Next 24hrs" tab into `leading_entries` and shown as a read-only
+--     headline number on the Next 24 Hours board (no more manual add-a-card
+--     forecast_cards flow — that table still exists but the UI no longer
+--     writes to it).
 --   * Demo daily_entries below are synthetic (deterministic pseudo-random
 --     around each KPI's target), not the literal Aug-2026 figures from the
 --     workbook — say the word if you'd like the real historical numbers
@@ -117,8 +118,8 @@ insert into kpis (pillar_id, name, unit, is_higher_better, target, info, sort_or
 
 -- ---- Leading KPIs (Next 24 Hours board — numeric value, no target) --------
 -- Units reflect what the sheet's "Next 24hrs" tab actually contains: raw
--- projected counts/rates for most, % (raw value × 100, same convention as
--- the app's other ratio KPIs) for the two QC PM & Service ones.
+-- projected counts/rates for most, % (raw value × 100) for QC PM & Service
+-- MTD, absolute number for QC PM & Service Projection Today.
 insert into kpis (pillar_id, name, unit, is_higher_better, target, info, sort_order, is_leading) select id, v.name, v.unit, true, 0, v.info, v.ord, true from pillars, (values
   ('Moves - Projection Day Shift',   'Moves', 'Forecast of tomorrow''s day-shift moves — used to flag resourcing gaps ahead of time.', 20),
   ('Moves - Projection Night Shift', 'Moves', 'Forecast of tomorrow''s night-shift moves — used to flag resourcing gaps ahead of time.', 21),
@@ -132,7 +133,7 @@ insert into kpis (pillar_id, name, unit, is_higher_better, target, info, sort_or
 
 insert into kpis (pillar_id, name, unit, is_higher_better, target, info, sort_order, is_leading) select id, v.name, v.unit, true, 0, v.info, v.ord, true from pillars, (values
   ('QC PM & Service - MTD',                 '%', 'Month-to-date view of preventive maintenance & service completed, discussed forward-looking against plan.', 20),
-  ('QC PM & Service - Projection Next Day', '%', 'Forecast of preventive maintenance & service planned for the next day.', 21)
+  ('QC PM & Service - Projection Today',     '',  'Forecast of preventive maintenance & service planned for today.', 21)
 ) as v(name, unit, info, ord) where pillars.code = 'C';
 
 -- ---- KPI assignments (who is responsible for updating each KPI) -----------
@@ -335,6 +336,6 @@ from kpis k join (values
   ('Lashing - Projection Next Shift',               49),
   ('QC Gang - Projection Next Shift',               49),
   ('QC PM & Service - MTD',                       82.0),
-  ('QC PM & Service - Projection Next Day',       88.0)
+  ('QC PM & Service - Projection Today',             3)
 ) as v(name, value) on v.name = k.name
 on conflict (kpi_id, entry_date) do nothing;

@@ -456,3 +456,23 @@ create policy anon_insert_kpis on kpis for insert with check (true);
 
 drop policy if exists anon_update_kpis on kpis;
 create policy anon_update_kpis on kpis for update using (true) with check (true);
+
+-- ============================================================================
+-- MIGRATION: "QC PM & Service - Projection Next Day" renamed to
+-- "QC PM & Service - Projection Today", unit changed from % to absolute
+-- number (sheet's "2" now means 2, not 200%).
+-- IMPORTANT — this KPI's name must exactly match its column header in the
+-- Next 24hrs sheet (leading KPIs are matched by name, not a translation
+-- table). Rename that column in OPS SQDC Daily.xlsx to the exact string
+-- below too, or the next upload won't find it and will auto-create a
+-- duplicate KPI instead of updating this one. Safe to re-run.
+-- ============================================================================
+update kpis
+set name = 'QC PM & Service - Projection Today',
+    unit = '',
+    info = 'Forecast of preventive maintenance & service planned for today.'
+where name = 'QC PM & Service - Projection Next Day';
+-- (Naturally safe to re-run: once renamed, this WHERE clause no longer
+-- matches anything. The one-off rescale of already-uploaded values for
+-- this KPI — needed once, NOT idempotent — is a separate script, not part
+-- of this file: rename_qc_pm_service_today.sql.)

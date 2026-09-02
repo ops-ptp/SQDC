@@ -114,7 +114,8 @@ remarks-only once the Admin upload is populating it. See "Admin Excel upload" be
 | **D** | Moves - Projection Day/Night Shift | Moves |
 | **D** | TEUs Run Rate (Forecast) | TEUs |
 | **D** | Lashing - Projection Next Shift | Gangs |
-| **C** | QC PM & Service - MTD, QC PM & Service - Projection Next Day | % |
+| **C** | QC PM & Service - MTD | % |
+| **C** | QC PM & Service - Projection Today | (absolute number) |
 
 Leading KPIs are read-only on the board — their numbers come from the Admin Daily
 upload's **"Next 24hrs"** tab (see "Admin Excel upload" below), not manual entry.
