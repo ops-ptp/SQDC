@@ -11,6 +11,11 @@ interface Props {
   days: DayStatus[];
   todayDay: number;
   height?: number;
+  /** When given, real (non-blackened, non-"no such date") cells become
+   * clickable — the caller shows that day's detail (performance + remarks +
+   * week trend). Omit to keep the grid read-only, e.g. when there's no
+   * selected KPI yet to show detail for. */
+  onDayClick?: (day: number) => void;
 }
 
 interface Cell {
@@ -178,7 +183,7 @@ const STATUS_LABEL: Record<PerformanceStatus, string> = {
   nodata: 'no data logged',
 };
 
-export default function PillarLetterGrid({ letter, days, todayDay, height = 208 }: Props) {
+export default function PillarLetterGrid({ letter, days, todayDay, height = 208, onDayClick }: Props) {
   const cells = LETTER_LAYOUTS[letter] ?? [];
 
   if (cells.length === 0) {
@@ -221,6 +226,10 @@ export default function PillarLetterGrid({ letter, days, todayDay, height = 208 
         const isToday = dayInfo?.day === todayDay;
         const fill = isPastMonthEnd ? '#1e293b' : dayInfo ? PERFORMANCE_COLORS[dayInfo.status] : PERFORMANCE_COLORS.future;
         const textColor = dayInfo && (dayInfo.status === 'met' || dayInfo.status === 'missed') ? '#ffffff' : '#475569';
+        // A future day has no data to show detail for; a "no such date"
+        // filler cell isn't a real day at all — neither is clickable even
+        // when the caller opted into click handling.
+        const clickable = Boolean(onDayClick) && Boolean(dayInfo) && dayInfo!.status !== 'future';
         return (
           <g key={`${c.row}-${c.col}`}>
             <rect
@@ -232,12 +241,14 @@ export default function PillarLetterGrid({ letter, days, todayDay, height = 208 
               fill={fill}
               stroke={isToday ? '#1d4ed8' : 'rgba(0,0,0,0.35)'}
               strokeWidth={isToday ? 0.14 : 0.045}
+              style={clickable ? { cursor: 'pointer' } : undefined}
+              onClick={clickable ? () => onDayClick!(dayInfo!.day) : undefined}
             >
               <title>
                 {isPastMonthEnd
                   ? 'No such date this month'
                   : dayInfo
-                    ? `Day ${dayInfo.day}${isToday ? ' (most recent)' : ''} — ${STATUS_LABEL[dayInfo.status]}`
+                    ? `Day ${dayInfo.day}${isToday ? ' (most recent)' : ''} — ${STATUS_LABEL[dayInfo.status]}${clickable ? ' — click for detail' : ''}`
                     : undefined}
               </title>
             </rect>

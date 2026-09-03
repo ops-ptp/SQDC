@@ -538,13 +538,45 @@ export interface DetectedNewColumn {
   unitGuess: string;
 }
 
+/** Reads the actual Excel cell format for a column, rather than guessing
+ * from the values themselves — the previous magnitude-only heuristic
+ * ("percent if every sampled value is between -1 and 1") broke for any
+ * genuinely-percent column that happened to hit exactly 100% (stored as the
+ * value 1, which is not "strictly between -1 and 1"), e.g. an SLA/delivery
+ * column that's occasionally at target. Excel's own per-cell number format
+ * (e.g. "0%", "0.00%") is the ground truth for "is this a percentage" — no
+ * guessing needed when it's explicitly set.
+ *
+ * Returns '%' or '' when the format makes the answer unambiguous ('0%' /
+ * '0.00%' -> '%'; 'General', '0.00', '#,##0', etc. -> a definite non-%),
+ * or null when every sampled cell is unformatted/blank and the caller
+ * should fall back to the old value-based guess. */
+function guessUnitFromNumberFormat(sheet: ExcelJS.Worksheet, col: number, headerRowNum: number): string | null {
+  for (let r = headerRowNum + 1; r <= sheet.rowCount && r < headerRowNum + 31; r++) {
+    const cell = sheet.getRow(r).getCell(col);
+    if (cell.value === null || cell.value === undefined) continue;
+    const fmt = cell.numFmt;
+    if (!fmt || fmt === 'General') continue; // ambiguous — no explicit format to trust
+    return fmt.includes('%') ? '%' : '';
+  }
+  return null;
+}
+
 /** Samples up to 30 numeric values already present in a column (below the
  * header row) and guesses '%' when every one of them sits strictly between
  * -1 and 1 — the same raw-ratio convention every other percentage-style KPI
  * in this app already uses (sheet's 0.11 -> stored/shown as 11%). An empty
  * or all-zero column can't be distinguished this way and falls back to '',
- * same as before this heuristic existed. */
+ * same as before this heuristic existed.
+ *
+ * Only used as a fallback when the column's own Excel cell format (see
+ * guessUnitFromNumberFormat) doesn't give a definite answer — reading the
+ * sheet's actual number format is more reliable than guessing from
+ * magnitude and is tried first. */
 function guessUnitFromColumn(sheet: ExcelJS.Worksheet, col: number, headerRowNum: number): string {
+  const fromFormat = guessUnitFromNumberFormat(sheet, col, headerRowNum);
+  if (fromFormat !== null) return fromFormat;
+
   let sampled = 0;
   for (let r = headerRowNum + 1; r <= sheet.rowCount && sampled < 30; r++) {
     const v = cellNumber(sheet.getRow(r).getCell(col).value);
@@ -591,6 +623,92 @@ export async function detectNewDailyColumns(buffer: ArrayBuffer, existingKpis: K
     found.push({ header, categoryGuess: CATEGORY_TO_PILLAR_CODE[cat] ?? null, unitGuess: guessUnitFromColumn(sheet, c, headerRowNum) });
   }
   return found;
+}
+
+export interface ColumnRemoval {
+  kpi: Kpi;
+  /** The spreadsheet column header this KPI's data used to come from —
+   * shown to the admin so they can see why it's flagged. */
+  expectedHeader: string;
+}
+
+/** Every currently-ACTIVE lagging KPI whose spreadsheet column is no longer
+ * present in this Daily Database sheet — e.g. a column the team deleted
+ * from the workbook. This only READS the file; it doesn't touch the
+ * database. Admin.tsx shows the result to the admin as a preview and only
+ * hides (kpis.active = false) anything here after they confirm — nothing
+ * is ever deleted from the catalog by this, matching the same "hide, don't
+ * delete" rule new-column auto-creation already follows in reverse. */
+export async function detectRemovedDailyColumns(buffer: ArrayBuffer, existingKpis: Kpi[]): Promise<ColumnRemoval[]> {
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buffer);
+  const sheet = wb.worksheets.find((s) => /daily database/i.test(s.name)) ?? wb.worksheets[0];
+  if (!sheet) return [];
+
+  const headerRowNum = findHeaderRowByAccident(sheet);
+  if (headerRowNum === -1) return [];
+  const headerRow = sheet.getRow(headerRowNum);
+  const colCount = sheet.columnCount;
+  const headers = new Set<string>();
+  for (let c = 1; c <= colCount; c++) {
+    const h = norm(headerRow.getCell(c).value);
+    if (h) headers.add(h);
+  }
+
+  // Which base KPI names this sheet's headers currently account for — the
+  // exact same header -> base resolution parseDailyWorkbook itself uses, so
+  // "removed" can never disagree with what a real upload would actually
+  // read from this file.
+  const presentBases = new Set<string>();
+  for (const h of headers) presentBases.add(DAILY_HEADER_TO_BASE[h] ?? h);
+  if ([...headers].some((h) => /mainliner load gmph.*new calculation/i.test(h))) presentBases.add('Mainliner Load GMPH');
+  if ([...headers].some((h) => /mainliner load gmph.*old calculation/i.test(h))) presentBases.add('Mainliner Load GMPH (Old)');
+
+  const removed: ColumnRemoval[] = [];
+  for (const k of existingKpis) {
+    if (!k.active) continue; // already hidden — nothing new to flag
+    const base = k.name.replace(/\s*\((Day|Night)\)\s*$/i, '');
+    if (!presentBases.has(base)) removed.push({ kpi: k, expectedHeader: base });
+  }
+  return removed;
+}
+
+/** Same idea for the Next 24hrs sheet — an active leading KPI whose exact-
+ * name column is no longer present. */
+export async function detectRemovedLeadingColumns(buffer: ArrayBuffer, existingLeadingKpis: Kpi[]): Promise<ColumnRemoval[]> {
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buffer);
+  const sheet = wb.worksheets.find((s) => /next\s*24/i.test(s.name));
+  if (!sheet) return [];
+
+  const kpiNames = new Set(existingLeadingKpis.map((k) => k.name));
+  let headerRowNum = -1;
+  let bestMatchCount = 0;
+  for (let r = 1; r <= Math.min(sheet.rowCount, 10); r++) {
+    const row = sheet.getRow(r);
+    let matches = 0;
+    for (let c = 1; c <= sheet.columnCount; c++) {
+      if (kpiNames.has(norm(row.getCell(c).value))) matches++;
+    }
+    if (matches > bestMatchCount) {
+      bestMatchCount = matches;
+      headerRowNum = r;
+    }
+  }
+  // Can't locate a header row without at least one recognisable existing
+  // column to anchor on — nothing to safely compare against, so report no
+  // removals rather than risk a false positive from a misread row.
+  if (headerRowNum === -1) return [];
+
+  const headerRow = sheet.getRow(headerRowNum);
+  const colCount = sheet.columnCount;
+  const headers = new Set<string>();
+  for (let c = 1; c <= colCount; c++) {
+    const h = norm(headerRow.getCell(c).value);
+    if (h) headers.add(h);
+  }
+
+  return existingLeadingKpis.filter((k) => k.active && !headers.has(k.name)).map((k) => ({ kpi: k, expectedHeader: k.name }));
 }
 
 /** Same idea for the Next 24hrs sheet — a column whose header doesn't match

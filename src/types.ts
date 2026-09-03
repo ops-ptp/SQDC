@@ -156,6 +156,19 @@ export const PERFORMANCE_COLORS: Record<PerformanceStatus, string> = {
   nodata: '#94a3b8',
 };
 
+/** Strips a KPI's "(Day)"/"(Night)" shift suffix and, after that, an
+ * "(Old)" secondary-calculation suffix (e.g. "Mainliner Load GMPH (Old)
+ * (Day)" -> "Mainliner Load GMPH") — the shared base name several places
+ * group Day/Night/Old variants of the same logical KPI under: the board's
+ * KpiGroup (PillarQuadrant.tsx) and Admin's KPI Management table both call
+ * this so a Day/Night/Old split is always folded together the same way. */
+export function baseNameOf(name: string): string {
+  return name
+    .replace(/\s*\((Day|Night)\)\s*$/i, '')
+    .replace(/\s*\(Old\)\s*$/i, '')
+    .trim();
+}
+
 export function metTarget(kpi: Pick<Kpi, 'is_higher_better'>, target: number, actual: number): boolean {
   return kpi.is_higher_better ? actual >= target : actual <= target;
 }

@@ -236,18 +236,31 @@ export async function fetchAllKpisAdmin(): Promise<KpiWithPillar[]> {
 export interface KpiAdminUpdate {
   id: string;
   active: boolean;
+  is_higher_better: boolean;
 }
 
-/** Saves the Admin KPI Management screen's pending show/hide changes —
- * "save view" is one global state stored on `kpis.active`, not per-admin
- * presets. This is intentionally show/hide only, not a general KPI editor —
- * fixing an auto-created KPI's pillar/unit/target/direction still goes
- * through the Supabase Table Editor, same as the rest of the catalog. */
+/** Saves the Admin KPI Management screen's pending show/hide and pass/fail-
+ * direction changes — "save view" is one global state stored directly on
+ * `kpis`, not per-admin presets. Pillar/unit/target still aren't editable
+ * here by design — that still goes through the Supabase Table Editor, same
+ * as the rest of the catalog. */
 export async function saveKpiAdminUpdates(updates: KpiAdminUpdate[]): Promise<void> {
   for (const u of updates) {
-    const { error } = await supabase.from('kpis').update({ active: u.active }).eq('id', u.id);
+    const { error } = await supabase.from('kpis').update({ active: u.active, is_higher_better: u.is_higher_better }).eq('id', u.id);
     if (error) throw error;
   }
+}
+
+/** Permanently deletes a KPI and every row that references it — daily
+ * entries, leading entries, per-day targets, reasons, and assignments all
+ * cascade via the schema's `on delete cascade` foreign keys (only the
+ * Action Log survives, with its kpi_id nulled out rather than the action
+ * itself removed). There is no undo — Admin.tsx is responsible for making
+ * the person confirm this explicitly before calling it. */
+export async function deleteKpis(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const { error } = await supabase.from('kpis').delete().in('id', ids);
+  if (error) throw error;
 }
 
 export interface NewKpiInput {
