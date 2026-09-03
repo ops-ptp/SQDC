@@ -203,9 +203,18 @@ export async function parseDailyWorkbook(
     if (/mainliner load gmph.*old calculation/i.test(headers[c])) mainlinerOldCol = c;
   }
 
+  // A header maps to a base name either via the known static translation
+  // table above, or — for a column an admin added to the spreadsheet after
+  // launch — by matching the header text directly against a KPI already in
+  // the catalog (auto-created by detectNewDailyColumns on a prior upload,
+  // same as parseNext24hrsWorkbook already does for leading KPIs). Without
+  // this second path, a newly auto-created KPI's name would appear in the
+  // catalog but its column's numbers would never be read on any upload,
+  // including this one and every one after it.
+  const catalogNames = new Set(kpis.map((k) => k.name));
   const simpleCols: { col: number; base: string }[] = [];
   for (let c = 1; c <= colCount; c++) {
-    const base = DAILY_HEADER_TO_BASE[headers[c]];
+    const base = DAILY_HEADER_TO_BASE[headers[c]] ?? (catalogNames.has(headers[c]) ? headers[c] : undefined);
     if (base) simpleCols.push({ col: c, base });
   }
 
@@ -544,8 +553,14 @@ function guessUnitFromColumn(sheet: ExcelJS.Worksheet, col: number, headerRowNum
 /** Scans the Daily Database sheet for column headers that don't map to any
  * known KPI — i.e. a new column the admin added to the spreadsheet. Used by
  * Admin.tsx to auto-create catalog entries before the main parse, so a new
- * column is picked up in the same upload rather than needing a second pass. */
-export async function detectNewDailyColumns(buffer: ArrayBuffer): Promise<DetectedNewColumn[]> {
+ * column is picked up in the same upload rather than needing a second pass.
+ *
+ * `existingKpis` must be the live catalog (including anything auto-created
+ * by a previous upload) — a header is only "new" if it matches neither the
+ * static translation table nor an existing KPI's name. Without checking the
+ * live catalog here, a column auto-created on upload #1 would still look
+ * "new" on upload #2 and get created again, producing duplicate KPI rows. */
+export async function detectNewDailyColumns(buffer: ArrayBuffer, existingKpis: Kpi[] = []): Promise<DetectedNewColumn[]> {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(buffer);
   const sheet = wb.worksheets.find((s) => /daily database/i.test(s.name)) ?? wb.worksheets[0];
@@ -560,6 +575,7 @@ export async function detectNewDailyColumns(buffer: ArrayBuffer): Promise<Detect
   const known = new Set(Object.keys(DAILY_HEADER_TO_BASE));
   known.add('Date');
   known.add('Shift');
+  for (const k of existingKpis) known.add(k.name);
 
   const found: DetectedNewColumn[] = [];
   for (let c = 1; c <= colCount; c++) {

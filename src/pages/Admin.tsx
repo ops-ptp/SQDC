@@ -263,7 +263,7 @@ export default function Admin() {
     // the rest of the workbook, so this same upload picks them up rather
     // than needing a second pass once the admin notices them.
     const [newDailyCols, newLeadingCols] = await Promise.all([
-      detectNewDailyColumns(buffer),
+      detectNewDailyColumns(buffer, kpisInitial),
       detectNewLeadingColumns(buffer, leadingKpisInitial),
     ]);
     const fallbackPillar = pillars.find((p) => p.code === 'Q') ?? pillars[0];
