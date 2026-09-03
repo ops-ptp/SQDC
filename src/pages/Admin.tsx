@@ -8,7 +8,6 @@ import {
   createKpi,
   fetchAllKpisAdmin,
   fetchKpisForUpload,
-  fetchLeadingKpis,
   fetchManualOverrideKeys,
   fetchPillars,
   saveKpiAdminUpdates,
@@ -252,12 +251,21 @@ export default function Admin() {
   const { employee } = useEmployee();
 
   async function handleDailyUpload(file: File): Promise<UploadResult> {
-    const [pillars, kpisInitial, leadingKpisInitial, buffer] = await Promise.all([
+    const [pillars, allKpisInitial, buffer] = await Promise.all([
       fetchPillars(),
-      fetchKpisForUpload(),
-      fetchLeadingKpis(),
+      fetchAllKpisAdmin(),
       file.arrayBuffer(),
     ]);
+
+    // Column-matching (both "is this header already a known KPI?" and the
+    // actual value parse below) must see the FULL catalog — active AND
+    // hidden. A KPI an admin has unticked "visible" for in KPI Management
+    // is still a known column, not a brand-new one; fetchKpisForUpload()/
+    // fetchLeadingKpis() only return active=true rows, so hiding a KPI and
+    // then uploading made detectNewDailyColumns/detectNewLeadingColumns
+    // think that column was new again and re-create a duplicate every time.
+    const kpisInitial = allKpisInitial.filter((k) => !k.is_leading);
+    const leadingKpisInitial = allKpisInitial.filter((k) => k.is_leading);
 
     // Detect + auto-create any brand-new spreadsheet columns before parsing
     // the rest of the workbook, so this same upload picks them up rather
@@ -281,8 +289,9 @@ export default function Admin() {
       createdNames.push(created.name);
     }
 
-    const kpis = newDailyCols.length > 0 ? await fetchKpisForUpload() : kpisInitial;
-    const leadingKpis = newLeadingCols.length > 0 ? await fetchLeadingKpis() : leadingKpisInitial;
+    const refetchedKpis = newDailyCols.length > 0 || newLeadingCols.length > 0 ? await fetchAllKpisAdmin() : null;
+    const kpis = newDailyCols.length > 0 && refetchedKpis ? refetchedKpis.filter((k) => !k.is_leading) : kpisInitial;
+    const leadingKpis = newLeadingCols.length > 0 && refetchedKpis ? refetchedKpis.filter((k) => k.is_leading) : leadingKpisInitial;
 
     // Target sheet must be parsed first — its per-(kpi, date) values feed
     // the Daily Database parse's own target snapshot.
