@@ -314,7 +314,12 @@ export async function parseDailyTargetSheet(buffer: ArrayBuffer, kpis: Kpi[]): P
 
   const cols: { col: number; bases: string[] }[] = [];
   for (let c = 1; c <= colCount; c++) {
-    const bases = TARGET_HEADER_TO_BASES[headers[c]];
+    // Same catalog fallback as parseDailyWorkbook: a header not in the
+    // static TARGET_HEADER_TO_BASES table may still be a KPI an admin added
+    // after launch — match it directly against the live catalog so its
+    // per-day target actually gets written instead of the new KPI sitting
+    // at its creation-time default (target: 0) forever.
+    const bases = TARGET_HEADER_TO_BASES[headers[c]] ?? (kpis.some((k) => k.name === headers[c]) ? [headers[c]] : undefined);
     if (bases) cols.push({ col: c, bases });
   }
 
