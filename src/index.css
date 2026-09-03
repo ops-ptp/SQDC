@@ -935,6 +935,23 @@ p {
   font-weight: 700;
 }
 
+.board-reviewing-reset {
+  display: inline-block;
+  margin-left: 6px;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
+}
+
+.board-reviewing-reset:hover {
+  color: var(--text);
+}
+
 /* ---------------- Segmented toggle (Daily / Weekly) ---------------- */
 .segmented {
   display: inline-flex;

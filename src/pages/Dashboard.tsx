@@ -20,6 +20,11 @@ export default function Dashboard() {
   // offset rather than a Date so "today" is always recomputed fresh rather
   // than captured once at mount.
   const [monthOffset, setMonthOffset] = useState(0);
+  // A specific day picked by clicking a letter-grid cell, overriding the
+  // month's own default reviewed day (yesterday for the current month, the
+  // last day for a past one). Cleared whenever the month picker changes, so
+  // switching months always starts from that month's own default day.
+  const [selectedDay, setSelectedDay] = useState<number | null>(null);
 
   useEffect(() => {
     Promise.all([fetchPillars(), fetchKpis()])
@@ -35,7 +40,8 @@ export default function Dashboard() {
   const isCurrentMonth = monthOffset === 0;
   // Live board reviews yesterday, same as always. A past month has no
   // "yesterday" to speak of — review it as of its own last day instead.
-  const referenceDate = isCurrentMonth ? subDays(today, 1) : endOfMonth(subMonths(today, monthOffset));
+  const defaultReferenceDate = isCurrentMonth ? subDays(today, 1) : endOfMonth(subMonths(today, monthOffset));
+  const referenceDate = selectedDay !== null ? new Date(defaultReferenceDate.getFullYear(), defaultReferenceDate.getMonth(), selectedDay) : defaultReferenceDate;
 
   const monthOptions = useMemo(
     () =>
@@ -46,6 +52,18 @@ export default function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     []
   );
+
+  function handleMonthChange(offset: number) {
+    setMonthOffset(offset);
+    setSelectedDay(null);
+  }
+
+  // Clicking any pillar's letter grid pivots the WHOLE board — every
+  // quadrant's headline, target, trend window, remarks, Pareto, and Actions
+  // — to review that exact date, not just that one cell's own pillar/KPI.
+  function handleDayClick(day: number) {
+    setSelectedDay(day);
+  }
 
   // Weekly view doesn't make sense for a past month's one-time review — lock
   // to Daily and grey out the toggle whenever a non-current month is picked.
@@ -62,15 +80,18 @@ export default function Dashboard() {
         <div>
           <h1>SQDC Board</h1>
           <span className="muted">{format(today, 'EEEE, d MMMM yyyy')}</span>
-          <span className="board-reviewing-badge">
-            {isCurrentMonth ? `Reviewing ${format(referenceDate, 'EEEE, d MMMM')}` : `Reviewing ${format(referenceDate, 'MMMM yyyy')}`}
-          </span>
+          <span className="board-reviewing-badge">Reviewing {format(referenceDate, 'EEEE, d MMMM yyyy')}</span>
+          {selectedDay !== null && (
+            <button type="button" className="board-reviewing-reset" onClick={() => setSelectedDay(null)}>
+              × back to {isCurrentMonth ? 'yesterday' : 'month end'}
+            </button>
+          )}
         </div>
         <div className="board-page-controls">
           <select
             className="board-month-select"
             value={monthOffset}
-            onChange={(e) => setMonthOffset(Number(e.target.value))}
+            onChange={(e) => handleMonthChange(Number(e.target.value))}
             aria-label="Select month to review"
           >
             {monthOptions.map((m) => (
@@ -116,6 +137,7 @@ export default function Dashboard() {
             granularity={granularity}
             showParetoActions={showParetoActions}
             referenceDate={referenceDate}
+            onDayClick={handleDayClick}
           />
         ))}
       </div>

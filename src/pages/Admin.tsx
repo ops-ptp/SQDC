@@ -273,7 +273,7 @@ function DailyUploadCard({
         <>
           <ColumnChangeSummary preview={preview} />
           <div className="modal-actions">
-            <button type="button" className="btn btn-ghost" onClick={handleCancel}>
+            <button type="button" className="btn btn-ghost-light" onClick={handleCancel}>
               Cancel
             </button>
             <button type="button" className="btn btn-primary" onClick={handleConfirm}>
@@ -454,7 +454,7 @@ function DeleteKpiModal({ row, onCancel, onConfirmed }: { row: EditableGroup; on
       </p>
       {error && <div className="alert alert-error">{error}</div>}
       <div className="modal-actions">
-        <button type="button" className="btn btn-ghost" onClick={onCancel} disabled={deleting}>
+        <button type="button" className="btn btn-ghost-light" onClick={onCancel} disabled={deleting}>
           Cancel
         </button>
         <button type="button" className="admin-kpi-delete-btn" onClick={handleDelete} disabled={deleting}>

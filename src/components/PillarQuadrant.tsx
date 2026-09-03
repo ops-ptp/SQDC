@@ -8,7 +8,6 @@ import KpiRunChart, { type RunPoint } from './KpiRunChart';
 import ParetoChart, { type ParetoDatum } from './ParetoChart';
 import ActionTable from './ActionTable';
 import PillarLetterGrid, { type DayStatus } from './PillarLetterGrid';
-import Modal from './Modal';
 
 export type Granularity = 'daily' | 'weekly';
 
@@ -24,8 +23,14 @@ interface Props {
    * chart/Pareto windows) is computed relative to this date. Defaults to
    * yesterday (the live board's normal "review what happened" day) when not
    * given; Dashboard.tsx overrides it to a past month's last day when the
-   * month dropdown is set to anything other than "This month". */
+   * month dropdown is set to anything other than "This month".
+   */
   referenceDate?: Date;
+  /** Bubbles a letter-grid cell click up to Dashboard.tsx, which pivots the
+   * WHOLE board (every pillar, not just this one) to review that date —
+   * see Dashboard.tsx's handleDayClick for why this lives there rather than
+   * being handled locally per quadrant. */
+  onDayClick?: (day: number) => void;
 }
 
 /** One logical KPI as shown on the board: a single pill, backed by up to a
@@ -92,7 +97,7 @@ function groupMetTarget(g: KpiGroup, actual: number, targetOverride?: number): b
   return metTarget({ is_higher_better: g.isHigherBetter }, targetOverride ?? g.target, actual);
 }
 
-export default function PillarQuadrant({ pillar, kpis, granularity = 'daily', showParetoActions = true, referenceDate: referenceDateProp }: Props) {
+export default function PillarQuadrant({ pillar, kpis, granularity = 'daily', showParetoActions = true, referenceDate: referenceDateProp, onDayClick }: Props) {
   const navigate = useNavigate();
   const { employee } = useEmployee();
   const colors = PILLAR_COLORS[pillar.code] ?? PILLAR_COLORS.S;
@@ -152,7 +157,7 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily', sh
       .then(setReferenceTargets)
       .catch(() => setReferenceTargets(new Map()));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kpis]);
+  }, [kpis, referenceDateStr]);
 
   // Actions for this pillar — independent of which KPI pill is selected.
   useEffect(() => {
@@ -203,7 +208,7 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily', sh
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedGroup?.key, granularity]);
+  }, [selectedGroup?.key, granularity, referenceDateStr]);
 
   // Weekly fallback figures — only needed in Weekly view.
   useEffect(() => {
@@ -259,89 +264,6 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily', sh
     return result;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [monthEntries, selectedGroup?.key, daysInMonth, referenceDay]);
-
-  // ---- Letter grid day-detail modal: clicking a cell shows that date's
-  // performance + remarks plus the surrounding Mon-Sun week's trend for
-  // whichever KPI pill is currently selected. Fetched independently of
-  // monthEntries/windowEntries (rather than reusing them) since the clicked
-  // date's week can spill into an adjacent calendar month, which the
-  // month-scoped monthEntries fetch wouldn't cover.
-  const [detailDay, setDetailDay] = useState<number | null>(null);
-  const [detailWeekEntries, setDetailWeekEntries] = useState<DailyEntry[]>([]);
-  const [detailLoading, setDetailLoading] = useState(false);
-
-  const detailDate = detailDay !== null ? new Date(referenceDate.getFullYear(), referenceDate.getMonth(), detailDay) : null;
-  const detailDateStr = detailDate ? format(detailDate, 'yyyy-MM-dd') : null;
-
-  useEffect(() => {
-    if (detailDay === null || !selectedGroup) {
-      setDetailWeekEntries([]);
-      return;
-    }
-    let cancelled = false;
-    setDetailLoading(true);
-    const clickedDate = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), detailDay);
-    const weekStart = startOfWeek(clickedDate, { weekStartsOn: 1 });
-    const weekStartStr = format(weekStart, 'yyyy-MM-dd');
-    const weekEndStr = format(addDays(weekStart, 6), 'yyyy-MM-dd');
-    const ids = groupKpiIds(selectedGroup);
-    Promise.all(ids.map((id) => fetchEntriesForKpi(id, weekStartStr)))
-      .then((byKpi) => {
-        if (cancelled) return;
-        // fetchEntriesForKpi has no upper bound (it's "since date, onward")
-        // — trim to the week's own end so a later week's data never leaks
-        // into this week's trend.
-        setDetailWeekEntries(byKpi.flat().filter((e) => e.entry_date <= weekEndStr));
-      })
-      .catch(() => !cancelled && setDetailWeekEntries([]))
-      .finally(() => !cancelled && setDetailLoading(false));
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [detailDay, selectedGroup?.key]);
-
-  const detailDayEntry = selectedGroup && detailDateStr ? detailWeekEntries.find((e) => e.kpi_id === selectedGroup.day?.id && e.entry_date === detailDateStr) : undefined;
-  const detailNightEntry = selectedGroup && detailDateStr ? detailWeekEntries.find((e) => e.kpi_id === selectedGroup.night?.id && e.entry_date === detailDateStr) : undefined;
-  const detailSingleEntry = selectedGroup && detailDateStr ? detailWeekEntries.find((e) => e.kpi_id === selectedGroup.single?.id && e.entry_date === detailDateStr) : undefined;
-
-  // Mon-Sun week trend containing the clicked date — same point-building
-  // logic as the main daily chart, just anchored to a fixed calendar week
-  // instead of "last 7 days ending on the reviewed date".
-  const detailWeekPoints: RunPoint[] = useMemo(() => {
-    if (detailDay === null || !selectedGroup) return [];
-    const clickedDate = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), detailDay);
-    const weekStart = startOfWeek(clickedDate, { weekStartsOn: 1 });
-    const dayIdx = indexByDate(detailWeekEntries.filter((e) => e.kpi_id === selectedGroup.day?.id));
-    const nightIdx = indexByDate(detailWeekEntries.filter((e) => e.kpi_id === selectedGroup.night?.id));
-    const singleIdx = indexByDate(detailWeekEntries.filter((e) => e.kpi_id === selectedGroup.single?.id));
-    const points: RunPoint[] = [];
-    for (let i = 0; i < 7; i++) {
-      const d = addDays(weekStart, i);
-      const dateStr = format(d, 'yyyy-MM-dd');
-      const dayEntry = dayIdx.get(dateStr) ?? singleIdx.get(dateStr);
-      const nightEntry = nightIdx.get(dateStr);
-      const dayVal = dayEntry?.actual ?? null;
-      const nightVal = nightEntry?.actual ?? null;
-      const vals = [dayVal, nightVal].filter((v): v is number => v !== null);
-      const avgVal = mean(vals);
-      const pointTargets = [dayEntry?.target, nightEntry?.target].filter((t): t is number => t !== undefined);
-      const pointTarget = pointTargets.length > 0 ? mean(pointTargets)! : selectedGroup.target;
-      points.push({
-        label: format(d, 'EEE d'),
-        date: dateStr,
-        dayActual: dayVal,
-        nightActual: nightVal,
-        avgActual: avgVal,
-        target: pointTarget,
-        dayMet: dayVal === null ? null : groupMetTarget(selectedGroup, dayVal, dayEntry?.target),
-        nightMet: nightVal === null ? null : groupMetTarget(selectedGroup, nightVal, nightEntry?.target),
-        avgMet: avgVal === null ? null : groupMetTarget(selectedGroup, avgVal, pointTarget),
-      });
-    }
-    return points;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [detailDay, detailWeekEntries, selectedGroup?.key]);
 
   // ---- Headline: reference day's Day / Night actuals, shown as two numbers
   const referenceDayEntry = selectedGroup ? referenceEntries.find((e) => e.kpi_id === selectedGroup.day?.id) : undefined;
@@ -550,47 +472,10 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily', sh
 
   const hero = (
     <div className="quadrant-hero" style={{ background: colors.soft }}>
-      <PillarLetterGrid
-        letter={pillar.code}
-        days={dayStatuses}
-        todayDay={referenceDay}
-        height={300}
-        onDayClick={selectedGroup ? (day) => setDetailDay(day) : undefined}
-      />
+      <PillarLetterGrid letter={pillar.code} days={dayStatuses} todayDay={referenceDay} height={300} onDayClick={onDayClick} />
       <span className="quadrant-hero-name">{pillar.name}</span>
     </div>
   );
-
-  // ---- Day-detail modal content: the clicked date's Day/Night (or single)
-  // actual/target/pass-fail + remarks, one small block per shift, reusing
-  // the same "met target" logic as everywhere else on the board.
-  function renderDetailShift(label: string, entry: DailyEntry | undefined) {
-    if (!selectedGroup) return null;
-    if (!entry) {
-      return (
-        <div className="detail-shift" key={label}>
-          <span className="detail-shift-label">{label}</span>
-          <p className="muted" style={{ margin: '4px 0 0' }}>
-            No data logged for this date.
-          </p>
-        </div>
-      );
-    }
-    const met = groupMetTarget(selectedGroup, entry.actual, entry.target);
-    return (
-      <div className="detail-shift" key={label}>
-        <div className="detail-shift-header">
-          <span className="detail-shift-label">{label}</span>
-          <span className={`pill ${met ? 'pill-good' : 'pill-bad'}`}>
-            {round2(entry.actual)} {selectedGroup.unit} — {met ? 'Met target' : 'Missed target'} ({round2(entry.target)} {selectedGroup.unit})
-          </span>
-        </div>
-        <p className="remarks-text" style={{ marginTop: 6 }}>
-          {entry.remarks?.trim() || 'No remarks logged for this date.'}
-        </p>
-      </div>
-    );
-  }
 
   if (groups.length === 0) {
     return (
@@ -602,9 +487,8 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily', sh
   }
 
   return (
-    <>
-      <section className="quadrant">
-        {hero}
+    <section className="quadrant">
+      {hero}
 
       <div className="kpi-pills">
         {groups.map((g) => {
@@ -723,31 +607,6 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily', sh
           )}
         </>
       )}
-      </section>
-
-      {detailDay !== null && selectedGroup && detailDate && (
-        <Modal title={`${selectedGroup.label} — ${format(detailDate, 'EEEE, d MMMM yyyy')}`} onClose={() => setDetailDay(null)} maxWidth={560}>
-          {detailLoading ? (
-            <div className="empty-state">Loading…</div>
-          ) : (
-            <>
-              {selectedGroup.single
-                ? renderDetailShift(format(detailDate, 'EEE d MMM'), detailSingleEntry)
-                : (
-                  <>
-                    {renderDetailShift('Day', detailDayEntry)}
-                    {renderDetailShift('Night', detailNightEntry)}
-                  </>
-                )}
-              <div className="quadrant-block-title" style={{ marginTop: 18 }}>
-                Week trend — {format(startOfWeek(detailDate, { weekStartsOn: 1 }), 'd MMM')} to{' '}
-                {format(addDays(startOfWeek(detailDate, { weekStartsOn: 1 }), 6), 'd MMM')}
-              </div>
-              <KpiRunChart points={detailWeekPoints} unit={selectedGroup.unit} showDayNight={!selectedGroup.single} />
-            </>
-          )}
-        </Modal>
-      )}
-    </>
+    </section>
   );
 }

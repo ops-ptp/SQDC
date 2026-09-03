@@ -11,10 +11,9 @@ interface Props {
   days: DayStatus[];
   todayDay: number;
   height?: number;
-  /** When given, real (non-blackened, non-"no such date") cells become
-   * clickable — the caller shows that day's detail (performance + remarks +
-   * week trend). Omit to keep the grid read-only, e.g. when there's no
-   * selected KPI yet to show detail for. */
+  /** When given, real (non-blackened, non-"no such date", non-future) cells
+   * become clickable — the caller pivots the board to review that date.
+   * Omit to keep the grid read-only. */
   onDayClick?: (day: number) => void;
 }
 
@@ -248,7 +247,7 @@ export default function PillarLetterGrid({ letter, days, todayDay, height = 208,
                 {isPastMonthEnd
                   ? 'No such date this month'
                   : dayInfo
-                    ? `Day ${dayInfo.day}${isToday ? ' (most recent)' : ''} — ${STATUS_LABEL[dayInfo.status]}${clickable ? ' — click for detail' : ''}`
+                    ? `Day ${dayInfo.day}${isToday ? ' (most recent)' : ''} — ${STATUS_LABEL[dayInfo.status]}${clickable ? ' — click to review this date' : ''}`
                     : undefined}
               </title>
             </rect>
