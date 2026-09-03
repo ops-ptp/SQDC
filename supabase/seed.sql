@@ -27,8 +27,8 @@
 --     Projection Today), one figure per day, sourced from the Daily upload's
 --     "Next 24hrs" tab into `leading_entries` and shown as a read-only
 --     headline number on the Next 24 Hours board (no more manual add-a-card
---     forecast_cards flow — that table still exists but the UI no longer
---     writes to it).
+--     forecast_cards flow — that table was renamed to archived_forecast_cards
+--     in the database-cleanup migration, kept around but out of the way).
 --   * Demo daily_entries below are synthetic (deterministic pseudo-random
 --     around each KPI's target), not the literal Aug-2026 figures from the
 --     workbook — say the word if you'd like the real historical numbers
@@ -39,7 +39,6 @@
 -- ============================================================================
 
 -- ---- Clean slate for demo tables (order matters for FKs) -------------------
-delete from forecast_cards;
 delete from leading_entries;
 delete from actions;
 delete from daily_entries;
@@ -58,18 +57,20 @@ insert into pillars (code, name, sort_order) values
 
 -- ---- Employees -----------------------------------------------------------
 -- Employee IDs are 6-digit, zero-padded numbers (enforced by a check
--- constraint in schema.sql). 000003 (Aiman, Shift Supervisor) is seeded as
--- the demo Admin/Superuser — the only one who sees the Admin tab (Daily/
--- Weekly Excel upload) by default.
-insert into employees (employee_code, name, role, is_admin) values
-  ('000001', 'Nasser',   'Safety Officer', false),
-  ('000002', 'Noura',    'Frontliner', false),
-  ('000003', 'Aiman',    'Shift Supervisor', true),
-  ('000004', 'Farah',    'Quality Lead', false),
-  ('000005', 'Hassan',   'Delivery Lead', false),
-  ('000006', 'Zaid',     'Maintenance / Cost Controller', false),
-  ('000007', 'Iris',     'Yard Planner', false),
-  ('000008', 'Marcus',   'Quay Operations', false);
+-- constraint in schema.sql). 000003 (Aiman) is seeded as the demo Admin/
+-- Superuser — the only one who sees the Admin tab (Daily/Weekly Excel
+-- upload) by default. (Job-title text used to live here too, in a `role`
+-- column — dropped in the database-cleanup migration since nothing in the
+-- app ever read it.)
+insert into employees (employee_code, name, is_admin) values
+  ('000001', 'Nasser',   false),
+  ('000002', 'Noura',    false),
+  ('000003', 'Aiman',    true),
+  ('000004', 'Farah',    false),
+  ('000005', 'Hassan',   false),
+  ('000006', 'Zaid',     false),
+  ('000007', 'Iris',     false),
+  ('000008', 'Marcus',   false);
 
 -- ---- KPIs -----------------------------------------------------------------
 -- is_leading: true = a leading/process indicator, forecast on the Forward

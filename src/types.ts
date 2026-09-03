@@ -9,7 +9,6 @@ export interface Employee {
   id: string;
   employee_code: string;
   name: string;
-  role: string | null;
   active: boolean;
   is_admin: boolean;
 }

@@ -42,7 +42,6 @@ create table if not exists employees (
   id             uuid primary key default gen_random_uuid(),
   employee_code  text not null unique,     -- what they type in at login, e.g. "000042" (6 digits, zero-padded)
   name           text not null,
-  role           text,                     -- optional, e.g. "Shift Supervisor"
   active         boolean not null default true,
   created_at     timestamptz not null default now()
 );
@@ -187,39 +186,13 @@ create policy anon_all_actions on actions for all using (true) with check (true)
 --     Looking kanban only lets you forecast against leading KPIs (lagging
 --     KPIs measure results after the fact, so they don't belong on a
 --     +1/+2/+3-day forecast board).
---   * forecast_cards — one card = one forecast/commitment for a specific
---     future date, tied to a leading KPI. The kanban's three columns
---     (+1 day, +2 days, +3 days) are computed in the app from
---     target_date - current_date, so cards naturally roll from "+3" toward
---     "+1" as days pass without any batch job.
+-- (forecast_cards, the original kanban-card table this migration also
+-- created, was archived in a later cleanup once leading_entries replaced
+-- it entirely — see the "database cleanup" migration near the end of this
+-- file.)
 -- ----------------------------------------------------------------------------
 
 alter table kpis add column if not exists is_leading boolean not null default false;
-
-create table if not exists forecast_cards (
-  id           uuid primary key default gen_random_uuid(),
-  kpi_id       uuid not null references kpis(id) on delete cascade,
-  pillar_id    uuid not null references pillars(id) on delete cascade,
-  target_date  date not null,          -- the day being forecast (usually today+1..today+3)
-  note         text not null,          -- the forecast / what's expected / what to watch
-  owner_name   text,
-  created_by   uuid references employees(id),
-  created_at   timestamptz not null default now(),
-  updated_at   timestamptz not null default now()
-);
-
-create index if not exists idx_forecast_cards_target_date on forecast_cards(target_date);
-create index if not exists idx_forecast_cards_kpi on forecast_cards(kpi_id);
-
-drop trigger if exists trg_forecast_cards_updated_at on forecast_cards;
-create trigger trg_forecast_cards_updated_at
-  before update on forecast_cards
-  for each row execute function set_updated_at();
-
-alter table forecast_cards enable row level security;
-
-drop policy if exists anon_all_forecast_cards on forecast_cards;
-create policy anon_all_forecast_cards on forecast_cards for all using (true) with check (true);
 
 -- ============================================================================
 -- MIGRATION (2026-08-22): action status (not_started/in_progress/dropped/completed)
@@ -476,3 +449,58 @@ where name = 'QC PM & Service - Projection Next Day';
 -- matches anything. The one-off rescale of already-uploaded values for
 -- this KPI — needed once, NOT idempotent — is a separate script, not part
 -- of this file: rename_qc_pm_service_today.sql.)
+
+-- ============================================================================
+-- MIGRATION: friendly display numbers (kpi_no / action_no / employee_no).
+-- Purely additive, purely for humans — the real id (uuid) still does every
+-- bit of actual referencing (every foreign key, every upsert conflict
+-- target) and nothing about it changes. These are just a short, readable
+-- number to look at in the Table Editor or in a SQL result instead of a
+-- uuid — "KPI #14" instead of "a3f0cf39-e9d4-427a-8fe3-8e157e76eb30".
+-- GENERATED ALWAYS AS IDENTITY backfills existing rows automatically and
+-- refuses a manual insert trying to set its own number, so it can never
+-- collide with anything the app does. Safe to re-run (no-ops once added).
+-- ============================================================================
+alter table kpis add column if not exists kpi_no integer generated always as identity unique;
+alter table actions add column if not exists action_no integer generated always as identity unique;
+alter table employees add column if not exists employee_no integer generated always as identity unique;
+
+-- ============================================================================
+-- MIGRATION: database cleanup — remove genuinely unused schema, without
+-- touching anything a person actually typed in.
+--
+--   * employees.role — never read anywhere in the app. Backed up (any
+--     non-null value) into employees_role_backup before being dropped, so
+--     a job title someone entered isn't silently thrown away, then the
+--     column itself is actually removed.
+--   * forecast_cards — the pre-leading_entries Next 24 Hours kanban-card
+--     table, confirmed unreferenced anywhere in the app since that page was
+--     rewritten. Renamed (not dropped) to archived_forecast_cards, so nothing
+--     in it is lost and it's trivially reversible (just rename it back) —
+--     unlike a column, an entire table's contents felt worth keeping
+--     physically intact rather than copying into a backup table.
+--   * kpis.info was also considered (never shown in the UI) but is NOT
+--     touched here — seed.sql populates it with real explanatory text for
+--     nearly every KPI, so it's written-but-not-yet-surfaced, not dead.
+--
+-- Safe to re-run: each step only acts if there's still something to act on.
+-- ============================================================================
+
+create table if not exists employees_role_backup (
+  employee_id    uuid not null,
+  employee_code  text not null,
+  role           text not null,
+  backed_up_at   timestamptz not null default now()
+);
+
+do $$
+begin
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'employees' and column_name = 'role') then
+    insert into employees_role_backup (employee_id, employee_code, role)
+    select id, employee_code, role from employees where role is not null and role <> '';
+    alter table employees drop column role;
+  end if;
+end $$;
+
+alter table if exists forecast_cards rename to archived_forecast_cards;
+
