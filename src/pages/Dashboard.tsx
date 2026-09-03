@@ -137,6 +137,7 @@ export default function Dashboard() {
             granularity={granularity}
             showParetoActions={showParetoActions}
             referenceDate={referenceDate}
+            latestAvailableDate={defaultReferenceDate}
             onDayClick={handleDayClick}
           />
         ))}

@@ -26,6 +26,14 @@ interface Props {
    * month dropdown is set to anything other than "This month".
    */
   referenceDate?: Date;
+  /** The latest day this month actually HAS data for — yesterday for the
+   * current month, or that month's last day for a past one. Drives the
+   * letter grid's "future" cutoff and its "most recent" ring, kept
+   * completely separate from `referenceDate` (which day is being reviewed
+   * right now) so that clicking an earlier day doesn't move the cutoff and
+   * grey out/lock later days that already happened. Defaults to
+   * `referenceDate` itself when not given. */
+  latestAvailableDate?: Date;
   /** Bubbles a letter-grid cell click up to Dashboard.tsx, which pivots the
    * WHOLE board (every pillar, not just this one) to review that date —
    * see Dashboard.tsx's handleDayClick for why this lives there rather than
@@ -97,7 +105,15 @@ function groupMetTarget(g: KpiGroup, actual: number, targetOverride?: number): b
   return metTarget({ is_higher_better: g.isHigherBetter }, targetOverride ?? g.target, actual);
 }
 
-export default function PillarQuadrant({ pillar, kpis, granularity = 'daily', showParetoActions = true, referenceDate: referenceDateProp, onDayClick }: Props) {
+export default function PillarQuadrant({
+  pillar,
+  kpis,
+  granularity = 'daily',
+  showParetoActions = true,
+  referenceDate: referenceDateProp,
+  latestAvailableDate: latestAvailableDateProp,
+  onDayClick,
+}: Props) {
   const navigate = useNavigate();
   const { employee } = useEmployee();
   const colors = PILLAR_COLORS[pillar.code] ?? PILLAR_COLORS.S;
@@ -138,6 +154,11 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily', sh
   // isn't set to the current month.
   const today = new Date();
   const referenceDate = referenceDateProp ?? subDays(today, 1);
+  // Independent of referenceDate on purpose — see the Props comment. Falls
+  // back to referenceDate itself so behavior is unchanged for any caller
+  // that doesn't pass it explicitly.
+  const latestAvailableDate = latestAvailableDateProp ?? referenceDate;
+  const latestAvailableDay = latestAvailableDate.getDate();
   const referenceDateStr = format(referenceDate, 'yyyy-MM-dd');
   const referenceDay = referenceDate.getDate();
 
@@ -245,7 +266,7 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily', sh
     const month = referenceDate.getMonth();
     const result: DayStatus[] = [];
     for (let day = 1; day <= daysInMonth; day++) {
-      if (day > referenceDay) {
+      if (day > latestAvailableDay) {
         result.push({ day, status: 'future' });
         continue;
       }
@@ -263,7 +284,7 @@ export default function PillarQuadrant({ pillar, kpis, granularity = 'daily', sh
     }
     return result;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [monthEntries, selectedGroup?.key, daysInMonth, referenceDay]);
+  }, [monthEntries, selectedGroup?.key, daysInMonth, latestAvailableDay]);
 
   // ---- Headline: reference day's Day / Night actuals, shown as two numbers
   const referenceDayEntry = selectedGroup ? referenceEntries.find((e) => e.kpi_id === selectedGroup.day?.id) : undefined;
