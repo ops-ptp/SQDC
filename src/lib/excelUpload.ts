@@ -104,6 +104,20 @@ function cellDate(v: ExcelJS.CellValue): Date | null {
   return null;
 }
 
+/** True if this header already corresponds to a known KPI in the catalog —
+ * either an exact-name match (an unsplit KPI) or a "${header} (Day)" /
+ * "${header} (Night)" split pair with no bare-name row of its own. Shared
+ * by detectNewDailyColumns ("is this header new?") and parseDailyWorkbook
+ * ("which base does this column's values belong to?") so the two can never
+ * disagree — checking exact-name-only in either place means a KPI that's
+ * been split into Day/Night variants stops being recognised there: its
+ * column silently stops being read (parseDailyWorkbook) while
+ * simultaneously getting flagged as a brand-new column again
+ * (detectNewDailyColumns), offering to create a duplicate. */
+function isKnownBase(kpis: Kpi[], header: string): boolean {
+  return kpis.some((k) => k.name === header || k.name === `${header} (Day)` || k.name === `${header} (Night)`);
+}
+
 /** Finds a representative kpis row for a base name — tries the exact name
  * first, then the " (Day)"/" (Night)" variants. Used to pull unit/target/
  * direction/pillar for a base name that itself has no un-suffixed row. */
@@ -211,19 +225,24 @@ export async function parseDailyWorkbook(
   // this second path, a newly auto-created KPI's name would appear in the
   // catalog but its column's numbers would never be read on any upload,
   // including this one and every one after it.
-  const catalogNames = new Set(kpis.map((k) => k.name));
   const simpleCols: { col: number; base: string }[] = [];
   for (let c = 1; c <= colCount; c++) {
-    const base = DAILY_HEADER_TO_BASE[headers[c]] ?? (catalogNames.has(headers[c]) ? headers[c] : undefined);
+    const base = DAILY_HEADER_TO_BASE[headers[c]] ?? (isKnownBase(kpis, headers[c]) ? headers[c] : undefined);
     if (base) simpleCols.push({ col: c, base });
   }
 
   const warnings: string[] = [];
   const rows: UploadDailyRow[] = [];
-  // Dedupe: a single (no Day/Night) KPI should only get one value per date —
-  // if both shift rows carry a number for it (shouldn't happen per the known
-  // template, but be defensive), the first one wins.
-  const singleWritten = new Set<string>();
+  // Dedupe: a single (no Day/Night) KPI should only get one value per date.
+  // Stores the actual value already written (not just whether one was), so
+  // if a second shift's number for the same KPI/date turns up and it's
+  // GENUINELY DIFFERENT — not just a redundant re-write of the same figure
+  // — that's a real sign this KPI should have been split into Day/Night
+  // and wasn't (e.g. it was auto-created before the other shift's data
+  // existed in the sheet yet, so there was nothing to detect at the time).
+  // Surfaced as a warning rather than silently dropped, so it gets noticed
+  // the moment it actually happens instead of relying on catching it later.
+  const singleWritten = new Map<string, number>();
   let rowsRead = 0;
 
   for (let r = headerRowNum + 1; r <= sheet.rowCount; r++) {
@@ -250,8 +269,16 @@ export async function parseDailyWorkbook(
       const isSplit = kpis.some((k) => k.name === `${base} (Day)` || k.name === `${base} (Night)`);
       if (!isSplit) {
         const key = `${target.id}|${dateStr}`;
-        if (singleWritten.has(key)) return;
-        singleWritten.add(key);
+        const already = singleWritten.get(key);
+        if (already !== undefined) {
+          if (Math.abs(already - raw) > 1e-9) {
+            warnings.push(
+              `"${base}" has different Day and Night values on ${dateStr} (${already} vs ${raw}) but is set up as a single KPI — only ${already} was kept. If Day and Night should be tracked separately for this KPI, it needs to be split in the catalog.`
+            );
+          }
+          return;
+        }
+        singleWritten.set(key, raw);
       } else if (!shiftKpi) {
         warnings.push(`"${base} (${shift})" has no matching KPI — skipped for ${dateStr}.`);
         return;
@@ -536,6 +563,18 @@ export interface DetectedNewColumn {
    * auto-created field, wrong guesses are fixed via the Supabase Table
    * Editor, not an in-app edit screen (KPI Management is show/hide only). */
   unitGuess: string;
+  /** True when this column actually carries distinct values under BOTH the
+   * Day and Night shift rows in the sheet — meaning it needs two catalog
+   * rows ("X (Day)" / "X (Night)"), not one. Determined by reading real
+   * data, not guessed from the header: the sheet has no separate Day/Night
+   * *columns* (one column serves both shifts, split by which row a given
+   * date's Day/Night entry sits on), so there's no way to tell from the
+   * header text alone whether a column is meant to be split. Getting this
+   * wrong silently drops one shift's numbers forever — a single-row KPI
+   * can only ever hold one value per date, so if both shifts really do
+   * carry different figures, the second one written each day gets thrown
+   * away by the write path's own single-value-per-date dedup. */
+  bothShifts: boolean;
 }
 
 /** Reads the actual Excel cell format for a column, rather than guessing
@@ -587,6 +626,26 @@ function guessUnitFromColumn(sheet: ExcelJS.Worksheet, col: number, headerRowNum
   return sampled > 0 ? '%' : '';
 }
 
+/** Scans a column for real values under both shift rows — see the
+ * `bothShifts` doc comment on DetectedNewColumn for why this has to read
+ * actual data rather than being guessable from the header. Stops as soon
+ * as both have been seen at least once; doesn't require every date to have
+ * both (a KPI can still be "split" even if a few dates are missing one
+ * shift's entry). */
+function detectBothShifts(sheet: ExcelJS.Worksheet, col: number, headerRowNum: number, shiftCol: number): boolean {
+  let hasDay = false;
+  let hasNight = false;
+  for (let r = headerRowNum + 1; r <= sheet.rowCount; r++) {
+    const v = cellNumber(sheet.getRow(r).getCell(col).value);
+    if (v === null) continue;
+    const shiftRaw = norm(sheet.getRow(r).getCell(shiftCol).value);
+    if (/night/i.test(shiftRaw)) hasNight = true;
+    else if (/day/i.test(shiftRaw)) hasDay = true;
+    if (hasDay && hasNight) return true;
+  }
+  return false;
+}
+
 /** Scans the Daily Database sheet for column headers that don't map to any
  * known KPI — i.e. a new column the admin added to the spreadsheet. Used by
  * Admin.tsx to auto-create catalog entries before the main parse, so a new
@@ -609,18 +668,25 @@ export async function detectNewDailyColumns(buffer: ArrayBuffer, existingKpis: K
   const headerRow = sheet.getRow(headerRowNum);
   const categoryRow = headerRowNum > 1 ? sheet.getRow(headerRowNum - 1) : null;
   const colCount = sheet.columnCount;
+  const headers: string[] = [];
+  for (let c = 1; c <= colCount; c++) headers[c] = norm(headerRow.getCell(c).value);
+  const shiftCol = findColumnByHeader(headers, colCount, 'Shift', 2);
   const known = new Set(Object.keys(DAILY_HEADER_TO_BASE));
   known.add('Date');
   known.add('Shift');
-  for (const k of existingKpis) known.add(k.name);
 
   const found: DetectedNewColumn[] = [];
   for (let c = 1; c <= colCount; c++) {
-    const header = norm(headerRow.getCell(c).value);
-    if (!header || known.has(header)) continue;
+    const header = headers[c];
+    if (!header || known.has(header) || isKnownBase(existingKpis, header)) continue;
     if (/mainliner load gmph/i.test(header)) continue; // handled specially, not "new"
     const cat = categoryRow ? norm(categoryRow.getCell(c).value).toUpperCase() : '';
-    found.push({ header, categoryGuess: CATEGORY_TO_PILLAR_CODE[cat] ?? null, unitGuess: guessUnitFromColumn(sheet, c, headerRowNum) });
+    found.push({
+      header,
+      categoryGuess: CATEGORY_TO_PILLAR_CODE[cat] ?? null,
+      unitGuess: guessUnitFromColumn(sheet, c, headerRowNum),
+      bothShifts: detectBothShifts(sheet, c, headerRowNum, shiftCol),
+    });
   }
   return found;
 }
@@ -745,7 +811,14 @@ export async function detectNewLeadingColumns(buffer: ArrayBuffer, leadingKpis: 
     const header = norm(headerRow.getCell(c).value);
     if (!header || header.toLowerCase() === 'date' || kpiNames.has(header)) continue;
     const cat = categoryRow ? norm(categoryRow.getCell(c).value).toUpperCase() : '';
-    found.push({ header, categoryGuess: CATEGORY_TO_PILLAR_CODE[cat] ?? null, unitGuess: guessUnitFromColumn(sheet, c, headerRowNum) });
+    found.push({
+      header,
+      categoryGuess: CATEGORY_TO_PILLAR_CODE[cat] ?? null,
+      unitGuess: guessUnitFromColumn(sheet, c, headerRowNum),
+      // Leading KPIs (Next 24hrs) have no shift concept at all — one figure
+      // per KPI per date, never split by Day/Night.
+      bothShifts: false,
+    });
   }
   return found;
 }

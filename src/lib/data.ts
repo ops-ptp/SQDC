@@ -416,11 +416,10 @@ export async function bulkUpsertLeadingEntriesFromUpload(rows: UploadLeadingRow[
 // app entirely. This layer only ever reads/writes daily_entries.ai_category.
 // ---------------------------------------------------------------------------
 
-export interface ExportEntryRow {
+export interface RawEntryRow {
   id: string;
   entry_date: string;
-  pillar_name: string;
-  kpi_name: string;
+  shift: 'Day' | 'Night' | null;
   actual: number;
   target: number;
   unit: string;
@@ -429,20 +428,25 @@ export interface ExportEntryRow {
   ai_category: string | null;
 }
 
-/** Every missed-target entry in the date range, across all pillars — the
- * same "what needs a reason" scope Enter Remarks and the Pareto chart
- * already use, just exported flat for round-tripping through an external
- * AI tool. `id` is included so a re-upload can match rows back precisely;
- * it's the first column so it's easy to spot if it ever gets edited by
- * mistake. */
-export async function fetchMissedEntriesForExport(fromDate: string, toDate: string): Promise<ExportEntryRow[]> {
+function shiftFromKpiName(name: string): 'Day' | 'Night' | null {
+  if (/\(Day\)\s*$/i.test(name)) return 'Day';
+  if (/\(Night\)\s*$/i.test(name)) return 'Night';
+  return null;
+}
+
+/** Missed-target entries for one logical KPI (its Day + Night catalog rows
+ * combined, if split) — feeds the Insights export table, scoped to
+ * whichever KPI the admin picked via the pillar/KPI pills rather than a
+ * date-range-across-everything export. */
+export async function fetchMissedEntriesForKpiIds(kpiIds: string[], sinceDate: string): Promise<RawEntryRow[]> {
+  if (kpiIds.length === 0) return [];
   const { data, error } = await supabase
     .from('daily_entries')
-    .select('id, entry_date, actual, target, remarks, reason_other, ai_category, reason:reasons(label), kpi:kpis(name, unit, pillar:pillars(name))')
+    .select('id, entry_date, actual, target, remarks, reason_other, ai_category, reason:reasons(label), kpi:kpis(name, unit)')
+    .in('kpi_id', kpiIds)
     .eq('met_target', false)
-    .gte('entry_date', fromDate)
-    .lte('entry_date', toDate)
-    .order('entry_date');
+    .gte('entry_date', sinceDate)
+    .order('entry_date', { ascending: false });
   if (error) throw error;
   const rows = (data ?? []) as unknown as {
     id: string;
@@ -453,13 +457,12 @@ export async function fetchMissedEntriesForExport(fromDate: string, toDate: stri
     reason_other: string | null;
     ai_category: string | null;
     reason: { label: string } | null;
-    kpi: { name: string; unit: string; pillar: { name: string } | null } | null;
+    kpi: { name: string; unit: string } | null;
   }[];
   return rows.map((r) => ({
     id: r.id,
     entry_date: r.entry_date,
-    pillar_name: r.kpi?.pillar?.name ?? '',
-    kpi_name: r.kpi?.name ?? '',
+    shift: r.kpi ? shiftFromKpiName(r.kpi.name) : null,
     actual: r.actual,
     target: r.target,
     unit: r.kpi?.unit ?? '',
@@ -493,35 +496,30 @@ export async function bulkUpdateAiCategories(rows: CategoryImportRow[]): Promise
 export interface CategorizedEntryRow {
   id: string;
   entry_date: string;
-  pillar_name: string;
-  kpi_name: string;
+  shift: 'Day' | 'Night' | null;
   category: string;
 }
 
-/** Already-categorized entries in a date range — feeds the Insights pivot
- * view. Only rows with a category set (from a prior export → AI → import
+/** Already-categorized entries for one logical KPI (Day + Night ids
+ * combined) — feeds the pivot/Pareto builder, scoped to whichever KPI is
+ * currently selected via the pillar/KPI pills rather than the whole board.
+ * Only rows with a category set (from a prior export -> AI -> import
  * cycle) come back; anything not yet categorized is simply absent rather
  * than showing up as a misleading "Uncategorized" bucket. */
-export async function fetchCategorizedEntries(fromDate: string, toDate: string): Promise<CategorizedEntryRow[]> {
+export async function fetchCategorizedEntriesForKpiIds(kpiIds: string[]): Promise<CategorizedEntryRow[]> {
+  if (kpiIds.length === 0) return [];
   const { data, error } = await supabase
     .from('daily_entries')
-    .select('id, entry_date, ai_category, kpi:kpis(name, pillar:pillars(name))')
+    .select('id, entry_date, ai_category, kpi:kpis(name)')
+    .in('kpi_id', kpiIds)
     .not('ai_category', 'is', null)
-    .gte('entry_date', fromDate)
-    .lte('entry_date', toDate)
     .order('entry_date');
   if (error) throw error;
-  const rows = (data ?? []) as unknown as {
-    id: string;
-    entry_date: string;
-    ai_category: string;
-    kpi: { name: string; pillar: { name: string } | null } | null;
-  }[];
+  const rows = (data ?? []) as unknown as { id: string; entry_date: string; ai_category: string; kpi: { name: string } | null }[];
   return rows.map((r) => ({
     id: r.id,
     entry_date: r.entry_date,
-    pillar_name: r.kpi?.pillar?.name ?? '',
-    kpi_name: r.kpi?.name ?? '',
+    shift: r.kpi ? shiftFromKpiName(r.kpi.name) : null,
     category: r.ai_category,
   }));
 }

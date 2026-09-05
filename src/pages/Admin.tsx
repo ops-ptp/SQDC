@@ -150,7 +150,10 @@ function ColumnChangeSummary({ preview }: { preview: DailyUploadPreview }) {
           <div className="upload-diff-group-title">+ {preview.addedDaily.length} new Board KPI(s) will be added &amp; shown</div>
           <ul>
             {preview.addedDaily.map((c) => (
-              <li key={`ad-${c.header}`}>{c.header}</li>
+              <li key={`ad-${c.header}`}>
+                {c.header}
+                {c.bothShifts ? ' — Day & Night (2 KPIs)' : ' — single value'}
+              </li>
             ))}
           </ul>
         </div>
@@ -624,16 +627,43 @@ export default function Admin() {
     for (const col of addedDaily) {
       const pillar = pillars.find((p) => p.code === col.categoryGuess) ?? fallbackPillar;
       if (!pillar) continue;
-      const created = await createKpi({
-        pillar_id: pillar.id,
-        name: col.header,
-        unit: col.unitGuess,
-        is_higher_better: true,
-        target: 0,
-        is_leading: false,
-        sort_order: 999,
-      });
-      createdNames.push(created.name);
+      if (col.bothShifts) {
+        // The sheet has real, distinct values under both shift rows for
+        // this column — needs two catalog rows (same shape every existing
+        // split KPI already uses), or the write path's own "one value per
+        // date" dedup for unsplit KPIs would silently keep only whichever
+        // shift is written first each day and drop the other.
+        const day = await createKpi({
+          pillar_id: pillar.id,
+          name: `${col.header} (Day)`,
+          unit: col.unitGuess,
+          is_higher_better: true,
+          target: 0,
+          is_leading: false,
+          sort_order: 999,
+        });
+        const night = await createKpi({
+          pillar_id: pillar.id,
+          name: `${col.header} (Night)`,
+          unit: col.unitGuess,
+          is_higher_better: true,
+          target: 0,
+          is_leading: false,
+          sort_order: 999,
+        });
+        createdNames.push(day.name, night.name);
+      } else {
+        const created = await createKpi({
+          pillar_id: pillar.id,
+          name: col.header,
+          unit: col.unitGuess,
+          is_higher_better: true,
+          target: 0,
+          is_leading: false,
+          sort_order: 999,
+        });
+        createdNames.push(created.name);
+      }
     }
     for (const col of addedLeading) {
       const pillar = pillars.find((p) => p.code === col.categoryGuess) ?? fallbackPillar;

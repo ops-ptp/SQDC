@@ -1579,27 +1579,25 @@ p {
   gap: 16px;
 }
 
-.insights-date-row {
-  display: flex;
-  align-items: flex-end;
-  gap: 14px;
-  flex-wrap: wrap;
-  margin: 12px 0;
+.insights-download-row {
+  margin-top: 12px;
 }
 
-.insights-date-row label {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 12px;
+.insights-prompt-details {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.insights-prompt-details summary {
+  cursor: pointer;
+  font-size: 13px;
   font-weight: 600;
   color: var(--muted);
 }
 
 .insights-prompt-block {
-  margin-top: 16px;
-  padding-top: 14px;
-  border-top: 1px solid var(--border);
+  margin-top: 10px;
 }
 
 .insights-prompt-header {
@@ -1607,6 +1605,7 @@ p {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 6px;
+  gap: 10px;
 }
 
 .insights-prompt-textarea {
@@ -1620,4 +1619,168 @@ p {
   background: #f8fafc;
   color: var(--text);
   resize: vertical;
+}
+
+/* ---------------- Excel-style DataTable ---------------- */
+.data-table-scroll {
+  max-height: 420px;
+}
+
+.data-table-sortable-th {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.data-table-sortable-th:hover {
+  color: var(--primary);
+}
+
+.data-table-filter-th {
+  padding: 4px 8px !important;
+}
+
+.data-table-filter-input {
+  width: 100%;
+  font-size: 11.5px;
+  padding: 4px 6px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: white;
+  box-sizing: border-box;
+}
+
+/* ---------------- Pivot builder (chart + drag-drop field panel) ---------------- */
+.pivot-layout {
+  display: grid;
+  grid-template-columns: 1fr 260px;
+  gap: 18px;
+  align-items: start;
+}
+
+@media (max-width: 720px) {
+  .pivot-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.pivot-chart-side {
+  min-width: 0;
+}
+
+.pivot-filter-checklist {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  background: #f8fafc;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.pivot-filter-checklist-label {
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.pivot-filter-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.pivot-field-panel {
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pivot-field-panel-title {
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.pivot-zone-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.pivot-available-zone,
+.pivot-drop-zone {
+  background: white;
+  border: 1.5px dashed var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  min-height: 44px;
+}
+
+.pivot-drop-zone-over {
+  border-color: var(--primary);
+  background: #fff7ed;
+}
+
+.pivot-drop-zone-placeholder {
+  font-size: 11.5px;
+  color: var(--muted);
+  font-style: italic;
+}
+
+.pivot-field-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pivot-field-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--primary);
+  color: white;
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: grab;
+}
+
+.pivot-field-chip:active {
+  cursor: grabbing;
+}
+
+.pivot-field-chip-locked {
+  background: #94a3b8;
+  cursor: default;
+}
+
+.pivot-field-chip-remove {
+  background: none;
+  border: none;
+  color: white;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+
+.pivot-empty-hint {
+  font-size: 11.5px;
+  color: var(--muted);
+  font-style: italic;
+}
+
+.pivot-values-zone {
+  border-style: solid;
+  background: #f1f5f9;
 }
