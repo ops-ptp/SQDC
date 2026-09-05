@@ -104,6 +104,20 @@ function cellDate(v: ExcelJS.CellValue): Date | null {
   return null;
 }
 
+/** True if this header already corresponds to a known KPI in the catalog —
+ * either an exact-name match (an unsplit KPI) or a "${header} (Day)" /
+ * "${header} (Night)" split pair with no bare-name row of its own. Shared
+ * by detectNewDailyColumns ("is this header new?") and parseDailyWorkbook
+ * ("which base does this column's values belong to?") so the two can never
+ * disagree — checking exact-name-only in either place means a KPI that's
+ * been split into Day/Night variants stops being recognised there: its
+ * column silently stops being read (parseDailyWorkbook) while
+ * simultaneously getting flagged as a brand-new column again
+ * (detectNewDailyColumns), offering to create a duplicate. */
+function isKnownBase(kpis: Kpi[], header: string): boolean {
+  return kpis.some((k) => k.name === header || k.name === `${header} (Day)` || k.name === `${header} (Night)`);
+}
+
 /** Finds a representative kpis row for a base name — tries the exact name
  * first, then the " (Day)"/" (Night)" variants. Used to pull unit/target/
  * direction/pillar for a base name that itself has no un-suffixed row. */
@@ -211,10 +225,9 @@ export async function parseDailyWorkbook(
   // this second path, a newly auto-created KPI's name would appear in the
   // catalog but its column's numbers would never be read on any upload,
   // including this one and every one after it.
-  const catalogNames = new Set(kpis.map((k) => k.name));
   const simpleCols: { col: number; base: string }[] = [];
   for (let c = 1; c <= colCount; c++) {
-    const base = DAILY_HEADER_TO_BASE[headers[c]] ?? (catalogNames.has(headers[c]) ? headers[c] : undefined);
+    const base = DAILY_HEADER_TO_BASE[headers[c]] ?? (isKnownBase(kpis, headers[c]) ? headers[c] : undefined);
     if (base) simpleCols.push({ col: c, base });
   }
 
@@ -661,12 +674,11 @@ export async function detectNewDailyColumns(buffer: ArrayBuffer, existingKpis: K
   const known = new Set(Object.keys(DAILY_HEADER_TO_BASE));
   known.add('Date');
   known.add('Shift');
-  for (const k of existingKpis) known.add(k.name);
 
   const found: DetectedNewColumn[] = [];
   for (let c = 1; c <= colCount; c++) {
     const header = headers[c];
-    if (!header || known.has(header)) continue;
+    if (!header || known.has(header) || isKnownBase(existingKpis, header)) continue;
     if (/mainliner load gmph/i.test(header)) continue; // handled specially, not "new"
     const cat = categoryRow ? norm(categoryRow.getCell(c).value).toUpperCase() : '';
     found.push({
