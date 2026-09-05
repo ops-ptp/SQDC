@@ -1,18 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { format, getISOWeek, subDays } from 'date-fns';
+import { format, subDays } from 'date-fns';
+import { useEmployee } from '../context/EmployeeContext';
 import {
   bulkUpdateAiCategories,
+  deleteCustomPareto,
   fetchCategorizedEntriesForKpiIds,
+  fetchCustomParetosForPillar,
   fetchKpis,
   fetchMissedEntriesForKpiIds,
   fetchPillars,
+  saveCustomPareto,
   type CategorizedEntryRow,
+  type CustomPareto,
   type RawEntryRow,
 } from '../lib/data';
 import { buildExportCsv, parseCategoryCsv } from '../lib/csv';
+import { applyPivotFilter, computeChartData, computeCrossTab, pivotDimValue, pivotFieldLabel, PIVOT_FIELDS } from '../lib/pivot';
 import { baseNameOf, errorMessage, PILLAR_COLORS, round2, type Kpi, type Pillar } from '../types';
 import DataTable, { type DataTableColumn } from '../components/DataTable';
-import ParetoChart, { type ParetoDatum } from '../components/ParetoChart';
+import ParetoChart from '../components/ParetoChart';
 import PivotFieldPanel, { type PivotZone } from '../components/PivotFieldPanel';
 
 const LOOKBACK_DAYS = 180;
@@ -268,31 +274,20 @@ function ImportSection({ onImported }: { onImported: () => void }) {
 // right. Scoped to the currently selected KPI, same as the table above.
 // ---------------------------------------------------------------------------
 
-const PIVOT_FIELDS = [
-  { key: 'category', label: 'Category' },
-  { key: 'shift', label: 'Shift' },
-  { key: 'week', label: 'Week' },
-];
-
-function pivotDimValue(e: CategorizedEntryRow, key: string): string {
-  switch (key) {
-    case 'category':
-      return e.category;
-    case 'shift':
-      return e.shift ?? 'Unspecified';
-    case 'week':
-      return `Wk ${getISOWeek(new Date(e.entry_date))}`;
-    default:
-      return '';
-  }
-}
-
-function PivotSection({ kpiGroup, refreshKey }: { kpiGroup: KpiGroupOption | null; refreshKey: number }) {
+function PivotSection({ pillarId, kpiGroup, refreshKey }: { pillarId: string | null; kpiGroup: KpiGroupOption | null; refreshKey: number }) {
+  const { employee } = useEmployee();
   const [entries, setEntries] = useState<CategorizedEntryRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [assignment, setAssignment] = useState<Partial<Record<PivotZone, string>>>({ rows: 'category' });
   const [filterIncluded, setFilterIncluded] = useState<Set<string> | null>(null);
+  const [existing, setExisting] = useState<CustomPareto | null>(null);
+  const [title, setTitle] = useState('');
+  const [saveState, setSaveState] = useState<{ busy: boolean; message: string | null; error: string | null }>({
+    busy: false,
+    message: null,
+    error: null,
+  });
 
   useEffect(() => {
     if (!kpiGroup) {
@@ -308,15 +303,45 @@ function PivotSection({ kpiGroup, refreshKey }: { kpiGroup: KpiGroupOption | nul
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kpiGroup?.key, refreshKey]);
 
-  // Reset to a sensible default whenever the KPI changes, and clear any
-  // filter-value selection whenever the filter FIELD itself changes (a
-  // saved selection from a different field wouldn't make sense here).
+  // Load any already-saved Pareto for this KPI so editing continues from
+  // where it left off, rather than the field panel silently resetting to
+  // defaults every time this KPI is revisited.
   useEffect(() => {
-    setAssignment({ rows: 'category' });
-    setFilterIncluded(null);
-  }, [kpiGroup?.key]);
+    if (!pillarId || !kpiGroup) {
+      setExisting(null);
+      return;
+    }
+    fetchCustomParetosForPillar(pillarId)
+      .then((all) => {
+        const match = all.find((p) => p.kpi_base_name === kpiGroup.key) ?? null;
+        setExisting(match);
+        if (match) {
+          setAssignment({
+            rows: match.row_field,
+            columns: match.column_field ?? undefined,
+            filters: match.filter_field ?? undefined,
+          });
+          setFilterIncluded(match.filter_values ? new Set(match.filter_values) : null);
+          setTitle(match.title);
+        } else {
+          setAssignment({ rows: 'category' });
+          setFilterIncluded(null);
+          setTitle('');
+        }
+      })
+      .catch(() => setExisting(null));
+    setSaveState({ busy: false, message: null, error: null });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pillarId, kpiGroup?.key, refreshKey]);
+
+  // Clear any filter-value selection whenever the filter FIELD itself
+  // changes — a saved selection from a different field wouldn't make sense.
+  const prevFilterField = useRef(assignment.filters);
   useEffect(() => {
-    setFilterIncluded(null);
+    if (prevFilterField.current !== assignment.filters) {
+      setFilterIncluded(null);
+      prevFilterField.current = assignment.filters;
+    }
   }, [assignment.filters]);
 
   const filterValues = useMemo(() => {
@@ -324,38 +349,56 @@ function PivotSection({ kpiGroup, refreshKey }: { kpiGroup: KpiGroupOption | nul
     return Array.from(new Set(entries.map((e) => pivotDimValue(e, assignment.filters!)))).sort();
   }, [entries, assignment.filters]);
 
-  const filteredEntries = useMemo(() => {
-    if (!assignment.filters || !filterIncluded) return entries;
-    return entries.filter((e) => filterIncluded.has(pivotDimValue(e, assignment.filters!)));
-  }, [entries, assignment.filters, filterIncluded]);
+  const filteredEntries = useMemo(
+    () => applyPivotFilter(entries, assignment.filters, filterIncluded ? Array.from(filterIncluded) : null),
+    [entries, assignment.filters, filterIncluded]
+  );
 
   const rowField = assignment.rows;
   const colField = assignment.columns;
 
-  const chartData: ParetoDatum[] = useMemo(() => {
-    if (!rowField) return [];
-    const counts = new Map<string, number>();
-    for (const e of filteredEntries) {
-      const label = pivotDimValue(e, rowField);
-      counts.set(label, (counts.get(label) ?? 0) + 1);
-    }
-    return Array.from(counts.entries()).map(([label, count]) => ({ label, count }));
-  }, [filteredEntries, rowField]);
+  const chartData = useMemo(() => (rowField ? computeChartData(filteredEntries, rowField) : []), [filteredEntries, rowField]);
+  const crossTab = useMemo(() => (rowField && colField ? computeCrossTab(filteredEntries, rowField, colField) : null), [filteredEntries, rowField, colField]);
 
-  const crossTab = useMemo(() => {
-    if (!rowField || !colField) return null;
-    const rowLabels = new Set<string>();
-    const colLabels = new Set<string>();
-    const grid = new Map<string, number>();
-    for (const e of filteredEntries) {
-      const r = pivotDimValue(e, rowField);
-      const c = pivotDimValue(e, colField);
-      rowLabels.add(r);
-      colLabels.add(c);
-      grid.set(`${r}\u0000${c}`, (grid.get(`${r}\u0000${c}`) ?? 0) + 1);
+  function defaultTitle(): string {
+    if (!rowField) return 'Pareto';
+    const parts = [pivotFieldLabel(rowField)];
+    if (colField) parts.push(pivotFieldLabel(colField));
+    return `By ${parts.join(' × ')}`;
+  }
+
+  async function handleSave() {
+    if (!pillarId || !kpiGroup || !rowField) return;
+    setSaveState({ busy: true, message: null, error: null });
+    try {
+      const saved = await saveCustomPareto({
+        pillar_id: pillarId,
+        kpi_base_name: kpiGroup.key,
+        title: title.trim() || defaultTitle(),
+        row_field: rowField,
+        column_field: colField ?? null,
+        filter_field: assignment.filters ?? null,
+        filter_values: assignment.filters && filterIncluded ? Array.from(filterIncluded) : null,
+        created_by: employee?.id ?? null,
+      });
+      setExisting(saved);
+      setSaveState({ busy: false, message: `Saved to the Board as "${saved.title}".`, error: null });
+    } catch (e) {
+      setSaveState({ busy: false, message: null, error: errorMessage(e, 'Failed to save') });
     }
-    return { rows: Array.from(rowLabels).sort(), cols: Array.from(colLabels).sort(), grid };
-  }, [filteredEntries, rowField, colField]);
+  }
+
+  async function handleDelete() {
+    if (!existing) return;
+    setSaveState({ busy: true, message: null, error: null });
+    try {
+      await deleteCustomPareto(existing.id);
+      setExisting(null);
+      setSaveState({ busy: false, message: 'Removed from the Board.', error: null });
+    } catch (e) {
+      setSaveState({ busy: false, message: null, error: errorMessage(e, 'Failed to delete') });
+    }
+  }
 
   return (
     <div className="card">
@@ -363,6 +406,8 @@ function PivotSection({ kpiGroup, refreshKey }: { kpiGroup: KpiGroupOption | nul
       <p className="muted">
         Drag fields into Filters / Rows / Columns to slice the categorized entries for this KPI — same idea as an
         Excel PivotChart. Only entries that have been categorized (via the export/re-import cycle above) show up here.
+        Save it to also show this breakdown as an extra Pareto card on the SQDC Board for this KPI — it stays live,
+        recomputed from whatever's categorized whenever the board loads, not a frozen snapshot.
       </p>
       {error && <div className="alert alert-error">{error}</div>}
       {!kpiGroup ? (
@@ -372,75 +417,102 @@ function PivotSection({ kpiGroup, refreshKey }: { kpiGroup: KpiGroupOption | nul
       ) : entries.length === 0 ? (
         <div className="empty-state">No categorized entries for this KPI yet — export, categorize, and re-import above first.</div>
       ) : (
-        <div className="pivot-layout">
-          <div className="pivot-chart-side">
-            {assignment.filters && (
-              <div className="pivot-filter-checklist">
-                <span className="pivot-filter-checklist-label">{PIVOT_FIELDS.find((f) => f.key === assignment.filters)?.label}:</span>
-                {filterValues.map((v) => {
-                  const checked = filterIncluded ? filterIncluded.has(v) : true;
-                  return (
-                    <label key={v} className="pivot-filter-checkbox">
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={(e) => {
-                          const next = new Set(filterIncluded ?? filterValues);
-                          if (e.target.checked) next.add(v);
-                          else next.delete(v);
-                          setFilterIncluded(next);
-                        }}
-                      />
-                      {v}
-                    </label>
-                  );
-                })}
-              </div>
-            )}
-            {!rowField ? (
-              <div className="empty-state">Drag a field into Rows to see a breakdown.</div>
-            ) : crossTab ? (
-              <div className="table-scroll">
-                <table className="action-table">
-                  <thead>
-                    <tr>
-                      <th>{PIVOT_FIELDS.find((f) => f.key === rowField)?.label}</th>
-                      {crossTab.cols.map((c) => (
-                        <th key={c}>{c}</th>
-                      ))}
-                      <th>Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {crossTab.rows.map((r) => {
-                      const rowTotal = crossTab.cols.reduce((sum, c) => sum + (crossTab.grid.get(`${r}\u0000${c}`) ?? 0), 0);
-                      return (
-                        <tr key={r}>
-                          <td>{r}</td>
-                          {crossTab.cols.map((c) => (
-                            <td key={c}>{crossTab.grid.get(`${r}\u0000${c}`) ?? 0}</td>
-                          ))}
-                          <td>
-                            <strong>{rowTotal}</strong>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <ParetoChart data={chartData} />
-            )}
+        <>
+          <div className="pivot-layout">
+            <div className="pivot-chart-side">
+              {assignment.filters && (
+                <div className="pivot-filter-checklist">
+                  <span className="pivot-filter-checklist-label">{pivotFieldLabel(assignment.filters)}:</span>
+                  {filterValues.map((v) => {
+                    const checked = filterIncluded ? filterIncluded.has(v) : true;
+                    return (
+                      <label key={v} className="pivot-filter-checkbox">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => {
+                            const next = new Set(filterIncluded ?? filterValues);
+                            if (e.target.checked) next.add(v);
+                            else next.delete(v);
+                            setFilterIncluded(next);
+                          }}
+                        />
+                        {v}
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+              {!rowField ? (
+                <div className="empty-state">Drag a field into Rows to see a breakdown.</div>
+              ) : crossTab ? (
+                <div className="table-scroll">
+                  <table className="action-table">
+                    <thead>
+                      <tr>
+                        <th>{pivotFieldLabel(rowField)}</th>
+                        {crossTab.cols.map((c) => (
+                          <th key={c}>{c}</th>
+                        ))}
+                        <th>Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {crossTab.rows.map((r) => {
+                        const rowTotal = crossTab.cols.reduce((sum, c) => sum + (crossTab.grid.get(`${r}\u0000${c}`) ?? 0), 0);
+                        return (
+                          <tr key={r}>
+                            <td>{r}</td>
+                            {crossTab.cols.map((c) => (
+                              <td key={c}>{crossTab.grid.get(`${r}\u0000${c}`) ?? 0}</td>
+                            ))}
+                            <td>
+                              <strong>{rowTotal}</strong>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <ParetoChart data={chartData} />
+              )}
+            </div>
+            <div className="pivot-panel-side">
+              <PivotFieldPanel fields={PIVOT_FIELDS} assignment={assignment} onAssignmentChange={setAssignment} />
+            </div>
           </div>
-          <div className="pivot-panel-side">
-            <PivotFieldPanel fields={PIVOT_FIELDS} assignment={assignment} onAssignmentChange={setAssignment} />
-          </div>
-        </div>
+
+          {rowField && (
+            <div className="pivot-save-row">
+              <input className="input pivot-title-input" placeholder={defaultTitle()} value={title} onChange={(e) => setTitle(e.target.value)} />
+              <button type="button" className="btn btn-primary" disabled={saveState.busy} onClick={handleSave}>
+                {saveState.busy ? 'Saving…' : existing ? 'Update on Board' : 'Save to Board'}
+              </button>
+              {existing && (
+                <button type="button" className="admin-kpi-delete-btn" disabled={saveState.busy} onClick={handleDelete}>
+                  Delete from Board
+                </button>
+              )}
+            </div>
+          )}
+          {saveState.message && (
+            <div className="alert alert-success" style={{ marginTop: 10 }}>
+              {saveState.message}
+            </div>
+          )}
+          {saveState.error && (
+            <div className="alert alert-error" style={{ marginTop: 10 }}>
+              {saveState.error}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
 }
+
 
 // ---------------------------------------------------------------------------
 
@@ -503,7 +575,7 @@ export default function Insights() {
       <div className="insights-stack">
         <ExportTableSection kpiGroup={selectedKpiGroup} refreshKey={refreshKey} />
         <ImportSection onImported={() => setRefreshKey((k) => k + 1)} />
-        <PivotSection kpiGroup={selectedKpiGroup} refreshKey={refreshKey} />
+        <PivotSection pillarId={selectedPillarId} kpiGroup={selectedKpiGroup} refreshKey={refreshKey} />
       </div>
     </div>
   );

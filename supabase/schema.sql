@@ -515,3 +515,41 @@ alter table if exists forecast_cards rename to archived_forecast_cards;
 -- ============================================================================
 alter table daily_entries add column if not exists ai_category text;
 
+-- ============================================================================
+-- MIGRATION: saved custom Paretos (Insights pivot builder -> Board).
+-- Stores the PIVOT CONFIGURATION an admin built in Insights (which field is
+-- in Rows/Columns/Filters, which filter values are included) — not a
+-- snapshot of computed counts. The Board re-runs this same configuration
+-- against whatever's currently categorized every time it renders, so a
+-- saved chart keeps reflecting new categorization work automatically
+-- rather than going stale the moment more entries get categorized.
+--
+-- One saved Pareto per (pillar, KPI) — "Save" and "Update" are the same
+-- upsert; kpi_base_name matches baseNameOf(kpi.name) so it covers a split
+-- KPI's Day+Night rows as one entry, same grouping the board itself uses.
+-- ============================================================================
+create table if not exists custom_paretos (
+  id             uuid primary key default gen_random_uuid(),
+  pillar_id      uuid not null references pillars(id) on delete cascade,
+  kpi_base_name  text not null,
+  title          text not null,
+  row_field      text not null,
+  column_field   text,
+  filter_field   text,
+  filter_values  text[],
+  created_by     uuid references employees(id),
+  created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now(),
+  unique (pillar_id, kpi_base_name)
+);
+
+drop trigger if exists trg_custom_paretos_updated_at on custom_paretos;
+create trigger trg_custom_paretos_updated_at
+  before update on custom_paretos
+  for each row execute function set_updated_at();
+
+alter table custom_paretos enable row level security;
+
+drop policy if exists anon_all_custom_paretos on custom_paretos;
+create policy anon_all_custom_paretos on custom_paretos for all using (true) with check (true);
+

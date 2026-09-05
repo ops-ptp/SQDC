@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format, startOfMonth, getDaysInMonth, startOfWeek, subWeeks, subDays, addDays, getISOWeek, getISOWeekYear } from 'date-fns';
-import { fetchActions, fetchEntriesForKpi, fetchEntriesForKpisOnDate, fetchKpiDailyTargetsForDate, fetchReasonsForKpi, fetchWeeklyEntriesForKpiBase } from '../lib/data';
+import { fetchActions, fetchCategorizedEntriesForKpiIds, fetchCustomParetosForPillar, fetchEntriesForKpi, fetchEntriesForKpisOnDate, fetchKpiDailyTargetsForDate, fetchReasonsForKpi, fetchWeeklyEntriesForKpiBase, type CategorizedEntryRow, type CustomPareto } from '../lib/data';
+import { applyPivotFilter, computeChartData, computeCrossTab, pivotFieldLabel } from '../lib/pivot';
 import { useEmployee } from '../context/EmployeeContext';
 import { baseNameOf, metTarget, PILLAR_COLORS, round2, type ActionItem, type DailyEntry, type Kpi, type Pillar, type PerformanceStatus, type WeeklyEntry } from '../types';
 import KpiRunChart, { type RunPoint } from './KpiRunChart';
@@ -141,6 +142,12 @@ export default function PillarQuadrant({
   const [actions, setActions] = useState<ActionItem[]>([]);
   const [reasonLabelById, setReasonLabelById] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(true);
+  // Admin-saved Pareto configurations from Insights (Export -> AI -> Pivot
+  // builder -> "Save to Board"). Read-only here — delete/edit only happens
+  // in Insights, per how this was scoped. Fetched once per pillar rather
+  // than re-queried on every KPI-pill click.
+  const [customParetos, setCustomParetos] = useState<CustomPareto[]>([]);
+  const [customParetoEntries, setCustomParetoEntries] = useState<CategorizedEntryRow[]>([]);
 
   useEffect(() => {
     if (groups.length > 0 && !groups.some((g) => g.key === selectedKey)) {
@@ -184,6 +191,31 @@ export default function PillarQuadrant({
   useEffect(() => {
     fetchActions({ pillarId: pillar.id }).then(setActions);
   }, [pillar.id]);
+
+  // Custom Paretos saved from Insights — fetched once per pillar. Whether
+  // one applies to the currently-selected KPI is worked out below
+  // (customPareto), not here.
+  useEffect(() => {
+    fetchCustomParetosForPillar(pillar.id)
+      .then(setCustomParetos)
+      .catch(() => setCustomParetos([]));
+  }, [pillar.id]);
+
+  const customPareto = customParetos.find((p) => p.kpi_base_name === selectedGroup?.key) ?? null;
+
+  // Live-recomputed from whatever's categorized right now — not a frozen
+  // snapshot of counts from when it was saved in Insights, so it keeps
+  // reflecting new categorization work automatically.
+  useEffect(() => {
+    if (!customPareto || !selectedGroup) {
+      setCustomParetoEntries([]);
+      return;
+    }
+    fetchCategorizedEntriesForKpiIds(groupKpiIds(selectedGroup))
+      .then(setCustomParetoEntries)
+      .catch(() => setCustomParetoEntries([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customPareto?.id, selectedGroup?.key]);
 
   // Month entries (letter grid — always the full calendar month containing
   // the reference day, regardless of the Daily/Weekly toggle) + window
@@ -452,6 +484,23 @@ export default function PillarQuadrant({
     return Array.from(counts.entries()).map(([label, count]) => ({ label, count }));
   }, [paretoEntries, reasonLabelById]);
 
+  // ---- Custom Pareto (admin-saved from Insights) — applies the SAME
+  // shared pivot logic Insights itself uses, against live categorized
+  // data, so the board and Insights can never silently disagree about
+  // what a saved chart shows.
+  const customParetoFilteredEntries = useMemo(
+    () => (customPareto ? applyPivotFilter(customParetoEntries, customPareto.filter_field, customPareto.filter_values) : []),
+    [customPareto, customParetoEntries]
+  );
+  const customParetoChartData = useMemo(
+    () => (customPareto ? computeChartData(customParetoFilteredEntries, customPareto.row_field) : []),
+    [customPareto, customParetoFilteredEntries]
+  );
+  const customParetoCrossTab = useMemo(
+    () => (customPareto?.column_field ? computeCrossTab(customParetoFilteredEntries, customPareto.row_field, customPareto.column_field) : null),
+    [customPareto, customParetoFilteredEntries]
+  );
+
   // ---- Remarks/Summary block: highlight + deep-link into Enter Remarks for
   // any shift that missed target and still has no remark logged. Passed
   // (or no data at all) shifts render as plain, non-interactive text.
@@ -618,6 +667,52 @@ export default function PillarQuadrant({
                   Pareto of reasons — {granularity === 'weekly' ? 'last 2 weeks' : 'last 7 days'}
                 </div>
                 <ParetoChart data={paretoData} barColor={colors.base} />
+              </div>
+
+              <div className="quadrant-section">
+                {customPareto && (
+                  <>
+                    <div className="quadrant-block-title">{customPareto.title}</div>
+                    {customParetoCrossTab ? (
+                      <div className="table-scroll">
+                        <table className="action-table">
+                          <thead>
+                            <tr>
+                              <th>{pivotFieldLabel(customPareto.row_field)}</th>
+                              {customParetoCrossTab.cols.map((c) => (
+                                <th key={c}>{c}</th>
+                              ))}
+                              <th>Total</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {customParetoCrossTab.rows.map((r) => {
+                              const rowTotal = customParetoCrossTab.cols.reduce(
+                                (sum, c) => sum + (customParetoCrossTab.grid.get(`${r}\u0000${c}`) ?? 0),
+                                0
+                              );
+                              return (
+                                <tr key={r}>
+                                  <td>{r}</td>
+                                  {customParetoCrossTab.cols.map((c) => (
+                                    <td key={c}>{customParetoCrossTab.grid.get(`${r}\u0000${c}`) ?? 0}</td>
+                                  ))}
+                                  <td>
+                                    <strong>{rowTotal}</strong>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : customParetoChartData.length === 0 ? (
+                      <div className="empty-state">No categorized entries yet.</div>
+                    ) : (
+                      <ParetoChart data={customParetoChartData} barColor={colors.base} />
+                    )}
+                  </>
+                )}
               </div>
 
               <div className="quadrant-section quadrant-section-fill">

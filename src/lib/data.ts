@@ -523,3 +523,60 @@ export async function fetchCategorizedEntriesForKpiIds(kpiIds: string[]): Promis
     category: r.ai_category,
   }));
 }
+
+// ---------------------------------------------------------------------------
+// Custom Paretos — a pivot configuration built in Insights, saved so it also
+// shows up (live-recomputed, not a frozen snapshot) as an additional Pareto
+// card on the Board. One per (pillar, KPI); Insights is the only place that
+// can create, update, or delete one — the Board only ever reads.
+// ---------------------------------------------------------------------------
+
+export interface CustomPareto {
+  id: string;
+  pillar_id: string;
+  kpi_base_name: string;
+  title: string;
+  row_field: string;
+  column_field: string | null;
+  filter_field: string | null;
+  filter_values: string[] | null;
+}
+
+export interface CustomParetoInput {
+  pillar_id: string;
+  kpi_base_name: string;
+  title: string;
+  row_field: string;
+  column_field: string | null;
+  filter_field: string | null;
+  filter_values: string[] | null;
+  created_by: string | null;
+}
+
+/** Every saved custom Pareto for a pillar, in one call — used by the Board,
+ * which needs to check "does the currently-selected KPI have one of these"
+ * without a fresh query on every KPI-pill click. */
+export async function fetchCustomParetosForPillar(pillarId: string): Promise<CustomPareto[]> {
+  const { data, error } = await supabase.from('custom_paretos').select('*').eq('pillar_id', pillarId);
+  if (error) throw error;
+  return data as CustomPareto[];
+}
+
+/** Create-or-replace, keyed on (pillar_id, kpi_base_name) — Insights uses
+ * the same button and the same call for both "Save" (nothing exists yet)
+ * and "Update" (overwrite the existing one); which label to show is just
+ * about whether fetchCustomParetosForPillar already returned one. */
+export async function saveCustomPareto(input: CustomParetoInput): Promise<CustomPareto> {
+  const { data, error } = await supabase
+    .from('custom_paretos')
+    .upsert(input, { onConflict: 'pillar_id,kpi_base_name' })
+    .select('*')
+    .single();
+  if (error) throw error;
+  return data as CustomPareto;
+}
+
+export async function deleteCustomPareto(id: string): Promise<void> {
+  const { error } = await supabase.from('custom_paretos').delete().eq('id', id);
+  if (error) throw error;
+}
