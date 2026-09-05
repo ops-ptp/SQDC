@@ -1,16 +1,18 @@
 import Papa from 'papaparse';
-import type { CategoryImportRow, ExportEntryRow } from './data';
+import type { CategoryImportRow, RawEntryRow } from './data';
 
-/** Builds the CSV an admin downloads from Insights. Column order matters
- * for readability (id first, category last, empty and ready to be filled
- * in) but not for re-import — parseCategoryCsv matches by header name, not
- * position, so the AI reordering or adding columns doesn't break anything. */
-export function buildExportCsv(rows: ExportEntryRow[]): string {
+/** Builds the CSV an admin downloads from Insights — exactly the rows
+ * currently visible in the on-screen table (whatever sort/filter is
+ * applied there), for the one KPI selected via the pillar/KPI pills.
+ * Column order matters for readability (id first, category last, empty
+ * and ready to be filled in) but not for re-import — parseCategoryCsv
+ * matches by header name, not position, so the AI reordering or adding
+ * columns doesn't break anything. */
+export function buildExportCsv(rows: RawEntryRow[]): string {
   const data = rows.map((r) => ({
     id: r.id,
     date: r.entry_date,
-    pillar: r.pillar_name,
-    kpi: r.kpi_name,
+    shift: r.shift ?? '',
     actual: r.actual,
     target: r.target,
     unit: r.unit,
