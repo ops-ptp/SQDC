@@ -50,6 +50,11 @@ export default function Navbar() {
               Admin
             </NavLink>
           )}
+          {employee?.is_admin && (
+            <NavLink to="/insights" className={linkClass} onClick={closeMenu}>
+              Insights
+            </NavLink>
+          )}
         </nav>
         <div className="navbar-user">
           {employee ? (

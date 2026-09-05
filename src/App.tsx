@@ -9,6 +9,7 @@ import DataEntry from './pages/DataEntry';
 import ActionLog from './pages/ActionLog';
 import ForwardLooking from './pages/ForwardLooking';
 import Admin from './pages/Admin';
+import Insights from './pages/Insights';
 import Login from './pages/Login';
 
 export default function App() {
@@ -35,6 +36,14 @@ export default function App() {
               element={
                 <RequireAdmin>
                   <Admin />
+                </RequireAdmin>
+              }
+            />
+            <Route
+              path="/insights"
+              element={
+                <RequireAdmin>
+                  <Insights />
                 </RequireAdmin>
               }
             />

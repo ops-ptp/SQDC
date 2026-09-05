@@ -408,3 +408,120 @@ export async function bulkUpsertLeadingEntriesFromUpload(rows: UploadLeadingRow[
   }
   return written;
 }
+
+// ---------------------------------------------------------------------------
+// Insights — CSV export → external AI categorize → re-import → pivot view.
+// No AI/API integration lives in this app; an admin runs the exported CSV
+// through whatever model they already have access to, by hand, outside the
+// app entirely. This layer only ever reads/writes daily_entries.ai_category.
+// ---------------------------------------------------------------------------
+
+export interface ExportEntryRow {
+  id: string;
+  entry_date: string;
+  pillar_name: string;
+  kpi_name: string;
+  actual: number;
+  target: number;
+  unit: string;
+  reason: string;
+  remarks: string;
+  ai_category: string | null;
+}
+
+/** Every missed-target entry in the date range, across all pillars — the
+ * same "what needs a reason" scope Enter Remarks and the Pareto chart
+ * already use, just exported flat for round-tripping through an external
+ * AI tool. `id` is included so a re-upload can match rows back precisely;
+ * it's the first column so it's easy to spot if it ever gets edited by
+ * mistake. */
+export async function fetchMissedEntriesForExport(fromDate: string, toDate: string): Promise<ExportEntryRow[]> {
+  const { data, error } = await supabase
+    .from('daily_entries')
+    .select('id, entry_date, actual, target, remarks, reason_other, ai_category, reason:reasons(label), kpi:kpis(name, unit, pillar:pillars(name))')
+    .eq('met_target', false)
+    .gte('entry_date', fromDate)
+    .lte('entry_date', toDate)
+    .order('entry_date');
+  if (error) throw error;
+  const rows = (data ?? []) as unknown as {
+    id: string;
+    entry_date: string;
+    actual: number;
+    target: number;
+    remarks: string | null;
+    reason_other: string | null;
+    ai_category: string | null;
+    reason: { label: string } | null;
+    kpi: { name: string; unit: string; pillar: { name: string } | null } | null;
+  }[];
+  return rows.map((r) => ({
+    id: r.id,
+    entry_date: r.entry_date,
+    pillar_name: r.kpi?.pillar?.name ?? '',
+    kpi_name: r.kpi?.name ?? '',
+    actual: r.actual,
+    target: r.target,
+    unit: r.kpi?.unit ?? '',
+    reason: r.reason_other?.trim() || r.reason?.label || '',
+    remarks: r.remarks ?? '',
+    ai_category: r.ai_category,
+  }));
+}
+
+export interface CategoryImportRow {
+  id: string;
+  category: string;
+}
+
+/** Writes back only `ai_category`, one row at a time by id — deliberately
+ * not a bulk upsert, since that would require sending every other column
+ * back too (risking accidentally clobbering actual/target/remarks with
+ * stale values from the exported CSV if a row got edited in the app in the
+ * meantime). Fine at this volume: a biweekly categorization batch is
+ * dozens of rows, not thousands. */
+export async function bulkUpdateAiCategories(rows: CategoryImportRow[]): Promise<number> {
+  let written = 0;
+  for (const r of rows) {
+    const { error } = await supabase.from('daily_entries').update({ ai_category: r.category }).eq('id', r.id);
+    if (error) throw error;
+    written++;
+  }
+  return written;
+}
+
+export interface CategorizedEntryRow {
+  id: string;
+  entry_date: string;
+  pillar_name: string;
+  kpi_name: string;
+  category: string;
+}
+
+/** Already-categorized entries in a date range — feeds the Insights pivot
+ * view. Only rows with a category set (from a prior export → AI → import
+ * cycle) come back; anything not yet categorized is simply absent rather
+ * than showing up as a misleading "Uncategorized" bucket. */
+export async function fetchCategorizedEntries(fromDate: string, toDate: string): Promise<CategorizedEntryRow[]> {
+  const { data, error } = await supabase
+    .from('daily_entries')
+    .select('id, entry_date, ai_category, kpi:kpis(name, pillar:pillars(name))')
+    .not('ai_category', 'is', null)
+    .gte('entry_date', fromDate)
+    .lte('entry_date', toDate)
+    .order('entry_date');
+  if (error) throw error;
+  const rows = (data ?? []) as unknown as {
+    id: string;
+    entry_date: string;
+    ai_category: string;
+    kpi: { name: string; pillar: { name: string } | null } | null;
+  }[];
+  return rows.map((r) => ({
+    id: r.id,
+    entry_date: r.entry_date,
+    pillar_name: r.kpi?.pillar?.name ?? '',
+    kpi_name: r.kpi?.name ?? '',
+    category: r.ai_category,
+  }));
+}

@@ -504,3 +504,14 @@ end $$;
 
 alter table if exists forecast_cards rename to archived_forecast_cards;
 
+-- ============================================================================
+-- MIGRATION: AI-assisted categorization (Insights page).
+-- An admin exports missed-target remarks as CSV, runs them through whatever
+-- AI model they have access to (outside this app — no API integration, no
+-- token cost to this project) with a prompt asking it to add a "category"
+-- column, then re-uploads the completed CSV. This just stores that
+-- category back on the entry it came from — purely additive, doesn't
+-- affect pass/fail, targets, or anything else already in daily_entries.
+-- ============================================================================
+alter table daily_entries add column if not exists ai_category text;
+

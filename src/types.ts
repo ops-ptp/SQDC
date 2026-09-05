@@ -66,6 +66,11 @@ export interface DailyEntry {
    * Excel upload. The upload treats its own value as a fallback only — it
    * must never overwrite a row with this set to true. */
   is_manual_override: boolean;
+  /** Free-text category an admin assigned via the Insights CSV export →
+   * AI categorize → re-import workflow (e.g. "Equipment", "Staffing" — or
+   * whatever angle they chose that cycle). null until categorized. Not
+   * used anywhere else in the app — purely for the Insights pivot view. */
+  ai_category: string | null;
 }
 
 /** A blended (no Day/Night split) weekly figure from the Admin Weekly Excel
