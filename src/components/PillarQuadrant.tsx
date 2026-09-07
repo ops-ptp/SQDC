@@ -474,15 +474,23 @@ export default function PillarQuadrant({
   }, [windowEntries, weeklyFallback, selectedGroup?.key, granularity]);
 
   // ---- Pareto: missed-target reasons within the Pareto-specific window ---
+  // Recomputed live via groupMetTarget rather than trusting each entry's
+  // stored met_target — that column is a snapshot taken at write time using
+  // whatever is_higher_better the KPI had THEN. If a KPI's direction gets
+  // corrected later (e.g. switched to "lower is better"), every entry
+  // written before that change keeps the old, now-wrong verdict baked in
+  // unless read live like this — same reasoning as the Remarks/Summary
+  // block below.
   const paretoData: ParetoDatum[] = useMemo(() => {
+    if (!selectedGroup) return [];
     const counts = new Map<string, number>();
     for (const e of paretoEntries) {
-      if (e.met_target) continue;
+      if (groupMetTarget(selectedGroup, e.actual, e.target)) continue;
       const label = e.reason_other?.trim() || (e.reason_id ? reasonLabelById.get(e.reason_id) : undefined) || 'Unspecified';
       counts.set(label, (counts.get(label) ?? 0) + 1);
     }
     return Array.from(counts.entries()).map(([label, count]) => ({ label, count }));
-  }, [paretoEntries, reasonLabelById]);
+  }, [paretoEntries, reasonLabelById, selectedGroup]);
 
   // ---- Custom Pareto (admin-saved from Insights) — applies the SAME
   // shared pivot logic Insights itself uses, against live categorized
@@ -504,9 +512,11 @@ export default function PillarQuadrant({
   // ---- Remarks/Summary block: highlight + deep-link into Enter Remarks for
   // any shift that missed target and still has no remark logged. Passed
   // (or no data at all) shifts render as plain, non-interactive text.
+  // "Missed" is recomputed live via groupMetTarget, not read from the
+  // entry's stored met_target — see the Pareto comment above for why.
   function renderRemarksBlock(label: string, entry: DailyEntry | undefined) {
     const text = entry?.remarks?.trim() || 'No remarks logged for this date.';
-    const needsRemark = Boolean(entry) && entry!.met_target === false && !entry!.remarks?.trim();
+    const needsRemark = Boolean(entry) && selectedGroup !== undefined && !groupMetTarget(selectedGroup!, entry!.actual, entry!.target) && !entry!.remarks?.trim();
     if (!needsRemark) {
       return (
         <div className="remarks-block" key={label}>

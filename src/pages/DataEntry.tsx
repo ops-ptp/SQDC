@@ -139,10 +139,16 @@ function isGroupDone(g: KpiGroup, entries: DailyEntry[]): boolean {
 
 /** True when this group has a logged entry that missed target and has no
  * remark yet — the "still needs attention" state, distinct from "not
- * logged at all". Drives the red pill highlight + the page-level count. */
+ * logged at all". Drives the red pill highlight + the page-level count.
+ * Recomputed live via metTarget rather than trusting each entry's stored
+ * met_target — that column is a snapshot taken at write time using
+ * whatever is_higher_better the KPI had THEN. If a KPI's direction gets
+ * corrected later (e.g. switched to "lower is better"), every entry
+ * written before that change keeps the old, now-wrong verdict baked in
+ * unless read live like this. */
 function groupNeedsRemark(g: KpiGroup, entries: DailyEntry[]): boolean {
   const ids = groupKpiIds(g);
-  return entries.some((e) => ids.includes(e.kpi_id) && !e.met_target && !e.remarks?.trim());
+  return entries.some((e) => ids.includes(e.kpi_id) && !metTarget({ is_higher_better: g.isHigherBetter }, e.target, e.actual) && !e.remarks?.trim());
 }
 
 /** Deep-link payload from the Board's "no remarks logged" highlight — see
@@ -334,7 +340,10 @@ export default function DataEntry() {
     const kpi = activeKpi(selectedGroup, form.shift);
     if (!kpi) return;
 
-    const met = form.existing.met_target;
+    // Recomputed live rather than trusting form.existing.met_target — see
+    // groupNeedsRemark's comment for why that stored value can be stale
+    // after a KPI's direction is corrected in KPI Management.
+    const met = metTarget({ is_higher_better: selectedGroup.isHigherBetter }, form.existing.target, form.existing.actual);
     const hasReason = (form.reasonId && form.reasonId !== OTHER_SENTINEL) || (form.reasonId === OTHER_SENTINEL && form.reasonOther.trim());
     if (!met && !hasReason) {
       patch({ error: 'Target was missed — please select a reason category (or "Other" and specify it).' });
@@ -352,7 +361,11 @@ export default function DataEntry() {
         entry_date: selectedDate,
         target: form.existing.target,
         actual: form.existing.actual,
-        met_target: form.existing.met_target,
+        // Written as the freshly-recomputed value, not form.existing's
+        // stale one — this is also what lets a remarks-only save quietly
+        // self-heal a row's stored met_target the next time someone
+        // touches it, rather than needing a separate backfill.
+        met_target: met,
         reason_id: met ? null : form.reasonId && form.reasonId !== OTHER_SENTINEL ? form.reasonId : null,
         reason_other: met ? null : form.reasonId === OTHER_SENTINEL ? form.reasonOther.trim() || null : null,
         remarks: form.remarks.trim() || null,
@@ -557,44 +570,55 @@ export default function DataEntry() {
             </div>
           ) : (
             <>
-              <div className="entry-readonly-value">
-                <span className={`headline-value ${form.existing.met_target ? 'value-good' : 'value-bad'}`}>
-                  {round2(form.existing.actual)}
-                  <span className="headline-unit">{selectedGroup.unit}</span>
-                </span>
-                <span className={`pill ${form.existing.met_target ? 'pill-good' : 'pill-bad'}`}>
-                  {form.existing.met_target ? 'Target met' : 'Target missed'}
-                </span>
-              </div>
+              {(() => {
+                // Recomputed live, not read from form.existing.met_target —
+                // see groupNeedsRemark's comment above for why the stored
+                // value can be stale after a direction correction.
+                const existingMet = metTarget({ is_higher_better: selectedGroup.isHigherBetter }, form.existing.target, form.existing.actual);
+                return (
+                  <>
+                    <div className="entry-readonly-value">
+                      <span className={`headline-value ${existingMet ? 'value-good' : 'value-bad'}`}>
+                        {round2(form.existing.actual)}
+                        <span className="headline-unit">{selectedGroup.unit}</span>
+                      </span>
+                      <span className={`pill ${existingMet ? 'pill-good' : 'pill-bad'}`}>{existingMet ? 'Target met' : 'Target missed'}</span>
+                    </div>
 
-              {!form.existing.met_target && (
-                <div className="reason-block">
-                  <label className="field-label">Reason category</label>
-                  <select
-                    className="input"
-                    value={form.reasonId}
-                    onChange={(e) => patch({ reasonId: e.target.value, reasonOther: e.target.value === OTHER_SENTINEL ? form.reasonOther : '' })}
-                  >
-                    <option value="">— Select a reason —</option>
-                    {form.reasons.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.label}
-                      </option>
-                    ))}
-                    <option value={OTHER_SENTINEL}>Other (please specify)</option>
-                  </select>
-                  {form.reasonId === OTHER_SENTINEL && (
-                    <input
-                      className="input"
-                      placeholder="Specify the reason category…"
-                      value={form.reasonOther}
-                      onChange={(e) => patch({ reasonOther: e.target.value })}
-                    />
-                  )}
-                </div>
-              )}
+                    {!existingMet && (
+                      <div className="reason-block">
+                        <label className="field-label">Reason category</label>
+                        <select
+                          className="input"
+                          value={form.reasonId}
+                          onChange={(e) => patch({ reasonId: e.target.value, reasonOther: e.target.value === OTHER_SENTINEL ? form.reasonOther : '' })}
+                        >
+                          <option value="">— Select a reason —</option>
+                          {form.reasons.map((r) => (
+                            <option key={r.id} value={r.id}>
+                              {r.label}
+                            </option>
+                          ))}
+                          <option value={OTHER_SENTINEL}>Other (please specify)</option>
+                        </select>
+                        {form.reasonId === OTHER_SENTINEL && (
+                          <input
+                            className="input"
+                            placeholder="Specify the reason category…"
+                            value={form.reasonOther}
+                            onChange={(e) => patch({ reasonOther: e.target.value })}
+                          />
+                        )}
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
 
-              <label className="field-label">Remarks{!form.existing.met_target ? ' (required — target missed)' : ' (optional)'}</label>
+              <label className="field-label">
+                Remarks
+                {!metTarget({ is_higher_better: selectedGroup.isHigherBetter }, form.existing.target, form.existing.actual) ? ' (required — target missed)' : ' (optional)'}
+              </label>
               <textarea
                 className="input entry-remarks"
                 rows={2}
