@@ -84,6 +84,24 @@ function cellNumber(v: ExcelJS.CellValue): number | null {
     const n = Number(v.trim());
     return Number.isFinite(n) && v.trim() !== '' ? n : null;
   }
+  // Formula cells: ExcelJS returns { formula, result, ... } rather than a
+  // plain value — `result` is the cached value Excel last computed for it.
+  // Missing entirely (undefined) happens for some shared array formulas
+  // (seen in practice with external-workbook-referencing SUMPRODUCT/
+  // VLOOKUP formulas, e.g. a Weekly export pulling from other linked
+  // sheets) whose cached result isn't stored on this specific cell —
+  // nothing to recover client-side, correctly falls through to null. This
+  // branch matters a lot more than it might look: without it, EVERY
+  // formula cell in ANY uploaded workbook silently reads as "no value" —
+  // not just here, in every parser that calls this function.
+  if (typeof v === 'object' && 'result' in v) {
+    const result = (v as { result: unknown }).result;
+    if (typeof result === 'number') return Number.isFinite(result) ? result : null;
+    if (typeof result === 'string') {
+      const n = Number(result.trim());
+      return Number.isFinite(n) && result.trim() !== '' ? n : null;
+    }
+  }
   return null;
 }
 
@@ -490,6 +508,7 @@ export async function parseWeeklyWorkbook(buffer: ArrayBuffer, kpis: Kpi[], uplo
       : `Week labels have no year in this sheet — assumed ISO year ${lastActualYear}.`,
   ];
   const rows: UploadWeeklyRow[] = [];
+  const unresolvedFormulaBases = new Set<string>();
   let rowsRead = 0;
 
   for (const { r, isoWeek } of weekLabelRows) {
@@ -498,8 +517,17 @@ export async function parseWeeklyWorkbook(buffer: ArrayBuffer, kpis: Kpi[], uplo
     rowsRead++;
 
     for (const { col, base } of cols) {
-      const raw = cellNumber(row.getCell(col).value);
-      if (raw === null) continue;
+      const cellValue = row.getCell(col).value;
+      const raw = cellNumber(cellValue);
+      if (raw === null) {
+        // A formula cell with no usable cached result (seen in practice
+        // with shared array formulas referencing external, unlinked
+        // workbooks) is a distinct, worth-flagging case from a genuinely
+        // blank cell — the value isn't recoverable from this file at all,
+        // not just missing for this particular week.
+        if (typeof cellValue === 'object' && cellValue !== null && 'formula' in cellValue) unresolvedFormulaBases.add(base);
+        continue;
+      }
       const kpi = findRepresentativeKpi(kpis, base);
       if (!kpi) {
         warnings.push(`"${base}" has no matching KPI in the catalog — skipped.`);
@@ -517,6 +545,12 @@ export async function parseWeeklyWorkbook(buffer: ArrayBuffer, kpis: Kpi[], uplo
         uploaded_by: uploadedBy,
       });
     }
+  }
+
+  for (const base of unresolvedFormulaBases) {
+    warnings.push(
+      `"${base}" has formula cells with no cached value (likely a formula referencing another, unlinked workbook) — this column's figures could not be read from this file at all. Try "Paste Values" over that column in Excel before re-uploading.`
+    );
   }
 
   return { rows, warnings, rowsRead };
