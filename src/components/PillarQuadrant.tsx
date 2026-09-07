@@ -121,16 +121,14 @@ export default function PillarQuadrant({
   const navigate = useNavigate();
   const { employee } = useEmployee();
   const colors = PILLAR_COLORS[pillar.code] ?? PILLAR_COLORS.S;
-  // Weekly view only shows the 7 KPIs the Weekly workbook actually tracks —
-  // everything else (Moves, the shift-split-only KPIs, anything auto-
-  // created from a Daily-only column) has no weekly figure to show at all.
-  // Filtering here (not just in the pill row below) means selectedGroup can
-  // never land on a non-weekly-tracked KPI while granularity is 'weekly',
-  // which keeps the headline/chart/pareto below from ever needing to
-  // special-case "what if the selected KPI has no weekly data source".
+  // Daily view respects "Visible" (kpis.active) from KPI Management, same
+  // as always. Weekly view deliberately does NOT — it always shows exactly
+  // the 7 KPIs the Weekly workbook tracks, regardless of whether any of
+  // them happen to be hidden on the Daily board; "Visible" is a Daily-only
+  // concept, not something that should also hide a KPI's weekly rollup.
   const groups = useMemo(() => {
-    const all = buildGroups(kpis);
-    return granularity === 'weekly' ? all.filter((g) => WEEKLY_TRACKED_BASE_NAMES.has(g.key)) : all;
+    const relevant = granularity === 'weekly' ? kpis.filter((k) => WEEKLY_TRACKED_BASE_NAMES.has(baseNameOf(k.name))) : kpis.filter((k) => k.active);
+    return buildGroups(relevant);
   }, [kpis, granularity]);
   const [selectedKey, setSelectedKey] = useState<string>(groups[0]?.key ?? '');
   const selectedGroup = groups.find((g) => g.key === selectedKey) ?? groups[0];

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { endOfMonth, format, subDays, subMonths } from 'date-fns';
-import { fetchKpis, fetchPillars } from '../lib/data';
+import { fetchAllKpisAdmin, fetchPillars } from '../lib/data';
 import type { Kpi, Pillar } from '../types';
 import { errorMessage } from '../types';
 import PillarQuadrant, { type Granularity } from '../components/PillarQuadrant';
@@ -27,10 +27,16 @@ export default function Dashboard() {
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
 
   useEffect(() => {
-    Promise.all([fetchPillars(), fetchKpis()])
+    // Fetches every lagging KPI, active AND hidden — the Board itself
+    // filters by active for the Daily view's pills, but the Weekly view
+    // deliberately ignores that flag entirely (see PillarQuadrant's groups
+    // computation): "Visible" in KPI Management is a Daily-board concept
+    // only, since the Weekly view's KPI set is fixed by what the Weekly
+    // workbook actually tracks, not by an admin's show/hide choice.
+    Promise.all([fetchPillars(), fetchAllKpisAdmin()])
       .then(([p, k]) => {
         setPillars(p);
-        setKpis(k);
+        setKpis(k.filter((kpi) => !kpi.is_leading));
       })
       .catch((e) => setError(errorMessage(e, 'Failed to load board')))
       .finally(() => setLoading(false));
