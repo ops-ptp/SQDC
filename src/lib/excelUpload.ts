@@ -1,5 +1,5 @@
 import ExcelJS from 'exceljs';
-import { getISOWeekYear } from 'date-fns';
+import { getISOWeek, getISOWeekYear } from 'date-fns';
 import { metTarget } from '../types';
 import type { Kpi } from '../types';
 import type { UploadDailyRow, UploadLeadingRow, UploadTargetRow, UploadWeeklyRow } from './data';
@@ -49,7 +49,14 @@ const TARGET_HEADER_TO_BASES: Record<string, string[]> = {
   'Average Litres per Vessel Call': ['Average Litres per Vessel Call'],
 };
 
-const WEEKLY_HEADER_TO_BASE: Record<string, string> = {
+/** The 7 KPIs the Weekly workbook actually tracks — also the definitive
+ * list of which KPIs stay visible on the Board when the Daily/Weekly
+ * toggle is set to Weekly (everything else, e.g. Moves, only exists in the
+ * Daily file and has no weekly figure to show). Exported so
+ * PillarQuadrant.tsx can filter its KPI pills from the same single source
+ * of truth rather than a second hardcoded list that could drift out of
+ * sync with this one. */
+export const WEEKLY_HEADER_TO_BASE: Record<string, string> = {
   'Accident During Operation': 'Accident During Operation',
   'Delay – Waiting for CHE (L&D)': 'Delay – Waiting for CHE (L&D)',
   'Overall Mixing Yard': 'Overall Mixing Yard',
@@ -432,17 +439,62 @@ export async function parseWeeklyWorkbook(buffer: ArrayBuffer, kpis: Kpi[], uplo
     if (base) cols.push({ col: c, base });
   }
 
-  const assumedIsoYear = getISOWeekYear(new Date());
-  const warnings: string[] = [`Week labels have no year in this sheet — assumed ISO year ${assumedIsoYear}.`];
+  // The sheet's "Week NN" labels carry no year at all, and — unlike the
+  // original template file this was built against — a real export can span
+  // MORE than one calendar year (this file goes Week 27 -> 52, then wraps
+  // back to Week 01 -> 26 again, ~78 weeks). Assuming every row is "this
+  // year" would collide two different years' "Week 27" onto the exact same
+  // (pillar, kpi_base_name, iso_year, iso_week) key, silently overwriting
+  // one with the other on upsert.
+  //
+  // Instead: read every week number first, and increment a running year
+  // counter each time a row's week number is LOWER than the previous row's
+  // (that's a year boundary — Week 52 followed by Week 01). This gives the
+  // correct year for every row RELATIVE to each other; anchoring that
+  // sequence to an absolute calendar year still needs one assumption, so
+  // the anchor is: the LAST (most recent) row is assumed to be this ISO
+  // year if its week number hasn't happened yet this year, else last year
+  // — i.e. treat the sheet as a rolling window ending at-or-before today,
+  // never in the future.
+  const weekLabelRows: { r: number; isoWeek: number }[] = [];
+  for (let r = headerRowNum + 1; r <= sheet.rowCount; r++) {
+    const weekLabel = norm(sheet.getRow(r).getCell(2).value);
+    const m = /week\s*(\d+)/i.exec(weekLabel);
+    if (m) weekLabelRows.push({ r, isoWeek: Number(m[1]) });
+  }
+
+  const relativeYears: number[] = [];
+  let relOffset = 0;
+  let prevWeek: number | null = null;
+  for (const { isoWeek } of weekLabelRows) {
+    if (prevWeek !== null && isoWeek < prevWeek) relOffset++;
+    relativeYears.push(relOffset);
+    prevWeek = isoWeek;
+  }
+
+  const now = new Date();
+  const nowIsoYear = getISOWeekYear(now);
+  const nowIsoWeek = getISOWeek(now);
+  const lastWeek = weekLabelRows.length > 0 ? weekLabelRows[weekLabelRows.length - 1].isoWeek : 0;
+  const lastRelYear = relativeYears.length > 0 ? relativeYears[relativeYears.length - 1] : 0;
+  const lastActualYear = lastWeek <= nowIsoWeek ? nowIsoYear : nowIsoYear - 1;
+  const isoYearByRow = new Map<number, number>();
+  weekLabelRows.forEach(({ r }, i) => {
+    isoYearByRow.set(r, lastActualYear - (lastRelYear - relativeYears[i]));
+  });
+
+  const yearsUsed = new Set(isoYearByRow.values());
+  const warnings: string[] = [
+    yearsUsed.size > 1
+      ? `Week labels have no year in this sheet — inferred years ${Math.min(...yearsUsed)}–${Math.max(...yearsUsed)} from where week numbers reset (e.g. 52 -> 01). Spot-check a few rows in the database before trusting this.`
+      : `Week labels have no year in this sheet — assumed ISO year ${lastActualYear}.`,
+  ];
   const rows: UploadWeeklyRow[] = [];
   let rowsRead = 0;
 
-  for (let r = headerRowNum + 1; r <= sheet.rowCount; r++) {
+  for (const { r, isoWeek } of weekLabelRows) {
     const row = sheet.getRow(r);
-    const weekLabel = norm(row.getCell(2).value); // column B, e.g. "Week 27"
-    const m = /week\s*(\d+)/i.exec(weekLabel);
-    if (!m) continue; // blank/trailer row
-    const isoWeek = Number(m[1]);
+    const isoYear = isoYearByRow.get(r)!;
     rowsRead++;
 
     for (const { col, base } of cols) {
@@ -457,7 +509,7 @@ export async function parseWeeklyWorkbook(buffer: ArrayBuffer, kpis: Kpi[], uplo
       rows.push({
         pillar_id: kpi.pillar_id,
         kpi_base_name: base,
-        iso_year: assumedIsoYear,
+        iso_year: isoYear,
         iso_week: isoWeek,
         target: kpi.target,
         actual,

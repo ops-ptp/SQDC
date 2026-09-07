@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { format, startOfMonth, getDaysInMonth, startOfWeek, subWeeks, subDays, addDays, getISOWeek, getISOWeekYear } from 'date-fns';
+import { format, startOfMonth, getDaysInMonth, startOfWeek, subWeeks, subDays, getISOWeek, getISOWeekYear } from 'date-fns';
 import { fetchActions, fetchCategorizedEntriesForKpiIds, fetchCustomParetosForPillar, fetchEntriesForKpi, fetchEntriesForKpisOnDate, fetchKpiDailyTargetsForDate, fetchReasonsForKpi, fetchWeeklyEntriesForKpiBase, type CategorizedEntryRow, type CustomPareto } from '../lib/data';
 import { applyPivotFilter, computeChartData, computeCrossTab, pivotFieldLabel } from '../lib/pivot';
+import { WEEKLY_HEADER_TO_BASE } from '../lib/excelUpload';
+
+const WEEKLY_TRACKED_BASE_NAMES = new Set(Object.values(WEEKLY_HEADER_TO_BASE));
 import { useEmployee } from '../context/EmployeeContext';
 import { baseNameOf, metTarget, PILLAR_COLORS, round2, type ActionItem, type DailyEntry, type Kpi, type Pillar, type PerformanceStatus, type WeeklyEntry } from '../types';
 import KpiRunChart, { type RunPoint } from './KpiRunChart';
@@ -118,7 +121,17 @@ export default function PillarQuadrant({
   const navigate = useNavigate();
   const { employee } = useEmployee();
   const colors = PILLAR_COLORS[pillar.code] ?? PILLAR_COLORS.S;
-  const groups = useMemo(() => buildGroups(kpis), [kpis]);
+  // Weekly view only shows the 7 KPIs the Weekly workbook actually tracks —
+  // everything else (Moves, the shift-split-only KPIs, anything auto-
+  // created from a Daily-only column) has no weekly figure to show at all.
+  // Filtering here (not just in the pill row below) means selectedGroup can
+  // never land on a non-weekly-tracked KPI while granularity is 'weekly',
+  // which keeps the headline/chart/pareto below from ever needing to
+  // special-case "what if the selected KPI has no weekly data source".
+  const groups = useMemo(() => {
+    const all = buildGroups(kpis);
+    return granularity === 'weekly' ? all.filter((g) => WEEKLY_TRACKED_BASE_NAMES.has(g.key)) : all;
+  }, [kpis, granularity]);
   const [selectedKey, setSelectedKey] = useState<string>(groups[0]?.key ?? '');
   const selectedGroup = groups.find((g) => g.key === selectedKey) ?? groups[0];
 
@@ -138,7 +151,7 @@ export default function PillarQuadrant({
   const [paretoEntries, setParetoEntries] = useState<DailyEntry[]>([]);
   // Fallback source for the Weekly trend — uploaded weekly figures, used only
   // for ISO weeks that have no live daily_entries to aggregate (item 1/8).
-  const [weeklyFallback, setWeeklyFallback] = useState<WeeklyEntry[]>([]);
+  const [weeklySource, setWeeklySource] = useState<WeeklyEntry[]>([]);
   const [actions, setActions] = useState<ActionItem[]>([]);
   const [reasonLabelById, setReasonLabelById] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(true);
@@ -263,15 +276,23 @@ export default function PillarQuadrant({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedGroup?.key, granularity, referenceDateStr]);
 
-  // Weekly fallback figures — only needed in Weekly view.
+  // Weekly view's headline + Trend chart source, for the 7 KPIs the Weekly
+  // upload actually tracks — read directly from weekly_entries, not
+  // aggregated from daily_entries. This is a deliberate change from the
+  // original design (which aggregated daily data first and only fell back
+  // to weekly_entries for a week with zero daily rows): since the Weekly
+  // toggle now shows ONLY these 7 KPIs (see WEEKLY_HEADER_TO_BASE-driven
+  // filtering in Dashboard.tsx), their weekly figures should always come
+  // from the authoritative weekly workbook, not a daily average that may
+  // not even cover the same date range the weekly file does.
   useEffect(() => {
     if (granularity !== 'weekly' || !selectedGroup) {
-      setWeeklyFallback([]);
+      setWeeklySource([]);
       return;
     }
     fetchWeeklyEntriesForKpiBase(pillar.id, selectedGroup.label)
-      .then(setWeeklyFallback)
-      .catch(() => setWeeklyFallback([]));
+      .then(setWeeklySource)
+      .catch(() => setWeeklySource([]));
   }, [granularity, selectedGroup?.key, pillar.id, selectedGroup?.label]);
 
   // ---- Pill status (reference day's combined Day+Night average vs target) -
@@ -337,8 +358,20 @@ export default function PillarQuadrant({
   // default only when neither source has anything for this date. Shows one
   // number when Day and Night share the same target, or "Day X · Night Y"
   // when they genuinely differ.
+  // The Weekly toggle's headline source — the ISO week containing the
+  // reviewed date, read straight from weekly_entries (see weeklySource's
+  // fetch effect below for why this isn't daily-derived). Only meaningful
+  // in weekly mode; deliberately not memoized, it's a cheap find() over a
+  // small (≤ ~80 row) array.
+  const currentWeekEntry =
+    granularity === 'weekly' ? weeklySource.find((w) => w.iso_year === getISOWeekYear(referenceDate) && w.iso_week === getISOWeek(referenceDate)) : undefined;
+
   const targetLabel = (() => {
     if (!selectedGroup) return '';
+    if (granularity === 'weekly') {
+      const t = currentWeekEntry?.target ?? selectedGroup.target;
+      return `Target ${round2(t)} ${selectedGroup.unit} · Wk ${getISOWeek(referenceDate)}`;
+    }
     if (selectedGroup.single) {
       const t = referenceTargets.get(selectedGroup.single.id) ?? referenceSingleEntry?.target ?? selectedGroup.target;
       return `Target ${round2(t)} ${selectedGroup.unit}`;
@@ -403,75 +436,37 @@ export default function PillarQuadrant({
       return points;
     }
 
-    // Weekly: last 8 ISO weeks (Mon-Sun), simple average of all logged days per week.
+    // Weekly: last 8 ISO weeks (Mon-Sun), read directly from the Weekly
+    // upload's own figures — see the weeklySource fetch effect above for
+    // why this isn't a daily-data average with a fallback anymore. Each
+    // week's blended figure (the source sheet has no Day/Night split) is
+    // plotted on both the Day and Night lines, same documented
+    // simplification as before — there's no real split to show.
     const currentIsoWeekStart = startOfWeek(referenceDate, { weekStartsOn: 1 });
-    const fallbackByWeek = new Map(weeklyFallback.map((w) => [`${w.iso_year}-${w.iso_week}`, w]));
+    const sourceByWeek = new Map(weeklySource.map((w) => [`${w.iso_year}-${w.iso_week}`, w]));
     const points: RunPoint[] = [];
     for (let w = 7; w >= 0; w--) {
       const weekStart = subWeeks(currentIsoWeekStart, w);
-      const dayVals: number[] = [];
-      const nightVals: number[] = [];
-      const targetVals: number[] = [];
-      const oldDayVals: number[] = [];
-      const oldNightVals: number[] = [];
-      for (let d = 0; d < 7; d++) {
-        const date = addDays(weekStart, d);
-        if (date > referenceDate) break;
-        const dateStr = format(date, 'yyyy-MM-dd');
-        const dEntry = dayIdx.get(dateStr) ?? singleIdx.get(dateStr);
-        const nEntry = nightIdx.get(dateStr);
-        if (dEntry !== undefined) {
-          dayVals.push(dEntry.actual);
-          targetVals.push(dEntry.target);
-        }
-        if (nEntry !== undefined) {
-          nightVals.push(nEntry.actual);
-          targetVals.push(nEntry.target);
-        }
-        const oldD = oldDayIdx.get(dateStr);
-        const oldN = oldNightIdx.get(dateStr);
-        if (oldD !== undefined) oldDayVals.push(oldD.actual);
-        if (oldN !== undefined) oldNightVals.push(oldN.actual);
-      }
-      let dayAvg = mean(dayVals);
-      let nightAvg = mean(nightVals);
-      // Week target: averaged from every entry's own snapshotted target
-      // (so a day-varying target like Moves' daily Projection is honored),
-      // falling back to the live catalog target when no entry exists yet.
-      let weekTarget = targetVals.length > 0 ? mean(targetVals)! : selectedGroup.target;
-      // No daily entries logged at all for this ISO week — fall back to the
-      // uploaded Weekly figure if one exists. That figure is already blended
-      // (the source sheet has no Day/Night split), so with only Day/Night
-      // lines left on this chart it's plotted on both — the best available
-      // stand-in for a number the upload never split out. Its own snapshotted
-      // target also replaces the live catalog value for the same reason.
-      if (dayAvg === null && nightAvg === null) {
-        const fb = fallbackByWeek.get(`${getISOWeekYear(weekStart)}-${getISOWeek(weekStart)}`);
-        if (fb) {
-          dayAvg = fb.actual;
-          nightAvg = fb.actual;
-          weekTarget = fb.target;
-        }
-      }
-      const both = [dayAvg, nightAvg].filter((v): v is number => v !== null);
-      const avgVal = mean(both);
+      const src = sourceByWeek.get(`${getISOWeekYear(weekStart)}-${getISOWeek(weekStart)}`);
+      const val = src?.actual ?? null;
+      const weekTarget = src?.target ?? selectedGroup.target;
       points.push({
         label: `Wk ${getISOWeek(weekStart)}`,
         date: format(weekStart, 'yyyy-MM-dd'),
-        dayActual: dayAvg,
-        nightActual: nightAvg,
-        avgActual: avgVal,
+        dayActual: val,
+        nightActual: val,
+        avgActual: val,
         target: weekTarget,
-        dayMet: dayAvg === null ? null : groupMetTarget(selectedGroup, dayAvg, weekTarget),
-        nightMet: nightAvg === null ? null : groupMetTarget(selectedGroup, nightAvg, weekTarget),
-        avgMet: avgVal === null ? null : groupMetTarget(selectedGroup, avgVal, weekTarget),
-        oldDayActual: mean(oldDayVals),
-        oldNightActual: mean(oldNightVals),
+        dayMet: val === null ? null : groupMetTarget(selectedGroup, val, weekTarget),
+        nightMet: val === null ? null : groupMetTarget(selectedGroup, val, weekTarget),
+        avgMet: val === null ? null : groupMetTarget(selectedGroup, val, weekTarget),
+        oldDayActual: null,
+        oldNightActual: null,
       });
     }
     return points;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [windowEntries, weeklyFallback, selectedGroup?.key, granularity]);
+  }, [windowEntries, weeklySource, selectedGroup?.key, granularity]);
 
   // ---- Pareto: missed-target reasons within the Pareto-specific window ---
   // Recomputed live via groupMetTarget rather than trusting each entry's
@@ -600,7 +595,12 @@ export default function PillarQuadrant({
               <span className="muted">{targetLabel}</span>
             </div>
             <div className="headline-values">
-              {selectedGroup.single ? (
+              {granularity === 'weekly' ? (
+                <div className={`headline-value ${currentWeekEntry ? (groupMetTarget(selectedGroup, currentWeekEntry.actual, currentWeekEntry.target) ? 'value-good' : 'value-bad') : 'value-nodata'}`}>
+                  {currentWeekEntry ? round2(currentWeekEntry.actual) : '—'}
+                  <span className="headline-unit">{selectedGroup.unit}</span>
+                </div>
+              ) : selectedGroup.single ? (
                 <div className={`headline-value ${referenceSingleEntry ? (groupMetTarget(selectedGroup, referenceSingleEntry.actual, referenceSingleEntry.target) ? 'value-good' : 'value-bad') : 'value-nodata'}`}>
                   {referenceSingleEntry ? round2(referenceSingleEntry.actual) : '—'}
                   <span className="headline-unit">{selectedGroup.unit}</span>

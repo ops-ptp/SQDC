@@ -157,7 +157,9 @@ friendly display number, not the real id.
 kpi_assignments: who's responsible for a KPI (currently unused by Enter Remarks).
 daily_entries: one row per KPI per day. is_manual_override protects a person-typed
 value from the upload. ai_category is the Insights categorization tag, if any.
-weekly_entries: blended weekly fallback figures, keyed by pillar + KPI base name.
+weekly_entries: the Board's Weekly-view source of truth for the 7 KPIs the Weekly
+workbook tracks, keyed by pillar + KPI base name + ISO year + ISO week (not kpi_id,
+since the sheet's figures are already blended, no Day/Night split).
 reasons: curated reasons feeding the Pareto.
 actions: the action list. action_no is a friendly number. Overdue is derived, not
 stored.
@@ -232,9 +234,22 @@ would be hidden (never deleted) - before anything is written.
   dimmed secondary KPIs.
 - Weekly upload reads Weekly Database and upserts weekly_entries by (pillar_id,
   kpi_base_name, iso_year, iso_week). Never auto-creates or hides catalog KPIs, so no
-  preview step, unlike Daily.
-- The Weekly board view falls back to weekly_entries for any of the last 8 ISO weeks
-  with no daily data logged at all.
+  preview step, unlike Daily. The sheet's week labels carry no year at all, and a real
+  export can span more than one calendar year (week numbers reset from ~52 back to 01
+  partway through) — the upload infers each row's actual year from where those resets
+  happen, anchored to today's date (the most recent row is assumed to be at-or-before
+  today, never in the future), and flags the inferred year range in its warnings so it
+  can be spot-checked rather than trusted blindly.
+- The Board's Daily/Weekly toggle sources the Weekly view directly from weekly_entries
+  for exactly the 7 KPIs the Weekly workbook tracks (Accident During Operation, Delay –
+  Waiting for CHE, Overall Mixing Yard, GMPH Mainliner, GMPH Feeder, Mainliner Load
+  GMPH, QC Preventive Maintenance & Service) — not aggregated from daily data. Every
+  other KPI (Moves, anything Daily-only or auto-created) is hidden from the KPI pills
+  while Weekly is selected, since it has no weekly figure to show. The headline number,
+  its target, and the Trend chart's 8-week window all read from this table. The letter
+  mosaic and Pareto chart are unaffected by this — they stay exactly as in Daily view,
+  still built from daily_entries, since remarks/reasons only exist at the daily level
+  and the letter grid's day-by-day layout doesn't map onto weeks.
 
 ### KPI Management
 

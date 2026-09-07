@@ -769,7 +769,7 @@ export default function Admin() {
         <DailyUploadCard onAnalyze={analyzeDailyUpload} onCommit={commitDailyUpload} />
         <UploadCard
           title="Weekly upload"
-          description="OPS SQDC Weekly.xlsx — the “Weekly Database” sheet (ISO week rows). Used as a fallback on the Weekly board for weeks with no daily data logged."
+          description="OPS SQDC Weekly.xlsx — the “Weekly Database” sheet (ISO week rows, can span multiple years). This is the authoritative source for the Board's Weekly view — the 7 KPIs it tracks (Accident During Operation, Delay – Waiting for CHE, Overall Mixing Yard, GMPH Mainliner, GMPH Feeder, Mainliner Load GMPH, QC Preventive Maintenance & Service) show their headline and trend from this upload, not from daily figures. Every other KPI is hidden on the Weekly view — it only exists in the Daily file."
           accept=".xlsx"
           onUpload={handleWeeklyUpload}
         />
