@@ -341,12 +341,16 @@ export async function parseDailyTargetSheet(buffer: ArrayBuffer, kpis: Kpi[]): P
 
   const cols: { col: number; bases: string[] }[] = [];
   for (let c = 1; c <= colCount; c++) {
-    // Same catalog fallback as parseDailyWorkbook: a header not in the
-    // static TARGET_HEADER_TO_BASES table may still be a KPI an admin added
-    // after launch — match it directly against the live catalog so its
-    // per-day target actually gets written instead of the new KPI sitting
-    // at its creation-time default (target: 0) forever.
-    const bases = TARGET_HEADER_TO_BASES[headers[c]] ?? (kpis.some((k) => k.name === headers[c]) ? [headers[c]] : undefined);
+    // Same catalog fallback as parseDailyWorkbook — matched via the shared
+    // isKnownBase helper, not a separate exact-name-only check, so a split
+    // KPI (no bare-name row, only "X (Day)"/"X (Night)") is recognised
+    // here exactly the same way it is everywhere else. Using a different,
+    // stricter check in just this one place was the actual bug: a split
+    // KPI's target column would silently never be read, leaving it stuck
+    // at its creation-time default (target: 0) and never showing up on the
+    // Trend chart, even after parseDailyWorkbook's own value-reading was
+    // fixed to handle split KPIs correctly.
+    const bases = TARGET_HEADER_TO_BASES[headers[c]] ?? (isKnownBase(kpis, headers[c]) ? [headers[c]] : undefined);
     if (bases) cols.push({ col: c, bases });
   }
 
