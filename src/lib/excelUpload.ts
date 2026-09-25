@@ -457,23 +457,29 @@ export async function parseWeeklyWorkbook(buffer: ArrayBuffer, kpis: Kpi[], uplo
     if (base) cols.push({ col: c, base });
   }
 
-  // The sheet's "Week NN" labels carry no year at all, and — unlike the
-  // original template file this was built against — a real export can span
-  // MORE than one calendar year (this file goes Week 27 -> 52, then wraps
-  // back to Week 01 -> 26 again, ~78 weeks). Assuming every row is "this
-  // year" would collide two different years' "Week 27" onto the exact same
-  // (pillar, kpi_base_name, iso_year, iso_week) key, silently overwriting
-  // one with the other on upsert.
-  //
-  // Instead: read every week number first, and increment a running year
-  // counter each time a row's week number is LOWER than the previous row's
-  // (that's a year boundary — Week 52 followed by Week 01). This gives the
-  // correct year for every row RELATIVE to each other; anchoring that
-  // sequence to an absolute calendar year still needs one assumption, so
-  // the anchor is: the LAST (most recent) row is assumed to be this ISO
-  // year if its week number hasn't happened yet this year, else last year
-  // — i.e. treat the sheet as a rolling window ending at-or-before today,
-  // never in the future.
+  // Optional explicit "Year" column (any header cell reading exactly
+  // "Year", typically placed immediately to the left of "Week"). When a
+  // row has a number here, it's used directly as that row's ISO year —
+  // no guessing needed. This is the recommended way to remove the
+  // ambiguity below entirely; the inference logic is only a fallback for
+  // rows/files that don't have it.
+  let yearCol: number | null = null;
+  for (let c = 1; c <= colCount; c++) {
+    if (norm(headerRow.getCell(c).value).toLowerCase() === 'year') {
+      yearCol = c;
+      break;
+    }
+  }
+
+  // The sheet's "Week NN" labels otherwise carry no year at all, and a
+  // real export can span more than one calendar year (week numbers reset,
+  // e.g. 52 -> 01) or — just as common — be a template pre-filled with
+  // every remaining week of the CURRENT year up front, most of them still
+  // blank because those weeks haven't happened yet. That second case is
+  // why anchoring to "the last row's week must be at-or-before today" was
+  // wrong: a file uploaded in week 39 but listing rows through week 52 is
+  // entirely valid and entirely this year — it doesn't mean the whole
+  // file is actually last year.
   const weekLabelRows: { r: number; isoWeek: number }[] = [];
   for (let r = headerRowNum + 1; r <= sheet.rowCount; r++) {
     const weekLabel = norm(sheet.getRow(r).getCell(2).value);
@@ -481,32 +487,77 @@ export async function parseWeeklyWorkbook(buffer: ArrayBuffer, kpis: Kpi[], uplo
     if (m) weekLabelRows.push({ r, isoWeek: Number(m[1]) });
   }
 
-  const relativeYears: number[] = [];
-  let relOffset = 0;
+  // Per-row explicit years, where the Year column has a usable number.
+  const explicitYearByRow = new Map<number, number>();
+  if (yearCol !== null) {
+    for (const { r } of weekLabelRows) {
+      const v = cellNumber(sheet.getRow(r).getCell(yearCol).value);
+      if (v !== null && Number.isFinite(v)) explicitYearByRow.set(r, Math.round(v));
+    }
+  }
+
+  // Fallback inference for any row without an explicit year: split into
+  // contiguous "segments" of non-decreasing week numbers (a drop, e.g.
+  // 52 -> 01, starts a new segment/year), then anchor whichever segment's
+  // week range actually contains today's ISO week to the current ISO
+  // year — rather than assuming the LAST row is "at or before today".
+  const segments: { rows: { r: number; isoWeek: number }[]; minWeek: number; maxWeek: number }[] = [];
   let prevWeek: number | null = null;
-  for (const { isoWeek } of weekLabelRows) {
-    if (prevWeek !== null && isoWeek < prevWeek) relOffset++;
-    relativeYears.push(relOffset);
-    prevWeek = isoWeek;
+  for (const row of weekLabelRows) {
+    if (prevWeek === null || row.isoWeek < prevWeek) {
+      segments.push({ rows: [row], minWeek: row.isoWeek, maxWeek: row.isoWeek });
+    } else {
+      const seg = segments[segments.length - 1];
+      seg.rows.push(row);
+      seg.minWeek = Math.min(seg.minWeek, row.isoWeek);
+      seg.maxWeek = Math.max(seg.maxWeek, row.isoWeek);
+    }
+    prevWeek = row.isoWeek;
   }
 
   const now = new Date();
   const nowIsoYear = getISOWeekYear(now);
   const nowIsoWeek = getISOWeek(now);
-  const lastWeek = weekLabelRows.length > 0 ? weekLabelRows[weekLabelRows.length - 1].isoWeek : 0;
-  const lastRelYear = relativeYears.length > 0 ? relativeYears[relativeYears.length - 1] : 0;
-  const lastActualYear = lastWeek <= nowIsoWeek ? nowIsoYear : nowIsoYear - 1;
-  const isoYearByRow = new Map<number, number>();
-  weekLabelRows.forEach(({ r }, i) => {
-    isoYearByRow.set(r, lastActualYear - (lastRelYear - relativeYears[i]));
+
+  let anchorIdx = segments.findIndex((s) => s.minWeek <= nowIsoWeek && nowIsoWeek <= s.maxWeek);
+  if (anchorIdx === -1) {
+    for (let i = segments.length - 1; i >= 0; i--) {
+      if (segments[i].minWeek <= nowIsoWeek) {
+        anchorIdx = i;
+        break;
+      }
+    }
+  }
+  if (anchorIdx === -1) anchorIdx = 0;
+
+  const inferredYearByRow = new Map<number, number>();
+  const inferredYearsUsed = new Set<number>();
+  segments.forEach((seg, i) => {
+    const year = nowIsoYear + (i - anchorIdx);
+    inferredYearsUsed.add(year);
+    for (const { r } of seg.rows) inferredYearByRow.set(r, year);
   });
 
-  const yearsUsed = new Set(isoYearByRow.values());
-  const warnings: string[] = [
-    yearsUsed.size > 1
-      ? `Week labels have no year in this sheet — inferred years ${Math.min(...yearsUsed)}–${Math.max(...yearsUsed)} from where week numbers reset (e.g. 52 -> 01). Spot-check a few rows in the database before trusting this.`
-      : `Week labels have no year in this sheet — assumed ISO year ${lastActualYear}.`,
-  ];
+  const isoYearByRow = new Map<number, number>();
+  for (const { r } of weekLabelRows) {
+    isoYearByRow.set(r, explicitYearByRow.get(r) ?? inferredYearByRow.get(r)!);
+  }
+
+  const rowsMissingExplicitYear = weekLabelRows.filter(({ r }) => !explicitYearByRow.has(r));
+  const warnings: string[] = [];
+  if (yearCol !== null && rowsMissingExplicitYear.length === 0) {
+    // Every row had an explicit year — nothing was guessed, no warning needed.
+  } else if (yearCol !== null) {
+    warnings.push(
+      `${rowsMissingExplicitYear.length} row(s) had a blank "Year" column and fell back to an inferred year instead — fill in "Year" for every week row to make this exact.`
+    );
+  } else {
+    warnings.push(
+      inferredYearsUsed.size > 1
+        ? `Week labels have no year in this sheet — inferred years ${Math.min(...inferredYearsUsed)}–${Math.max(...inferredYearsUsed)} from where week numbers reset (e.g. 52 -> 01) and today's date. Add a "Year" column to the left of "Week" to make this exact instead of inferred.`
+        : `Week labels have no year in this sheet — assumed ISO year ${[...inferredYearsUsed][0]}. Add a "Year" column to the left of "Week" to make this exact instead of inferred.`
+    );
+  }
   const rows: UploadWeeklyRow[] = [];
   const unresolvedFormulaBases = new Set<string>();
   let rowsRead = 0;
