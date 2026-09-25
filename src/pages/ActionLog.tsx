@@ -45,16 +45,10 @@ export default function ActionLog() {
 
   const kpisForFormPillar = useMemo(() => kpis.filter((k) => k.pillar_id === form.pillar_id && !k.is_secondary), [kpis, form.pillar_id]);
 
-  const grouped = useMemo(() => {
-    const filtered = filterPillar === 'all' ? actions : actions.filter((a) => a.pillar_id === filterPillar);
-    const byPillar = new Map<string, ActionItem[]>();
-    for (const a of filtered) {
-      const list = byPillar.get(a.pillar_id) ?? [];
-      list.push(a);
-      byPillar.set(a.pillar_id, list);
-    }
-    return byPillar;
-  }, [actions, filterPillar]);
+  const filteredActions = useMemo(
+    () => (filterPillar === 'all' ? actions : actions.filter((a) => a.pillar_id === filterPillar)),
+    [actions, filterPillar],
+  );
 
   async function handleStatusChange(a: ActionItem, status: ActionStatus) {
     const prevStatus = a.status;
@@ -191,17 +185,13 @@ export default function ActionLog() {
         ))}
       </div>
 
-      {pillars
-        .filter((p) => filterPillar === 'all' || filterPillar === p.id)
-        .map((p) => (
-          <section key={p.id} className="card action-section" style={{ borderTopColor: PILLAR_COLORS[p.code].base }}>
-            <h2 style={{ color: PILLAR_COLORS[p.code].text }}>{p.name}</h2>
-            <ActionTable
-              actions={grouped.get(p.id) ?? []}
-              onStatusChange={employee?.is_admin ? handleStatusChange : undefined}
-            />
-          </section>
-        ))}
+      <section className="card action-section">
+        <ActionTable
+          actions={filteredActions}
+          pillars={pillars}
+          onStatusChange={employee?.is_admin ? handleStatusChange : undefined}
+        />
+      </section>
     </div>
   );
 }

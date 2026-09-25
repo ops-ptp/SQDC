@@ -1,10 +1,12 @@
 import { format, parseISO } from 'date-fns';
-import { ACTION_STATUS_META, getDisplayStatus, type ActionItem, type ActionStatus } from '../types';
+import { ACTION_STATUS_META, PILLAR_COLORS, getDisplayStatus, type ActionItem, type ActionStatus, type Pillar } from '../types';
 
 interface Props {
   actions: ActionItem[];
   onStatusChange?: (action: ActionItem, status: ActionStatus) => void;
   compact?: boolean;
+  /** When provided, an extra "Pillar" column is shown, looked up per-action from pillar_id. */
+  pillars?: Pillar[];
 }
 
 const STATUS_ORDER: ActionStatus[] = ['not_started', 'in_progress', 'dropped', 'completed'];
@@ -18,16 +20,19 @@ const ROW_CLASS: Record<string, string> = {
   not_started: '',
 };
 
-export default function ActionTable({ actions, onStatusChange, compact }: Props) {
+export default function ActionTable({ actions, onStatusChange, compact, pillars }: Props) {
   if (actions.length === 0) {
     return <div className="empty-state">No actions logged yet.</div>;
   }
+
+  const pillarById = new Map((pillars ?? []).map((p) => [p.id, p]));
 
   return (
     <div className="table-scroll">
       <table className="action-table">
         <thead>
           <tr>
+            {pillars && <th>Pillar</th>}
             <th>Related reason / issue</th>
             <th>Action</th>
             <th>Owner</th>
@@ -39,8 +44,23 @@ export default function ActionTable({ actions, onStatusChange, compact }: Props)
           {actions.map((a) => {
             const displayStatus = getDisplayStatus(a, TODAY_STR);
             const meta = ACTION_STATUS_META[displayStatus];
+            const pillar = pillarById.get(a.pillar_id);
             return (
               <tr key={a.id} className={ROW_CLASS[displayStatus]}>
+                {pillars && (
+                  <td>
+                    {pillar ? (
+                      <span
+                        className="status-badge"
+                        style={{ color: PILLAR_COLORS[pillar.code].text, background: PILLAR_COLORS[pillar.code].soft }}
+                      >
+                        {pillar.name}
+                      </span>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
+                )}
                 <td>{a.related_issue}</td>
                 <td>{a.action}</td>
                 <td>{a.owner_name}</td>
