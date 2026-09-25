@@ -109,6 +109,20 @@ function groupMetTarget(g: KpiGroup, actual: number, targetOverride?: number): b
   return metTarget({ is_higher_better: g.isHigherBetter }, targetOverride ?? g.target, actual);
 }
 
+/** A group's status for a set of entries (one day's Day/Night/single rows)
+ * is "missed" the moment ANY existing entry failed its own target — not
+ * the blended Day+Night average, which can hide a shift that genuinely
+ * underperformed behind one that over-performed (e.g. Day +20% and Night
+ * -20% would average out to "on target" even though Night actually
+ * failed). "met" only when every existing entry passed; "nodata" when
+ * there's nothing to judge yet. This one function drives both the KPI
+ * pill color and the letter-grid day-cell color, so a failed shift shows
+ * red in both places consistently. */
+function combinedStatus(g: KpiGroup, entries: DailyEntry[]): PerformanceStatus {
+  if (entries.length === 0) return 'nodata';
+  return entries.some((e) => !groupMetTarget(g, e.actual, e.target)) ? 'missed' : 'met';
+}
+
 export default function PillarQuadrant({
   pillar,
   kpis,
@@ -300,10 +314,7 @@ export default function PillarQuadrant({
   function groupStatus(g: KpiGroup): PerformanceStatus {
     const ids = groupKpiIds(g);
     const entries = referenceEntries.filter((e) => ids.includes(e.kpi_id));
-    if (entries.length === 0) return 'nodata';
-    const avgActual = mean(entries.map((e) => e.actual))!;
-    const avgTarget = mean(entries.map((e) => e.target))!;
-    return groupMetTarget(g, avgActual, avgTarget) ? 'met' : 'missed';
+    return combinedStatus(g, entries);
   }
 
   // ---- Letter grid: one cell per calendar day, combined Day+Night average -
@@ -325,13 +336,7 @@ export default function PillarQuadrant({
       const dayEntries = [dayIdx.get(dateStr), nightIdx.get(dateStr), singleIdx.get(dateStr)].filter(
         (e): e is DailyEntry => e !== undefined
       );
-      if (dayEntries.length === 0) {
-        result.push({ day, status: 'nodata' });
-        continue;
-      }
-      const avgActual = mean(dayEntries.map((e) => e.actual))!;
-      const avgTarget = mean(dayEntries.map((e) => e.target))!;
-      result.push({ day, status: groupMetTarget(selectedGroup, avgActual, avgTarget) ? 'met' : 'missed' });
+      result.push({ day, status: combinedStatus(selectedGroup, dayEntries) });
     }
     return result;
     // eslint-disable-next-line react-hooks/exhaustive-deps
