@@ -471,6 +471,35 @@ export async function parseWeeklyWorkbook(buffer: ArrayBuffer, kpis: Kpi[], uplo
     }
   }
 
+  // The week-label column used to be hardcoded to column B — that broke
+  // the moment a column got inserted before it (e.g. the "Year" column
+  // above shifts "Week" from B to C). Find it by header text first
+  // ("Week", "Work Week", "ISO Week", anything containing "week"); the
+  // original template's week column has no header at all, so fall back to
+  // whichever column's DATA actually looks like "Week NN" labels.
+  let weekCol: number | null = null;
+  for (let c = 1; c <= colCount; c++) {
+    if (norm(headerRow.getCell(c).value).toLowerCase().includes('week')) {
+      weekCol = c;
+      break;
+    }
+  }
+  if (weekCol === null) {
+    let bestCol = -1;
+    let bestCount = 0;
+    for (let c = 1; c <= colCount; c++) {
+      let count = 0;
+      for (let r = headerRowNum + 1; r <= sheet.rowCount; r++) {
+        if (/week\s*\d+/i.test(norm(sheet.getRow(r).getCell(c).value))) count++;
+      }
+      if (count > bestCount) {
+        bestCount = count;
+        bestCol = c;
+      }
+    }
+    weekCol = bestCount > 0 ? bestCol : 2; // legacy last-resort default
+  }
+
   // The sheet's "Week NN" labels otherwise carry no year at all, and a
   // real export can span more than one calendar year (week numbers reset,
   // e.g. 52 -> 01) or — just as common — be a template pre-filled with
@@ -482,7 +511,7 @@ export async function parseWeeklyWorkbook(buffer: ArrayBuffer, kpis: Kpi[], uplo
   // file is actually last year.
   const weekLabelRows: { r: number; isoWeek: number }[] = [];
   for (let r = headerRowNum + 1; r <= sheet.rowCount; r++) {
-    const weekLabel = norm(sheet.getRow(r).getCell(2).value);
+    const weekLabel = norm(sheet.getRow(r).getCell(weekCol).value);
     const m = /week\s*(\d+)/i.exec(weekLabel);
     if (m) weekLabelRows.push({ r, isoWeek: Number(m[1]) });
   }
