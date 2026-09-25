@@ -45,13 +45,17 @@ to be operated with no code or SQL involved. Day to day, that covers:
 - Uploading the Daily/Weekly Excel files
 - Reviewing a newly auto-created KPI's pillar guess and pass/fail direction (see below)
 - Hiding/showing a KPI, or deleting one entirely, in KPI Management
+- Adding a new employee, editing an ID/name, toggling Admin, or deactivating someone, in
+  Employee Management
 - Entering remarks, managing the Action Log
 - Running an Insights export, AI categorize, re-import, pivot cycle, and pinning a chart
   to the Board
 
 ### What still needs someone comfortable with SQL or code
 
-- Adding/editing pillars, reasons, or employees (including promoting someone to admin)
+- Adding/editing pillars or reasons
+- Bootstrapping the very first Admin (nobody can open Admin's Employee Management to grant
+  it via checkbox until at least one account already has is_admin - see below)
 - Correcting a KPI's pillar or unit if an upload's auto-guess got it wrong
 - Anything that's a genuine bug, or a new feature
 
@@ -103,8 +107,10 @@ new KPI before you confirm, which is the best moment to catch a pillar mistake.
    re-run in full at any time (every statement is guarded).
 3. Project Settings, API - copy the Project URL and anon public key.
 
-To make a real employee an Admin: update employees set is_admin = true where
-employee_code = '0000XX';
+To bootstrap the very first Admin (before anyone can log into the not-yet-deployed app to
+use Employee Management): update employees set is_admin = true where employee_code =
+'0000XX'; — once the app is deployed and that person can log in, every further hire, ID/
+name edit, or admin promotion goes through Admin > Employee Management instead.
 
 ## 2. Configure the app
 
@@ -302,7 +308,7 @@ on the Board than in Insights, check there first.
   subgrid's row count in index.css or sections overlap. The custom-Pareto slot is always
   rendered, even empty, for exactly this reason.
 - /forward-looking Next 24 Hours: read-only, no login required.
-- /admin: gated by is_admin. Excel upload, KPI Management.
+- /admin: gated by is_admin. Excel upload, KPI Management, Employee Management.
 - /insights: also gated by is_admin.
 - /entry Enter Remarks: requires an Employee ID, any logged-in employee can update any
   KPI. Pass/fail and "needs a remark" are computed live from current direction, not read
@@ -313,12 +319,16 @@ on the Board than in Insights, check there first.
 
 ## Administering things that still require SQL/Table Editor
 
-- Pillars, reasons, employees - Table Editor or SQL following seed.sql's shape.
+- Pillars, reasons - Table Editor or SQL following seed.sql's shape.
 - A KPI's pillar or unit, if auto-detected wrong - Table Editor.
-- Promoting someone to Admin: update employees set is_admin = true where employee_code
-  = '...';
+- Bootstrapping the very first Admin: update employees set is_admin = true where
+  employee_code = '...'; (only needed once, before anyone can log into Admin at all).
 
 Everything else about a KPI - direction, visibility, deletion - is in KPI Management.
+Employees - adding, ID/name edits, Admin toggle, deactivating - are in Admin > Employee
+Management; there's no hard delete there by design (daily_entries.entered_by has no
+cascade-delete, so it stays attributed to whoever really entered it - "Active" is how you
+retire someone).
 
 ---
 

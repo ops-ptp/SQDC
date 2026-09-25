@@ -1,18 +1,24 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useEmployee } from '../context/EmployeeContext';
 import {
   bulkUpsertDailyEntriesFromUpload,
   bulkUpsertKpiDailyTargets,
   bulkUpsertLeadingEntriesFromUpload,
   bulkUpsertWeeklyEntriesFromUpload,
+  createEmployee,
   createKpi,
   deleteKpis,
+  fetchAllEmployeesAdmin,
   fetchAllKpisAdmin,
   fetchKpisForUpload,
   fetchManualOverrideKeys,
   fetchPillars,
+  saveEmployeeAdminUpdates,
   saveKpiAdminUpdates,
+  updateEmployeeIdentity,
+  type EmployeeAdminUpdate,
   type KpiAdminUpdate,
+  type NewEmployeeInput,
 } from '../lib/data';
 import {
   detectNewDailyColumns,
@@ -26,7 +32,7 @@ import {
   type ColumnRemoval,
   type DetectedNewColumn,
 } from '../lib/excelUpload';
-import { baseNameOf, errorMessage, type Kpi, type KpiWithPillar, type Pillar } from '../types';
+import { baseNameOf, errorMessage, normalizeEmployeeCode, type Employee, type Kpi, type KpiWithPillar, type Pillar } from '../types';
 import Modal from '../components/Modal';
 
 interface UploadResult {
@@ -587,6 +593,242 @@ function KpiManagementSection() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Employee Management — same table + dirty-tracking + "Save changes"
+// pattern as KPI Management above. Employee ID and Name go through a
+// pop-up form (Add, or Edit on an existing row) rather than inline cells,
+// since they double as the login credential and are worth an explicit
+// confirm; Admin and Active stay inline toggles like KPI Management's own
+// checkboxes. There's no hard Delete here (unlike KPIs) — daily_entries.
+// entered_by has no cascade-delete, so removing an employee who has ever
+// logged a remark would fail with a foreign-key error. "Active" is the
+// intended way to retire someone: it blocks their login without touching
+// their history.
+// ---------------------------------------------------------------------------
+
+function EmployeeFormModal({
+  mode,
+  initial,
+  onCancel,
+  onSaved,
+}: {
+  mode: 'add' | 'edit';
+  initial?: Employee;
+  onCancel: () => void;
+  onSaved: (message: string) => void;
+}) {
+  const [code, setCode] = useState(initial?.employee_code ?? '');
+  const [name, setName] = useState(initial?.name ?? '');
+  const [isAdmin, setIsAdmin] = useState(initial?.is_admin ?? false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    const normalizedCode = normalizeEmployeeCode(code);
+    if (!/^\d{6}$/.test(normalizedCode)) {
+      setError('Employee ID must be 6 digits (e.g. 000042) — letters and other characters aren’t allowed.');
+      return;
+    }
+    if (!name.trim()) {
+      setError('Name is required.');
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      if (mode === 'add') {
+        const input: NewEmployeeInput = { employee_code: normalizedCode, name: name.trim(), is_admin: isAdmin };
+        await createEmployee(input);
+        onSaved(`Added ${name.trim()} (${normalizedCode}).`);
+      } else {
+        await updateEmployeeIdentity({ id: initial!.id, employee_code: normalizedCode, name: name.trim() });
+        onSaved(`Updated ${name.trim()}.`);
+      }
+    } catch (err) {
+      setError(errorMessage(err, mode === 'add' ? 'Failed to add employee' : 'Failed to save changes'));
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal title={mode === 'add' ? 'Add Employee' : 'Edit Employee'} onClose={onCancel}>
+      <form onSubmit={handleSubmit}>
+        <label className="field-label">Employee ID</label>
+        <input
+          autoFocus
+          className="input"
+          placeholder="000001"
+          inputMode="numeric"
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+        />
+        <label className="field-label" style={{ marginTop: 12, display: 'block' }}>
+          Name
+        </label>
+        <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
+        {mode === 'add' && (
+          <label className="field-label" style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input type="checkbox" checked={isAdmin} onChange={(e) => setIsAdmin(e.target.checked)} />
+            Admin (can access the Admin tab)
+          </label>
+        )}
+        {error && (
+          <div className="alert alert-error" style={{ marginTop: 12 }}>
+            {error}
+          </div>
+        )}
+        <div className="modal-actions">
+          <button type="button" className="btn btn-ghost-light" onClick={onCancel} disabled={saving}>
+            Cancel
+          </button>
+          <button type="submit" className="btn btn-primary" disabled={saving}>
+            {saving ? 'Saving…' : mode === 'add' ? 'Add Employee' : 'Save'}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function EmployeeManagementSection() {
+  const [rows, setRows] = useState<Employee[]>([]);
+  const [original, setOriginal] = useState<Map<string, { active: boolean; is_admin: boolean }>>(new Map());
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [formModal, setFormModal] = useState<{ mode: 'add' | 'edit'; initial?: Employee } | null>(null);
+
+  function load() {
+    setLoading(true);
+    fetchAllEmployeesAdmin()
+      .then((employees) => {
+        setRows(employees);
+        setOriginal(new Map(employees.map((e) => [e.id, { active: e.active, is_admin: e.is_admin }])));
+      })
+      .catch((e) => setError(errorMessage(e, 'Failed to load employees')))
+      .finally(() => setLoading(false));
+  }
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function handleToggleActive(id: string, active: boolean) {
+    setMessage(null);
+    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, active } : r)));
+  }
+
+  function handleToggleAdmin(id: string, is_admin: boolean) {
+    setMessage(null);
+    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, is_admin } : r)));
+  }
+
+  function isDirty(r: Employee): boolean {
+    const o = original.get(r.id);
+    return !o || o.active !== r.active || o.is_admin !== r.is_admin;
+  }
+
+  const dirtyRows = rows.filter(isDirty);
+
+  async function handleSave() {
+    if (dirtyRows.length === 0) return;
+    const changed: EmployeeAdminUpdate[] = dirtyRows.map((r) => ({ id: r.id, active: r.active, is_admin: r.is_admin }));
+    setSaving(true);
+    setError(null);
+    try {
+      await saveEmployeeAdminUpdates(changed);
+      setOriginal(new Map(rows.map((r) => [r.id, { active: r.active, is_admin: r.is_admin }])));
+      setMessage(`Saved ${dirtyRows.length} change${dirtyRows.length === 1 ? '' : 's'}.`);
+    } catch (e) {
+      setError(errorMessage(e, 'Failed to save changes'));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const sorted = [...rows].sort((a, b) => a.name.localeCompare(b.name));
+
+  return (
+    <div className="card" style={{ marginTop: 24 }}>
+      <div className="page-header-row" style={{ marginBottom: 14 }}>
+        <div>
+          <h3>Employee Management</h3>
+          <p className="muted">
+            Add or update the roster staff use to log in. "Active" turns off a person's login without deleting their
+            history — a past remark or upload always stays attributed to them, so there's no permanent delete here.
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button type="button" className="btn btn-ghost-light" onClick={() => setFormModal({ mode: 'add' })}>
+            + Add Employee
+          </button>
+          <button type="button" className="btn btn-primary" disabled={saving || dirtyRows.length === 0} onClick={handleSave}>
+            {saving ? 'Saving…' : dirtyRows.length > 0 ? `Save changes (${dirtyRows.length})` : 'Save changes'}
+          </button>
+        </div>
+      </div>
+
+      {message && <div className="alert alert-success">{message}</div>}
+      {error && <div className="alert alert-error">{error}</div>}
+
+      {loading ? (
+        <div className="empty-state">Loading employees…</div>
+      ) : (
+        <div className="quadrant-section">
+          <div className="table-scroll admin-kpi-table-scroll">
+            <table className="action-table admin-kpi-table">
+              <thead>
+                <tr>
+                  <th>Employee ID</th>
+                  <th>Name</th>
+                  <th>Admin</th>
+                  <th>Active</th>
+                  <th>Edit</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map((r) => (
+                  <tr key={r.id}>
+                    <td>{r.employee_code}</td>
+                    <td>{r.name}</td>
+                    <td>
+                      <input type="checkbox" checked={r.is_admin} onChange={(e) => handleToggleAdmin(r.id, e.target.checked)} />
+                    </td>
+                    <td>
+                      <input type="checkbox" checked={r.active} onChange={(e) => handleToggleActive(r.id, e.target.checked)} />
+                    </td>
+                    <td>
+                      <button type="button" className="btn btn-ghost-light" onClick={() => setFormModal({ mode: 'edit', initial: r })}>
+                        Edit
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {formModal && (
+        <EmployeeFormModal
+          mode={formModal.mode}
+          initial={formModal.initial}
+          onCancel={() => setFormModal(null)}
+          onSaved={(msg) => {
+            setFormModal(null);
+            setMessage(msg);
+            load();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
 export default function Admin() {
   const { employee } = useEmployee();
 
@@ -776,6 +1018,7 @@ export default function Admin() {
       </div>
 
       <KpiManagementSection />
+      <EmployeeManagementSection />
     </div>
   );
 }

@@ -1,17 +1,8 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { supabase } from '../lib/supabaseClient';
-import { errorMessage, type Employee } from '../types';
+import { errorMessage, normalizeEmployeeCode, type Employee } from '../types';
 
 const STORAGE_KEY = 'sqdc.employee_code';
-
-/** Employee IDs are 6-digit, zero-padded numbers (e.g. "000007"). Staff
- * often drop the leading zeros when typing, so a plain numeric entry
- * shorter than 6 digits is padded before lookup; anything else (non-digits,
- * already 6+ digits) is passed through untouched. */
-function normalizeEmployeeCode(code: string): string {
-  const trimmed = code.trim();
-  return /^\d{1,6}$/.test(trimmed) ? trimmed.padStart(6, '0') : trimmed;
-}
 
 interface EmployeeContextValue {
   employee: Employee | null;

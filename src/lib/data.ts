@@ -363,6 +363,60 @@ export async function fetchEmployees(): Promise<Employee[]> {
   return data as Employee[];
 }
 
+/** Admin's Employee Management screen needs inactive employees too (to
+ * reactivate someone, or just see who's been deactivated) — everywhere else
+ * in the app (login, KPI assignment) only ever wants active ones, hence the
+ * separate `fetchEmployees()` above staying active-only. */
+export async function fetchAllEmployeesAdmin(): Promise<Employee[]> {
+  const { data, error } = await supabase.from('employees').select('*').order('name');
+  if (error) throw error;
+  return data as Employee[];
+}
+
+export interface EmployeeAdminUpdate {
+  id: string;
+  active: boolean;
+  is_admin: boolean;
+}
+
+/** Saves Employee Management's pending Active/Admin toggle changes — same
+ * one-row-at-a-time update loop as saveKpiAdminUpdates, for the same reason
+ * (a handful of rows at most, no batch endpoint needed). */
+export async function saveEmployeeAdminUpdates(updates: EmployeeAdminUpdate[]): Promise<void> {
+  for (const u of updates) {
+    const { error } = await supabase.from('employees').update({ active: u.active, is_admin: u.is_admin }).eq('id', u.id);
+    if (error) throw error;
+  }
+}
+
+export interface NewEmployeeInput {
+  employee_code: string;
+  name: string;
+  is_admin: boolean;
+}
+
+export async function createEmployee(input: NewEmployeeInput): Promise<Employee> {
+  const { data, error } = await supabase.from('employees').insert(input).select('*').single();
+  if (error) throw error;
+  return data as Employee;
+}
+
+export interface EmployeeIdentityUpdate {
+  id: string;
+  employee_code: string;
+  name: string;
+}
+
+/** Employee ID and name are edited separately from the Active/Admin toggle
+ * table above (a dedicated popup, not an inline cell) — both feed straight
+ * into someone's login credential, so they get their own explicit save
+ * rather than sitting in the same "unsaved changes" batch as everything
+ * else and being easy to change by accident. */
+export async function updateEmployeeIdentity(input: EmployeeIdentityUpdate): Promise<void> {
+  const { error } = await supabase.from('employees').update({ employee_code: input.employee_code, name: input.name }).eq('id', input.id);
+  if (error) throw error;
+}
+
 // ---------------------------------------------------------------------------
 // Next 24 Hours board — leading KPI numeric values (from the Admin Daily
 // Excel upload's "Next 24hrs" tab). Read-only on the board; no manual

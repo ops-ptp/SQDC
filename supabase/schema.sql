@@ -553,3 +553,20 @@ alter table custom_paretos enable row level security;
 drop policy if exists anon_all_custom_paretos on custom_paretos;
 create policy anon_all_custom_paretos on custom_paretos for all using (true) with check (true);
 
+-- ============================================================================
+-- MIGRATION: employees insert/update policies for Admin's Employee
+-- Management (add/edit staff from the UI instead of SQL). Same story as
+-- kpis above -- employees was select-only for the anon key because nothing
+-- in the app ever wrote to it before now (new hires were added via SQL run
+-- directly against the table). Adds insert/update without touching the
+-- existing select policy or adding delete -- Employee Management never
+-- hard-deletes a row (see EmployeeManagementSection in Admin.tsx); "Active"
+-- is the retire-someone path instead, since daily_entries.entered_by has no
+-- cascade-delete.
+-- ============================================================================
+drop policy if exists anon_insert_employees on employees;
+create policy anon_insert_employees on employees for insert with check (true);
+
+drop policy if exists anon_update_employees on employees;
+create policy anon_update_employees on employees for update using (true) with check (true);
+

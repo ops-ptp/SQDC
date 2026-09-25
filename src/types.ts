@@ -177,6 +177,18 @@ export function metTarget(kpi: Pick<Kpi, 'is_higher_better'>, target: number, ac
   return kpi.is_higher_better ? actual >= target : actual <= target;
 }
 
+/** Zero-pads a numeric employee ID to the 6-digit form the DB's
+ * `employees_employee_code_format` check constraint requires (e.g. "42" ->
+ * "000042"). Leaves anything that isn't 1-6 plain digits untouched so the
+ * caller's own validation reports the real problem instead of this
+ * silently mangling it. Shared by the login lookup (EmployeeContext.tsx)
+ * and Admin's Employee Management add/edit form, so both accept a short
+ * typed ID the same way. */
+export function normalizeEmployeeCode(code: string): string {
+  const trimmed = code.trim();
+  return /^\d{1,6}$/.test(trimmed) ? trimmed.padStart(6, '0') : trimmed;
+}
+
 /** Extracts a human-readable message from anything a try/catch might throw.
  * `instanceof Error` alone isn't enough here — Supabase's PostgrestError
  * (thrown throughout this app's data layer as `if (error) throw error`) is a
