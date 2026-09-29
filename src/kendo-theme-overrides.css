@@ -1,0 +1,48 @@
+/* Bridges Kendo's design-token theme onto this app's existing palette (see
+ * the :root block at the top of index.css) so Kendo components — Grid,
+ * DropDownList, DatePicker — blend into the current look instead of
+ * bringing Telerik's own blue/red defaults and 4px corner radius.
+ *
+ * Kendo's font-family token already defaults to `inherit`, so components
+ * pick up the page's own font (Inter) automatically — nothing to do there.
+ *
+ * This file must be imported AFTER @progress/kendo-theme-default's CSS so
+ * these overrides win the cascade (see main.tsx import order).
+ */
+:root {
+  --kendo-color-primary: var(--primary);
+  --kendo-color-info: var(--primary);
+  --kendo-color-success: var(--good);
+  --kendo-color-error: var(--bad);
+
+  /* App's cards/inputs/buttons use an 8px radius; Kendo defaults to 4px. */
+  --kendo-border-radius-base: 8px;
+  --kendo-border-radius-md: 8px;
+  --kendo-border-radius-sm: 6px;
+}
+
+/* Kendo's own reset sets a default text color; keep it matched to the app's
+ * --text token rather than the theme's near-black default. */
+.k-input, .k-picker, .k-grid {
+  color: var(--text);
+}
+
+/* Grid: drop the heavy default outer border/shadow so it sits inside our
+ * existing .card / .table-scroll wrappers the same way the plain HTML
+ * tables used to, instead of doubling up borders. */
+.k-grid {
+  border: none;
+  font-size: 13px;
+}
+
+.k-grid .k-grid-header {
+  background: transparent;
+}
+
+.k-grid .k-table-th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--muted);
+  font-weight: 600;
+}

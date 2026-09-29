@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { endOfMonth, format, subDays, subMonths } from 'date-fns';
+import { DropDownList } from '@progress/kendo-react-dropdowns';
 import { fetchAllKpisAdmin, fetchPillars } from '../lib/data';
 import type { Kpi, Pillar } from '../types';
 import { errorMessage } from '../types';
@@ -94,18 +95,14 @@ export default function Dashboard() {
           )}
         </div>
         <div className="board-page-controls">
-          <select
-            className="board-month-select"
-            value={monthOffset}
-            onChange={(e) => handleMonthChange(Number(e.target.value))}
-            aria-label="Select month to review"
-          >
-            {monthOptions.map((m) => (
-              <option key={m.offset} value={m.offset}>
-                {m.label}
-              </option>
-            ))}
-          </select>
+          <DropDownList
+            data={monthOptions}
+            textField="label"
+            dataItemKey="offset"
+            value={monthOptions.find((m) => m.offset === monthOffset) ?? monthOptions[0]}
+            onChange={(e) => handleMonthChange(e.value.offset)}
+            ariaLabel="Select month to review"
+          />
           <div className="segmented" title={isCurrentMonth ? undefined : 'Only available for the current month'}>
             <button
               className={`segmented-btn ${granularity === 'daily' ? 'segmented-btn-active' : ''}`}

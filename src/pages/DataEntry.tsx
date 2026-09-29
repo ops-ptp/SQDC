@@ -1,6 +1,8 @@
-import { format, subDays } from 'date-fns';
-import { useEffect, useRef, useState } from 'react';
+import { format, parseISO, subDays } from 'date-fns';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
+import { DatePicker } from '@progress/kendo-react-dateinputs';
+import { DropDownList } from '@progress/kendo-react-dropdowns';
 import { useEmployee } from '../context/EmployeeContext';
 import {
   fetchEntriesForKpisOnDate,
@@ -18,6 +20,26 @@ const TODAY = format(new Date(), 'yyyy-MM-dd');
 // morning — matches the Board, which reviews yesterday's performance.
 const YESTERDAY = format(subDays(new Date(), 1), 'yyyy-MM-dd');
 const OTHER_SENTINEL = 'OTHER';
+const NO_REASON = { id: '', label: '— Select a reason —' };
+const OTHER_REASON = { id: OTHER_SENTINEL, label: 'Other (please specify)' };
+
+/** The "Reason category" dropdown — identical in both branches below (a
+ * fresh entry vs. an existing one being amended) — so it's defined once.
+ * Placeholder and "Other" are folded into the same data list Kendo's
+ * DropDownList renders, rather than a real vs. synthetic option split. */
+function ReasonSelect({ reasons, value, onChange }: { reasons: Reason[]; value: string; onChange: (id: string) => void }) {
+  const data = useMemo(() => [NO_REASON, ...reasons, OTHER_REASON], [reasons]);
+  return (
+    <DropDownList
+      style={{ width: '100%' }}
+      data={data}
+      textField="label"
+      dataItemKey="id"
+      value={data.find((r) => r.id === value) ?? NO_REASON}
+      onChange={(e) => onChange(e.value.id)}
+    />
+  );
+}
 
 type Shift = 'day' | 'night' | 'single';
 
@@ -399,12 +421,11 @@ export default function DataEntry() {
         </div>
         <label className="date-picker">
           <span className="field-label">Date</span>
-          <input
-            type="date"
-            className="input"
-            value={selectedDate}
-            max={TODAY}
-            onChange={(e) => setSelectedDate(e.target.value)}
+          <DatePicker
+            format="dd MMM yyyy"
+            value={parseISO(selectedDate)}
+            max={parseISO(TODAY)}
+            onChange={(e) => setSelectedDate(e.value ? format(e.value, 'yyyy-MM-dd') : selectedDate)}
           />
         </label>
       </div>
@@ -524,19 +545,11 @@ export default function DataEntry() {
                 <div className="reason-block">
                   <span className="pill pill-bad">Target missed</span>
                   <label className="field-label">Reason category</label>
-                  <select
-                    className="input"
+                  <ReasonSelect
+                    reasons={form.reasons}
                     value={form.reasonId}
-                    onChange={(e) => patch({ reasonId: e.target.value, reasonOther: e.target.value === OTHER_SENTINEL ? form.reasonOther : '' })}
-                  >
-                    <option value="">— Select a reason —</option>
-                    {form.reasons.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.label}
-                      </option>
-                    ))}
-                    <option value={OTHER_SENTINEL}>Other (please specify)</option>
-                  </select>
+                    onChange={(id) => patch({ reasonId: id, reasonOther: id === OTHER_SENTINEL ? form.reasonOther : '' })}
+                  />
                   {form.reasonId === OTHER_SENTINEL && (
                     <input
                       className="input"
@@ -588,19 +601,11 @@ export default function DataEntry() {
                     {!existingMet && (
                       <div className="reason-block">
                         <label className="field-label">Reason category</label>
-                        <select
-                          className="input"
+                        <ReasonSelect
+                          reasons={form.reasons}
                           value={form.reasonId}
-                          onChange={(e) => patch({ reasonId: e.target.value, reasonOther: e.target.value === OTHER_SENTINEL ? form.reasonOther : '' })}
-                        >
-                          <option value="">— Select a reason —</option>
-                          {form.reasons.map((r) => (
-                            <option key={r.id} value={r.id}>
-                              {r.label}
-                            </option>
-                          ))}
-                          <option value={OTHER_SENTINEL}>Other (please specify)</option>
-                        </select>
+                          onChange={(id) => patch({ reasonId: id, reasonOther: id === OTHER_SENTINEL ? form.reasonOther : '' })}
+                        />
                         {form.reasonId === OTHER_SENTINEL && (
                           <input
                             className="input"

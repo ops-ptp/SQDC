@@ -1,6 +1,8 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
+import '@progress/kendo-theme-default/dist/all.css'
+import './kendo-theme-overrides.css'
 import App from './App.tsx'
 
 createRoot(document.getElementById('root')!).render(

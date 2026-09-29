@@ -613,6 +613,13 @@ p {
   vertical-align: middle;
 }
 
+/* KPI Management and Employee Management's Kendo Grids — a subtle left
+ * border on any row with unsaved changes, so it's obvious at a glance which
+ * rows "Save changes" is about to apply, before pressing it. */
+.admin-grid tr.row-dirty td:first-child {
+  border-left: 3px solid var(--primary);
+}
+
 /* ---------------- Data entry ---------------- */
 .entry-pillar-pills,
 .entry-kpi-pills {
@@ -871,6 +878,35 @@ p {
 }
 
 .action-table tr.row-in-progress {
+  background: #eff6ff;
+}
+
+/* Action Log's Kendo Grid — same status-row coloring as the old plain
+ * table above, just re-scoped: Kendo renders real <tr>/<td> elements, but
+ * under a .k-grid wrapper rather than a <table className="action-table">,
+ * so these descendant selectors target .action-grid (the className passed
+ * to <Grid>) instead. */
+.action-grid tr.row-completed td {
+  color: #94a3b8;
+  text-decoration: line-through;
+  background: #f0fdf4;
+}
+
+.action-grid tr.row-dropped td {
+  color: #a8a29e;
+  text-decoration: line-through;
+  background: #fafaf9;
+}
+
+.action-grid tr.row-overdue {
+  background: #fef2f2;
+}
+
+.action-grid tr.row-overdue td:first-child {
+  border-left: 3px solid #b91c1c;
+}
+
+.action-grid tr.row-in-progress {
   background: #eff6ff;
 }
 

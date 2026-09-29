@@ -1,4 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { orderBy, type SortDescriptor } from '@progress/kendo-data-query';
+import { Grid, GridColumn, type GridCustomCellProps, type GridCustomRowProps } from '@progress/kendo-react-grid';
+import { DropDownList } from '@progress/kendo-react-dropdowns';
 import { useEmployee } from '../context/EmployeeContext';
 import {
   bulkUpsertDailyEntriesFromUpload,
@@ -370,66 +373,107 @@ function buildGroups(kpis: KpiWithPillar[]): EditableGroup[] {
   return rows;
 }
 
+const DIRECTION_OPTIONS = [
+  { value: 'higher', label: 'Higher is better' },
+  { value: 'lower', label: 'Lower is better' },
+];
+
 function KpiManagementTable({
   title,
   rows,
+  isDirty,
   onToggleVisible,
   onChangeDirection,
   onDelete,
 }: {
   title: string;
   rows: EditableGroup[];
+  isDirty: (row: EditableGroup) => boolean;
   onToggleVisible: (key: string, active: boolean) => void;
   onChangeDirection: (key: string, isHigherBetter: boolean) => void;
   onDelete: (row: EditableGroup) => void;
 }) {
+  const [sort, setSort] = useState<SortDescriptor[]>([]);
   if (rows.length === 0) return null;
+  const sorted = orderBy(rows, sort) as EditableGroup[];
+
+  function DataRow(props: GridCustomRowProps) {
+    const item = props.dataItem as EditableGroup;
+    const className = [props.trProps?.className, isDirty(item) ? 'row-dirty' : ''].filter(Boolean).join(' ');
+    return (
+      <tr {...props.trProps} className={className || undefined}>
+        {props.children}
+      </tr>
+    );
+  }
+
+  function NameCell(props: GridCustomCellProps) {
+    const item = props.dataItem as EditableGroup;
+    return (
+      <td {...props.tdProps}>
+        {item.name}
+        {item.hasSecondary && <span className="pill pill-bad admin-kpi-secondary-tag">+old calc</span>}
+      </td>
+    );
+  }
+
+  function DirectionCell(props: GridCustomCellProps) {
+    const item = props.dataItem as EditableGroup;
+    return (
+      <td {...props.tdProps}>
+        <DropDownList
+          style={{ minWidth: 160 }}
+          data={DIRECTION_OPTIONS}
+          textField="label"
+          dataItemKey="value"
+          value={DIRECTION_OPTIONS.find((o) => o.value === (item.is_higher_better ? 'higher' : 'lower'))}
+          onChange={(e) => onChangeDirection(item.key, e.value.value === 'higher')}
+        />
+      </td>
+    );
+  }
+
+  function VisibleCell(props: GridCustomCellProps) {
+    const item = props.dataItem as EditableGroup;
+    return (
+      <td {...props.tdProps}>
+        <input type="checkbox" checked={item.active} onChange={(e) => onToggleVisible(item.key, e.target.checked)} />
+      </td>
+    );
+  }
+
+  function DeleteCell(props: GridCustomCellProps) {
+    const item = props.dataItem as EditableGroup;
+    return (
+      <td {...props.tdProps}>
+        <button type="button" className="admin-kpi-delete-btn" onClick={() => onDelete(item)}>
+          Delete
+        </button>
+      </td>
+    );
+  }
+
   return (
     <div className="quadrant-section" style={{ marginBottom: 20 }}>
       <div className="quadrant-block-title" style={{ padding: '0 0 8px' }}>
         {title}
       </div>
       <div className="table-scroll admin-kpi-table-scroll">
-        <table className="action-table admin-kpi-table">
-          <thead>
-            <tr>
-              <th>Pillar</th>
-              <th>KPI Name</th>
-              <th>Higher is better</th>
-              <th>Visible</th>
-              <th>Delete</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.key}>
-                <td>{r.pillarName}</td>
-                <td>
-                  {r.name}
-                  {r.hasSecondary && <span className="pill pill-bad admin-kpi-secondary-tag">+old calc</span>}
-                </td>
-                <td>
-                  <select
-                    className="admin-kpi-direction-select"
-                    value={r.is_higher_better ? 'higher' : 'lower'}
-                    onChange={(e) => onChangeDirection(r.key, e.target.value === 'higher')}
-                  >
-                    <option value="higher">Higher is better</option>
-                    <option value="lower">Lower is better</option>
-                  </select>
-                </td>
-                <td>
-                  <input type="checkbox" checked={r.active} onChange={(e) => onToggleVisible(r.key, e.target.checked)} />
-                </td>
-                <td>
-                  <button type="button" className="admin-kpi-delete-btn" onClick={() => onDelete(r)}>
-                    Delete
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <Grid
+          className="admin-grid"
+          data={sorted}
+          dataItemKey="key"
+          sortable
+          sort={sort}
+          onSortChange={(e) => setSort(e.sort)}
+          rows={{ data: DataRow }}
+        >
+          <GridColumn field="pillarName" title="Pillar" />
+          <GridColumn title="KPI Name" field="name" cells={{ data: NameCell }} />
+          <GridColumn title="Higher is better" sortable={false} cells={{ data: DirectionCell }} />
+          <GridColumn title="Visible" sortable={false} cells={{ data: VisibleCell }} />
+          <GridColumn title="Delete" sortable={false} width={100} cells={{ data: DeleteCell }} />
+        </Grid>
       </div>
     </div>
   );
@@ -564,6 +608,7 @@ function KpiManagementSection() {
           <KpiManagementTable
             title="Board (Lagging KPIs)"
             rows={lagging}
+            isDirty={isDirty}
             onToggleVisible={handleToggleVisible}
             onChangeDirection={handleChangeDirection}
             onDelete={setPendingDelete}
@@ -571,6 +616,7 @@ function KpiManagementSection() {
           <KpiManagementTable
             title="Next 24 Hours (Leading KPIs)"
             rows={leading}
+            isDirty={isDirty}
             onToggleVisible={handleToggleVisible}
             onChangeDirection={handleChangeDirection}
             onDelete={setPendingDelete}
@@ -699,6 +745,7 @@ function EmployeeManagementSection() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [formModal, setFormModal] = useState<{ mode: 'add' | 'edit'; initial?: Employee } | null>(null);
+  const [gridSort, setGridSort] = useState<SortDescriptor[]>([]);
 
   function load() {
     setLoading(true);
@@ -750,6 +797,46 @@ function EmployeeManagementSection() {
   }
 
   const sorted = [...rows].sort((a, b) => a.name.localeCompare(b.name));
+  const gridData = orderBy(sorted, gridSort) as Employee[];
+
+  function DataRow(props: GridCustomRowProps) {
+    const item = props.dataItem as Employee;
+    const className = [props.trProps?.className, isDirty(item) ? 'row-dirty' : ''].filter(Boolean).join(' ');
+    return (
+      <tr {...props.trProps} className={className || undefined}>
+        {props.children}
+      </tr>
+    );
+  }
+
+  function AdminCell(props: GridCustomCellProps) {
+    const item = props.dataItem as Employee;
+    return (
+      <td {...props.tdProps}>
+        <input type="checkbox" checked={item.is_admin} onChange={(e) => handleToggleAdmin(item.id, e.target.checked)} />
+      </td>
+    );
+  }
+
+  function ActiveCell(props: GridCustomCellProps) {
+    const item = props.dataItem as Employee;
+    return (
+      <td {...props.tdProps}>
+        <input type="checkbox" checked={item.active} onChange={(e) => handleToggleActive(item.id, e.target.checked)} />
+      </td>
+    );
+  }
+
+  function EditCell(props: GridCustomCellProps) {
+    const item = props.dataItem as Employee;
+    return (
+      <td {...props.tdProps}>
+        <button type="button" className="btn btn-ghost-light" onClick={() => setFormModal({ mode: 'edit', initial: item })}>
+          Edit
+        </button>
+      </td>
+    );
+  }
 
   return (
     <div className="card" style={{ marginTop: 24 }}>
@@ -779,36 +866,21 @@ function EmployeeManagementSection() {
       ) : (
         <div className="quadrant-section">
           <div className="table-scroll admin-kpi-table-scroll">
-            <table className="action-table admin-kpi-table">
-              <thead>
-                <tr>
-                  <th>Employee ID</th>
-                  <th>Name</th>
-                  <th>Admin</th>
-                  <th>Active</th>
-                  <th>Edit</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sorted.map((r) => (
-                  <tr key={r.id}>
-                    <td>{r.employee_code}</td>
-                    <td>{r.name}</td>
-                    <td>
-                      <input type="checkbox" checked={r.is_admin} onChange={(e) => handleToggleAdmin(r.id, e.target.checked)} />
-                    </td>
-                    <td>
-                      <input type="checkbox" checked={r.active} onChange={(e) => handleToggleActive(r.id, e.target.checked)} />
-                    </td>
-                    <td>
-                      <button type="button" className="btn btn-ghost-light" onClick={() => setFormModal({ mode: 'edit', initial: r })}>
-                        Edit
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <Grid
+              className="admin-grid"
+              data={gridData}
+              dataItemKey="id"
+              sortable
+              sort={gridSort}
+              onSortChange={(e) => setGridSort(e.sort)}
+              rows={{ data: DataRow }}
+            >
+              <GridColumn field="employee_code" title="Employee ID" />
+              <GridColumn field="name" title="Name" />
+              <GridColumn title="Admin" sortable={false} cells={{ data: AdminCell }} />
+              <GridColumn title="Active" sortable={false} cells={{ data: ActiveCell }} />
+              <GridColumn title="Edit" sortable={false} width={90} cells={{ data: EditCell }} />
+            </Grid>
           </div>
         </div>
       )}

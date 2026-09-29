@@ -1,9 +1,58 @@
+import { format, parseISO } from 'date-fns';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { DatePicker } from '@progress/kendo-react-dateinputs';
+import { DropDownList } from '@progress/kendo-react-dropdowns';
 import { useEmployee } from '../context/EmployeeContext';
 import { createAction, fetchActions, fetchKpis, fetchPillars, setActionStatus, updateAction } from '../lib/data';
 import { PILLAR_COLORS, errorMessage, type ActionItem, type ActionStatus, type Kpi, type Pillar } from '../types';
 import ActionTable from '../components/ActionTable';
 import Modal from '../components/Modal';
+
+const NO_KPI = { id: '', name: '— None —' };
+
+/** Pillar and KPI pickers shared by the "New action" form and the Edit
+ * pop-up — both need the exact same pillar select + KPI-filtered-by-pillar
+ * select, so they're defined once here rather than duplicated. Kendo's
+ * DropDownList wants the actual data-item object as its value (matched via
+ * dataItemKey), not the raw id string the rest of the app stores state as,
+ * hence the find-by-id plumbing at each call site. */
+function PillarSelect({ pillars, value, onChange }: { pillars: Pillar[]; value: string; onChange: (id: string) => void }) {
+  return (
+    <DropDownList
+      style={{ width: '100%' }}
+      data={pillars}
+      textField="name"
+      dataItemKey="id"
+      value={pillars.find((p) => p.id === value) ?? null}
+      onChange={(e) => onChange(e.value.id)}
+    />
+  );
+}
+
+function KpiSelect({ kpis, value, onChange }: { kpis: Kpi[]; value: string; onChange: (id: string) => void }) {
+  const data = useMemo(() => [NO_KPI, ...kpis], [kpis]);
+  return (
+    <DropDownList
+      style={{ width: '100%' }}
+      data={data}
+      textField="name"
+      dataItemKey="id"
+      value={data.find((k) => k.id === value) ?? NO_KPI}
+      onChange={(e) => onChange(e.value.id)}
+    />
+  );
+}
+
+function DeadlinePicker({ value, onChange }: { value: string; onChange: (yyyyMmDd: string) => void }) {
+  return (
+    <DatePicker
+      style={{ width: '100%' }}
+      format="dd MMM yyyy"
+      value={value ? parseISO(value) : null}
+      onChange={(e) => onChange(e.value ? format(e.value, 'yyyy-MM-dd') : '')}
+    />
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Edit Action — a pop-up form (mirrors the "New action" fields) so an admin
@@ -65,31 +114,18 @@ function ActionEditModal({
         <div className="form-grid">
           <label>
             Pillar
-            <select
-              className="input"
+            <PillarSelect
+              pillars={pillars}
               value={pillarId}
-              onChange={(e) => {
-                setPillarId(e.target.value);
+              onChange={(id) => {
+                setPillarId(id);
                 setKpiId('');
               }}
-            >
-              {pillars.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
+            />
           </label>
           <label>
             KPI (optional)
-            <select className="input" value={kpiId} onChange={(e) => setKpiId(e.target.value)}>
-              <option value="">— None —</option>
-              {kpisForPillar.map((k) => (
-                <option key={k.id} value={k.id}>
-                  {k.name}
-                </option>
-              ))}
-            </select>
+            <KpiSelect kpis={kpisForPillar} value={kpiId} onChange={setKpiId} />
           </label>
           <label className="span-2">
             Related reason / issue
@@ -105,7 +141,7 @@ function ActionEditModal({
           </label>
           <label>
             Deadline
-            <input type="date" className="input" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
+            <DeadlinePicker value={deadline} onChange={setDeadline} />
           </label>
         </div>
         {error && (
@@ -235,28 +271,15 @@ export default function ActionLog() {
           <div className="form-grid">
             <label>
               Pillar
-              <select
-                className="input"
+              <PillarSelect
+                pillars={pillars}
                 value={form.pillar_id}
-                onChange={(e) => setForm((f) => ({ ...f, pillar_id: e.target.value, kpi_id: '' }))}
-              >
-                {pillars.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
+                onChange={(id) => setForm((f) => ({ ...f, pillar_id: id, kpi_id: '' }))}
+              />
             </label>
             <label>
               KPI (optional)
-              <select className="input" value={form.kpi_id} onChange={(e) => setForm((f) => ({ ...f, kpi_id: e.target.value }))}>
-                <option value="">— None —</option>
-                {kpisForFormPillar.map((k) => (
-                  <option key={k.id} value={k.id}>
-                    {k.name}
-                  </option>
-                ))}
-              </select>
+              <KpiSelect kpis={kpisForFormPillar} value={form.kpi_id} onChange={(id) => setForm((f) => ({ ...f, kpi_id: id }))} />
             </label>
             <label className="span-2">
               Related reason / issue
@@ -282,12 +305,7 @@ export default function ActionLog() {
             </label>
             <label>
               Deadline
-              <input
-                type="date"
-                className="input"
-                value={form.deadline}
-                onChange={(e) => setForm((f) => ({ ...f, deadline: e.target.value }))}
-              />
+              <DeadlinePicker value={form.deadline} onChange={(d) => setForm((f) => ({ ...f, deadline: d }))} />
             </label>
           </div>
           {formError && <div className="alert alert-error">{formError}</div>}
