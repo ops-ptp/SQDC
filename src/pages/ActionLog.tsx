@@ -1,8 +1,130 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useEmployee } from '../context/EmployeeContext';
-import { createAction, fetchActions, fetchKpis, fetchPillars, setActionStatus } from '../lib/data';
+import { createAction, fetchActions, fetchKpis, fetchPillars, setActionStatus, updateAction } from '../lib/data';
 import { PILLAR_COLORS, errorMessage, type ActionItem, type ActionStatus, type Kpi, type Pillar } from '../types';
 import ActionTable from '../components/ActionTable';
+import Modal from '../components/Modal';
+
+// ---------------------------------------------------------------------------
+// Edit Action — a pop-up form (mirrors the "New action" fields) so an admin
+// can fix any field of an existing action, not just its status. Opened from
+// ActionTable's per-row "Edit" button, shown to admins only.
+// ---------------------------------------------------------------------------
+function ActionEditModal({
+  action,
+  pillars,
+  kpis,
+  onCancel,
+  onSaved,
+}: {
+  action: ActionItem;
+  pillars: Pillar[];
+  kpis: Kpi[];
+  onCancel: () => void;
+  onSaved: (updated: ActionItem) => void;
+}) {
+  const [pillarId, setPillarId] = useState(action.pillar_id);
+  const [kpiId, setKpiId] = useState(action.kpi_id ?? '');
+  const [relatedIssue, setRelatedIssue] = useState(action.related_issue);
+  const [actionText, setActionText] = useState(action.action);
+  const [ownerName, setOwnerName] = useState(action.owner_name);
+  const [deadline, setDeadline] = useState(action.deadline ?? '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const kpisForPillar = useMemo(() => kpis.filter((k) => k.pillar_id === pillarId && !k.is_secondary), [kpis, pillarId]);
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!pillarId || !relatedIssue.trim() || !actionText.trim() || !ownerName.trim()) {
+      setError('Please fill in the pillar, issue, action, and owner.');
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const updated = await updateAction({
+        id: action.id,
+        pillar_id: pillarId,
+        kpi_id: kpiId || null,
+        related_issue: relatedIssue.trim(),
+        action: actionText.trim(),
+        owner_name: ownerName.trim(),
+        deadline: deadline || null,
+      });
+      onSaved(updated);
+    } catch (err) {
+      setError(errorMessage(err, 'Failed to save changes'));
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal title="Edit Action" onClose={onCancel} maxWidth={560}>
+      <form onSubmit={handleSubmit}>
+        <div className="form-grid">
+          <label>
+            Pillar
+            <select
+              className="input"
+              value={pillarId}
+              onChange={(e) => {
+                setPillarId(e.target.value);
+                setKpiId('');
+              }}
+            >
+              {pillars.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            KPI (optional)
+            <select className="input" value={kpiId} onChange={(e) => setKpiId(e.target.value)}>
+              <option value="">— None —</option>
+              {kpisForPillar.map((k) => (
+                <option key={k.id} value={k.id}>
+                  {k.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="span-2">
+            Related reason / issue
+            <input className="input" value={relatedIssue} onChange={(e) => setRelatedIssue(e.target.value)} />
+          </label>
+          <label className="span-2">
+            Action
+            <input className="input" value={actionText} onChange={(e) => setActionText(e.target.value)} />
+          </label>
+          <label>
+            Owner
+            <input className="input" value={ownerName} onChange={(e) => setOwnerName(e.target.value)} />
+          </label>
+          <label>
+            Deadline
+            <input type="date" className="input" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
+          </label>
+        </div>
+        {error && (
+          <div className="alert alert-error" style={{ marginTop: 12 }}>
+            {error}
+          </div>
+        )}
+        <div className="modal-actions">
+          <button type="button" className="btn btn-ghost-light" onClick={onCancel} disabled={saving}>
+            Cancel
+          </button>
+          <button type="submit" className="btn btn-primary" disabled={saving}>
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
 
 export default function ActionLog() {
   const { employee } = useEmployee();
@@ -14,6 +136,7 @@ export default function ActionLog() {
   const [showForm, setShowForm] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [editingAction, setEditingAction] = useState<ActionItem | null>(null);
 
   const [form, setForm] = useState({
     pillar_id: '',
@@ -49,6 +172,11 @@ export default function ActionLog() {
     () => (filterPillar === 'all' ? actions : actions.filter((a) => a.pillar_id === filterPillar)),
     [actions, filterPillar],
   );
+
+  function handleActionUpdated(updated: ActionItem) {
+    setActions((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+    setEditingAction(null);
+  }
 
   async function handleStatusChange(a: ActionItem, status: ActionStatus) {
     const prevStatus = a.status;
@@ -190,8 +318,19 @@ export default function ActionLog() {
           actions={filteredActions}
           pillars={pillars}
           onStatusChange={employee?.is_admin ? handleStatusChange : undefined}
+          onEdit={employee?.is_admin ? (a) => setEditingAction(a) : undefined}
         />
       </section>
+
+      {editingAction && (
+        <ActionEditModal
+          action={editingAction}
+          pillars={pillars}
+          kpis={kpis}
+          onCancel={() => setEditingAction(null)}
+          onSaved={handleActionUpdated}
+        />
+      )}
     </div>
   );
 }

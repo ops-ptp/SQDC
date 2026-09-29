@@ -349,6 +349,23 @@ export async function createAction(input: NewActionInput): Promise<ActionItem> {
   return data as ActionItem;
 }
 
+export interface UpdateActionInput {
+  id: string;
+  pillar_id: string;
+  kpi_id: string | null;
+  related_issue: string;
+  action: string;
+  owner_name: string;
+  deadline: string | null;
+}
+
+export async function updateAction(input: UpdateActionInput): Promise<ActionItem> {
+  const { id, ...rest } = input;
+  const { data, error } = await supabase.from('actions').update(rest).eq('id', id).select('*').single();
+  if (error) throw error;
+  return data as ActionItem;
+}
+
 export async function setActionStatus(id: string, status: ActionItem['status']): Promise<void> {
   const { error } = await supabase
     .from('actions')

@@ -5,8 +5,10 @@ interface Props {
   actions: ActionItem[];
   onStatusChange?: (action: ActionItem, status: ActionStatus) => void;
   compact?: boolean;
-  /** When provided, an extra "Pillar" column is shown, looked up per-action from pillar_id. */
+  /** When provided, a "Pillar" column is shown, looked up per-action from pillar_id. */
   pillars?: Pillar[];
+  /** When provided (admin only), an "Edit" column with a button opens the row for editing. */
+  onEdit?: (action: ActionItem) => void;
 }
 
 const STATUS_ORDER: ActionStatus[] = ['not_started', 'in_progress', 'dropped', 'completed'];
@@ -20,7 +22,7 @@ const ROW_CLASS: Record<string, string> = {
   not_started: '',
 };
 
-export default function ActionTable({ actions, onStatusChange, compact, pillars }: Props) {
+export default function ActionTable({ actions, onStatusChange, compact, pillars, onEdit }: Props) {
   if (actions.length === 0) {
     return <div className="empty-state">No actions logged yet.</div>;
   }
@@ -32,12 +34,13 @@ export default function ActionTable({ actions, onStatusChange, compact, pillars 
       <table className="action-table">
         <thead>
           <tr>
-            {pillars && <th>Pillar</th>}
-            <th>Related reason / issue</th>
             <th>Action</th>
+            <th>Related reason / issue</th>
+            {pillars && <th>Pillar</th>}
             <th>Owner</th>
             <th>Deadline</th>
             <th>Status</th>
+            {onEdit && <th>Edit</th>}
           </tr>
         </thead>
         <tbody>
@@ -47,6 +50,8 @@ export default function ActionTable({ actions, onStatusChange, compact, pillars 
             const pillar = pillarById.get(a.pillar_id);
             return (
               <tr key={a.id} className={ROW_CLASS[displayStatus]}>
+                <td>{a.action}</td>
+                <td>{a.related_issue}</td>
                 {pillars && (
                   <td>
                     {pillar ? (
@@ -61,8 +66,6 @@ export default function ActionTable({ actions, onStatusChange, compact, pillars 
                     )}
                   </td>
                 )}
-                <td>{a.related_issue}</td>
-                <td>{a.action}</td>
                 <td>{a.owner_name}</td>
                 <td>{a.deadline ? format(parseISO(a.deadline), 'd MMM yyyy') : '—'}</td>
                 <td>
@@ -87,6 +90,13 @@ export default function ActionTable({ actions, onStatusChange, compact, pillars 
                     </span>
                   )}
                 </td>
+                {onEdit && (
+                  <td>
+                    <button type="button" className="btn btn-ghost-light" onClick={() => onEdit(a)}>
+                      Edit
+                    </button>
+                  </td>
+                )}
               </tr>
             );
           })}
