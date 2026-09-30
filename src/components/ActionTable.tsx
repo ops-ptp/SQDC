@@ -1,4 +1,5 @@
 import { format, parseISO } from 'date-fns';
+import { useEffect, useState } from 'react';
 import { ACTION_STATUS_META, PILLAR_COLORS, getDisplayStatus, type ActionItem, type ActionStatus, type Pillar } from '../types';
 
 interface Props {
@@ -12,7 +13,22 @@ interface Props {
 }
 
 const STATUS_ORDER: ActionStatus[] = ['not_started', 'in_progress', 'dropped', 'completed'];
-const TODAY_STR = format(new Date(), 'yyyy-MM-dd');
+
+/** Today's date as 'yyyy-MM-dd', re-synced automatically at the next local
+ * midnight. The Action Log can stay open on a shared/kiosk display for
+ * days, so a value computed once (module load, or even once per mount)
+ * would let the "Overdue" status silently go stale until someone reloads
+ * the page — this keeps it correct without a reload. */
+function useTodayString(): string {
+  const [today, setToday] = useState(() => format(new Date(), 'yyyy-MM-dd'));
+  useEffect(() => {
+    const now = new Date();
+    const nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 5);
+    const timer = setTimeout(() => setToday(format(new Date(), 'yyyy-MM-dd')), nextMidnight.getTime() - now.getTime());
+    return () => clearTimeout(timer);
+  }, [today]);
+  return today;
+}
 
 const ROW_CLASS: Record<string, string> = {
   overdue: 'row-overdue',
@@ -23,6 +39,8 @@ const ROW_CLASS: Record<string, string> = {
 };
 
 export default function ActionTable({ actions, onStatusChange, compact, pillars, onEdit }: Props) {
+  const todayStr = useTodayString();
+
   if (actions.length === 0) {
     return <div className="empty-state">No actions logged yet.</div>;
   }
@@ -45,7 +63,7 @@ export default function ActionTable({ actions, onStatusChange, compact, pillars,
         </thead>
         <tbody>
           {actions.map((a) => {
-            const displayStatus = getDisplayStatus(a, TODAY_STR);
+            const displayStatus = getDisplayStatus(a, todayStr);
             const meta = ACTION_STATUS_META[displayStatus];
             const pillar = pillarById.get(a.pillar_id);
             return (
@@ -57,7 +75,10 @@ export default function ActionTable({ actions, onStatusChange, compact, pillars,
                     {pillar ? (
                       <span
                         className="status-badge"
-                        style={{ color: PILLAR_COLORS[pillar.code].text, background: PILLAR_COLORS[pillar.code].soft }}
+                        style={{
+                          color: (PILLAR_COLORS[pillar.code] ?? PILLAR_COLORS.S).text,
+                          background: (PILLAR_COLORS[pillar.code] ?? PILLAR_COLORS.S).soft,
+                        }}
                       >
                         {pillar.name}
                       </span>
@@ -104,7 +125,7 @@ export default function ActionTable({ actions, onStatusChange, compact, pillars,
       </table>
       {!compact && (
         <p className="table-footnote">
-          {actions.filter((a) => getDisplayStatus(a, TODAY_STR) === 'overdue').length} overdue ·{' '}
+          {actions.filter((a) => getDisplayStatus(a, todayStr) === 'overdue').length} overdue ·{' '}
           {actions.filter((a) => a.status === 'not_started' || a.status === 'in_progress').length} open ·{' '}
           {actions.filter((a) => a.status === 'completed').length} completed ·{' '}
           {actions.filter((a) => a.status === 'dropped').length} dropped

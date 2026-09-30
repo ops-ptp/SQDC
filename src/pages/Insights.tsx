@@ -536,7 +536,16 @@ export default function Insights() {
       .finally(() => setLoading(false));
   }, []);
 
-  const kpiGroups = useMemo(() => groupKpisByBase(kpis.filter((k) => k.pillar_id === selectedPillarId)), [kpis, selectedPillarId]);
+  // Excludes secondary/"(Old)"-calculation KPIs (e.g. Mainliner Load GMPH's
+  // old formula) the same way DataEntry's buildGroups does — otherwise
+  // baseNameOf collapses them into the same group as their primary KPI and
+  // every export/pivot/Pareto here would silently mix in rows from a
+  // calculation that's kept only for historical comparison, never for
+  // judging performance.
+  const kpiGroups = useMemo(
+    () => groupKpisByBase(kpis.filter((k) => k.pillar_id === selectedPillarId && !k.is_secondary)),
+    [kpis, selectedPillarId]
+  );
 
   // Selecting a different pillar should reset which KPI is picked, rather
   // than silently keeping a same-named group from the previous pillar (base

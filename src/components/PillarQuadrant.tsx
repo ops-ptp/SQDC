@@ -92,6 +92,13 @@ function groupKpiIds(g: KpiGroup): string[] {
   return [g.day?.id, g.night?.id, g.single?.id, g.oldDay?.id, g.oldNight?.id].filter((id): id is string => Boolean(id));
 }
 
+/** Same as groupKpiIds but excludes the Old-calculation shift KPIs (Mainliner
+ * Load GMPH only) — for anywhere that decides met/missed, since those must
+ * never factor into a verdict (they're kept only for chart comparison). */
+function primaryKpiIds(g: KpiGroup): string[] {
+  return [g.day?.id, g.night?.id, g.single?.id].filter((id): id is string => Boolean(id));
+}
+
 function indexByDate(entries: DailyEntry[]): Map<string, DailyEntry> {
   const m = new Map<string, DailyEntry>();
   for (const e of entries) m.set(e.entry_date, e);
@@ -312,9 +319,17 @@ export default function PillarQuadrant({
   // live KPI catalog value — correct for KPIs like Moves whose target
   // varies by date (the day's uploaded Projection figure).
   function groupStatus(g: KpiGroup): PerformanceStatus {
-    const ids = groupKpiIds(g);
+    const ids = primaryKpiIds(g);
     const entries = referenceEntries.filter((e) => ids.includes(e.kpi_id));
     return combinedStatus(g, entries);
+  }
+
+  // True when the reference day's value for this KPI was typed in by a
+  // person rather than written by the Admin Excel upload — surfaced only
+  // as a pill tooltip, the pill's color is unaffected.
+  function groupHasManualEntry(g: KpiGroup): boolean {
+    const ids = primaryKpiIds(g);
+    return referenceEntries.some((e) => ids.includes(e.kpi_id) && e.is_manual_override);
   }
 
   // ---- Letter grid: one cell per calendar day, combined Day+Night average -
@@ -336,7 +351,11 @@ export default function PillarQuadrant({
       const dayEntries = [dayIdx.get(dateStr), nightIdx.get(dateStr), singleIdx.get(dateStr)].filter(
         (e): e is DailyEntry => e !== undefined
       );
-      result.push({ day, status: combinedStatus(selectedGroup, dayEntries) });
+      result.push({
+        day,
+        status: combinedStatus(selectedGroup, dayEntries),
+        isManualEntry: dayEntries.some((e) => e.is_manual_override),
+      });
     }
     return result;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -481,8 +500,14 @@ export default function PillarQuadrant({
   // block below.
   const paretoData: ParetoDatum[] = useMemo(() => {
     if (!selectedGroup) return [];
+    // Old-calculation shift entries (Mainliner Load GMPH only) ride along in
+    // paretoEntries because the chart above needs them, but they must never
+    // factor into a met/missed verdict — same invariant as groupStatus and
+    // the letter grid, so this Pareto doesn't silently disagree with them.
+    const ids = new Set(primaryKpiIds(selectedGroup));
     const counts = new Map<string, number>();
     for (const e of paretoEntries) {
+      if (!ids.has(e.kpi_id)) continue;
       if (groupMetTarget(selectedGroup, e.actual, e.target)) continue;
       const label = e.reason_other?.trim() || (e.reason_id ? reasonLabelById.get(e.reason_id) : undefined) || 'Unspecified';
       counts.set(label, (counts.get(label) ?? 0) + 1);
@@ -583,6 +608,7 @@ export default function PillarQuadrant({
                   : { background: 'white', borderColor: color, color }
               }
               onClick={() => setSelectedKey(g.key)}
+              title={groupHasManualEntry(g) ? `${g.label} — manually entered` : undefined}
             >
               {g.label}
             </button>

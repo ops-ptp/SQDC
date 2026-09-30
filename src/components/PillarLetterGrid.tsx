@@ -3,6 +3,10 @@ import { PERFORMANCE_COLORS, type PerformanceStatus } from '../types';
 export type DayStatus = {
   day: number; // day of month, 1-based
   status: PerformanceStatus;
+  /** True when any of this day's entries were typed in by a person rather
+   * than written by the Admin Excel upload. Surfaced only as a tooltip
+   * note — the cell's color/fill is unchanged. */
+  isManualEntry?: boolean;
 };
 
 interface Props {
@@ -247,7 +251,7 @@ export default function PillarLetterGrid({ letter, days, todayDay, height = 208,
                 {isPastMonthEnd
                   ? 'No such date this month'
                   : dayInfo
-                    ? `Day ${dayInfo.day}${isToday ? ' (most recent)' : ''} — ${STATUS_LABEL[dayInfo.status]}${clickable ? ' — click to review this date' : ''}`
+                    ? `Day ${dayInfo.day}${isToday ? ' (most recent)' : ''} — ${STATUS_LABEL[dayInfo.status]}${dayInfo.isManualEntry ? ' (manually entered)' : ''}${clickable ? ' — click to review this date' : ''}`
                     : undefined}
               </title>
             </rect>

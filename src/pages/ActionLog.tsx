@@ -305,7 +305,7 @@ export default function ActionLog() {
           <button
             key={p.id}
             className={`chip ${filterPillar === p.id ? 'chip-active' : ''}`}
-            style={filterPillar === p.id ? { background: PILLAR_COLORS[p.code].base, color: 'white' } : undefined}
+            style={filterPillar === p.id ? { background: (PILLAR_COLORS[p.code] ?? PILLAR_COLORS.S).base, color: 'white' } : undefined}
             onClick={() => setFilterPillar(p.id)}
           >
             {p.name}

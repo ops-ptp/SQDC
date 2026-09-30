@@ -1,4 +1,5 @@
 import { supabase } from './supabaseClient';
+import { metTarget } from '../types';
 import type { ActionItem, DailyEntry, Employee, Kpi, KpiWithPillar, LeadingEntry, Pillar, Reason, WeeklyEntry } from '../types';
 
 export async function fetchPillars(): Promise<Pillar[]> {
@@ -508,14 +509,20 @@ function shiftFromKpiName(name: string): 'Day' | 'Night' | null {
 /** Missed-target entries for one logical KPI (its Day + Night catalog rows
  * combined, if split) — feeds the Insights export table, scoped to
  * whichever KPI the admin picked via the pillar/KPI pills rather than a
- * date-range-across-everything export. */
+ * date-range-across-everything export.
+ *
+ * Pass/fail is recomputed live via metTarget()+the KPI's *current*
+ * is_higher_better, not read from the stored met_target column — that
+ * column is a snapshot taken when the row was written. If a KPI's
+ * direction is corrected later, every entry written before that change
+ * would otherwise keep the old, now-wrong verdict, and this export would
+ * silently disagree with the Board (which already recomputes live). */
 export async function fetchMissedEntriesForKpiIds(kpiIds: string[], sinceDate: string): Promise<RawEntryRow[]> {
   if (kpiIds.length === 0) return [];
   const { data, error } = await supabase
     .from('daily_entries')
-    .select('id, entry_date, actual, target, remarks, reason_other, ai_category, reason:reasons(label), kpi:kpis(name, unit)')
+    .select('id, entry_date, actual, target, remarks, reason_other, ai_category, reason:reasons(label), kpi:kpis(name, unit, is_higher_better)')
     .in('kpi_id', kpiIds)
-    .eq('met_target', false)
     .gte('entry_date', sinceDate)
     .order('entry_date', { ascending: false });
   if (error) throw error;
@@ -528,19 +535,21 @@ export async function fetchMissedEntriesForKpiIds(kpiIds: string[], sinceDate: s
     reason_other: string | null;
     ai_category: string | null;
     reason: { label: string } | null;
-    kpi: { name: string; unit: string } | null;
+    kpi: { name: string; unit: string; is_higher_better: boolean } | null;
   }[];
-  return rows.map((r) => ({
-    id: r.id,
-    entry_date: r.entry_date,
-    shift: r.kpi ? shiftFromKpiName(r.kpi.name) : null,
-    actual: r.actual,
-    target: r.target,
-    unit: r.kpi?.unit ?? '',
-    reason: r.reason_other?.trim() || r.reason?.label || '',
-    remarks: r.remarks ?? '',
-    ai_category: r.ai_category,
-  }));
+  return rows
+    .filter((r) => !metTarget({ is_higher_better: r.kpi?.is_higher_better ?? true }, r.target, r.actual))
+    .map((r) => ({
+      id: r.id,
+      entry_date: r.entry_date,
+      shift: r.kpi ? shiftFromKpiName(r.kpi.name) : null,
+      actual: r.actual,
+      target: r.target,
+      unit: r.kpi?.unit ?? '',
+      reason: r.reason_other?.trim() || r.reason?.label || '',
+      remarks: r.remarks ?? '',
+      ai_category: r.ai_category,
+    }));
 }
 
 export interface CategoryImportRow {
