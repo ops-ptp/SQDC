@@ -20,6 +20,8 @@ import { baseNameOf, errorMessage, PILLAR_COLORS, round2, type Kpi, type Pillar 
 import DataTable, { type DataTableColumn } from '../components/DataTable';
 import ParetoChart from '../components/ParetoChart';
 import PivotFieldPanel, { type PivotZone } from '../components/PivotFieldPanel';
+import { Chip } from '@progress/kendo-react-buttons';
+import { Button, CheckField, InlineLoader, PageLoader, TextAreaField, TextField } from '../components/ui';
 
 const LOOKBACK_DAYS = 180;
 
@@ -74,15 +76,15 @@ function PillarPicker({ pillars, selectedId, onSelect }: { pillars: Pillar[]; se
         const colors = PILLAR_COLORS[p.code] ?? PILLAR_COLORS.Q;
         const isSelected = p.id === selectedId;
         return (
-          <button
+          <Chip
             key={p.id}
-            type="button"
+            text={p.name}
+            rounded="full"
             className="kpi-pill"
+            selected={isSelected}
             style={isSelected ? { background: colors.base, borderColor: colors.base, color: 'white' } : { background: 'white', borderColor: colors.base, color: colors.base }}
             onClick={() => onSelect(p.id)}
-          >
-            {p.name}
-          </button>
+          />
         );
       })}
     </div>
@@ -98,15 +100,15 @@ function KpiPicker({ groups, selectedKey, onSelect }: { groups: KpiGroupOption[]
       {groups.map((g) => {
         const isSelected = g.key === selectedKey;
         return (
-          <button
+          <Chip
             key={g.key}
-            type="button"
+            text={g.label}
+            rounded="full"
             className="kpi-pill"
+            selected={isSelected}
             style={isSelected ? { background: 'var(--text)', borderColor: 'var(--text)', color: 'white' } : { background: 'white', borderColor: 'var(--border)', color: 'var(--text)' }}
             onClick={() => onSelect(g.key)}
-          >
-            {g.label}
-          </button>
+          />
         );
       })}
     </div>
@@ -171,7 +173,7 @@ function ExportTableSection({ kpiGroup, refreshKey }: { kpiGroup: KpiGroupOption
       </p>
       {error && <div className="alert alert-error">{error}</div>}
       {loading ? (
-        <div className="empty-state">Loading…</div>
+        <InlineLoader />
       ) : !kpiGroup ? (
         <div className="empty-state">Pick a pillar and KPI above.</div>
       ) : (
@@ -184,9 +186,9 @@ function ExportTableSection({ kpiGroup, refreshKey }: { kpiGroup: KpiGroupOption
         />
       )}
       <div className="insights-download-row">
-        <button type="button" className="btn btn-primary" disabled={visibleRows.length === 0} onClick={handleDownload}>
+        <Button type="button" themeColor="primary" disabled={visibleRows.length === 0} onClick={handleDownload}>
           Download CSV ({visibleRows.length} row{visibleRows.length === 1 ? '' : 's'})
-        </button>
+        </Button>
       </div>
 
       <details className="insights-prompt-details">
@@ -194,11 +196,11 @@ function ExportTableSection({ kpiGroup, refreshKey }: { kpiGroup: KpiGroupOption
         <div className="insights-prompt-block">
           <div className="insights-prompt-header">
             <span className="muted">Edit the bracketed part to change the angle each cycle.</span>
-            <button type="button" className="btn btn-ghost-light" onClick={handleCopyPrompt}>
+            <Button type="button" onClick={handleCopyPrompt}>
               {copied ? 'Copied ✓' : 'Copy prompt'}
-            </button>
+            </Button>
           </div>
-          <textarea className="insights-prompt-textarea" value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={9} />
+          <TextAreaField className="insights-prompt-textarea" value={prompt} onChange={setPrompt} rows={9} />
         </div>
       </details>
     </div>
@@ -251,9 +253,9 @@ function ImportSection({ onImported }: { onImported: () => void }) {
           if (file) handleFile(file);
         }}
       />
-      <button type="button" className="btn btn-primary" disabled={busy} onClick={() => inputRef.current?.click()}>
+      <Button type="button" themeColor="primary" disabled={busy} onClick={() => inputRef.current?.click()}>
         {busy ? 'Importing…' : 'Choose categorized CSV'}
-      </button>
+      </Button>
       {result && <div className={`alert ${result.ok ? 'alert-success' : 'alert-error'}`} style={{ marginTop: 10 }}>{result.message}</div>}
       {warnings.length > 0 && (
         <details className="admin-warnings">
@@ -413,7 +415,7 @@ function PivotSection({ pillarId, kpiGroup, refreshKey }: { pillarId: string | n
       {!kpiGroup ? (
         <div className="empty-state">Pick a pillar and KPI above.</div>
       ) : loading ? (
-        <div className="empty-state">Loading…</div>
+        <InlineLoader />
       ) : entries.length === 0 ? (
         <div className="empty-state">No categorized entries for this KPI yet — export, categorize, and re-import above first.</div>
       ) : (
@@ -427,12 +429,11 @@ function PivotSection({ pillarId, kpiGroup, refreshKey }: { pillarId: string | n
                     const checked = filterIncluded ? filterIncluded.has(v) : true;
                     return (
                       <label key={v} className="pivot-filter-checkbox">
-                        <input
-                          type="checkbox"
+                        <CheckField
                           checked={checked}
-                          onChange={(e) => {
+                          onChange={(on) => {
                             const next = new Set(filterIncluded ?? filterValues);
-                            if (e.target.checked) next.add(v);
+                            if (on) next.add(v);
                             else next.delete(v);
                             setFilterIncluded(next);
                           }}
@@ -486,14 +487,14 @@ function PivotSection({ pillarId, kpiGroup, refreshKey }: { pillarId: string | n
 
           {rowField && (
             <div className="pivot-save-row">
-              <input className="input pivot-title-input" placeholder={defaultTitle()} value={title} onChange={(e) => setTitle(e.target.value)} />
-              <button type="button" className="btn btn-primary" disabled={saveState.busy} onClick={handleSave}>
+              <TextField className="pivot-title-input" placeholder={defaultTitle()} value={title} onChange={setTitle} ariaLabel="Chart title" />
+              <Button type="button" themeColor="primary" disabled={saveState.busy} onClick={handleSave}>
                 {saveState.busy ? 'Saving…' : existing ? 'Update on Board' : 'Save to Board'}
-              </button>
+              </Button>
               {existing && (
-                <button type="button" className="admin-kpi-delete-btn" disabled={saveState.busy} onClick={handleDelete}>
+                <Button type="button" themeColor="error" disabled={saveState.busy} onClick={handleDelete}>
                   Delete from Board
-                </button>
+                </Button>
               )}
             </div>
           )}
@@ -557,7 +558,7 @@ export default function Insights() {
 
   const selectedKpiGroup = kpiGroups.find((g) => g.key === selectedKpiKey) ?? null;
 
-  if (loading) return <div className="page-loading">Loading…</div>;
+  if (loading) return <PageLoader label="Loading insights…" />;
   if (error) return <div className="alert alert-error page-margin">{error}</div>;
 
   return (

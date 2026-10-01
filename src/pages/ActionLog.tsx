@@ -4,6 +4,67 @@ import { createAction, fetchActions, fetchKpis, fetchPillars, setActionStatus, u
 import { PILLAR_COLORS, errorMessage, type ActionItem, type ActionStatus, type Kpi, type Pillar } from '../types';
 import ActionTable from '../components/ActionTable';
 import Modal from '../components/Modal';
+import { Chip } from '@progress/kendo-react-buttons';
+import { plusIcon } from '@progress/kendo-svg-icons';
+import { Button, DateField, PageLoader, Select, TextField, type SelectOption } from '../components/ui';
+
+/** The six action fields, shared by the "New action" form and the Edit
+ * dialog so the two can't drift apart. */
+function ActionFields({
+  value,
+  onChange,
+  pillars,
+  kpis,
+}: {
+  value: { pillar_id: string; kpi_id: string; related_issue: string; action: string; owner_name: string; deadline: string };
+  onChange: (patch: Partial<{ pillar_id: string; kpi_id: string; related_issue: string; action: string; owner_name: string; deadline: string }>) => void;
+  pillars: Pillar[];
+  kpis: Kpi[];
+}) {
+  const kpiOptions: SelectOption[] = useMemo(
+    () => [
+      { value: '', label: '— None —' },
+      ...kpis.filter((k) => k.pillar_id === value.pillar_id && !k.is_secondary).map((k) => ({ value: k.id, label: k.name })),
+    ],
+    [kpis, value.pillar_id],
+  );
+  return (
+    <div className="form-grid">
+      <label>
+        Pillar
+        <Select
+          value={value.pillar_id}
+          onChange={(v) => onChange({ pillar_id: v, kpi_id: '' })}
+          options={pillars.map((p) => ({ value: p.id, label: p.name }))}
+        />
+      </label>
+      <label>
+        KPI (optional)
+        <Select value={value.kpi_id} onChange={(v) => onChange({ kpi_id: v })} options={kpiOptions} />
+      </label>
+      <label className="span-2">
+        Related reason / issue
+        <TextField
+          value={value.related_issue}
+          onChange={(v) => onChange({ related_issue: v })}
+          placeholder="e.g. Congestion at exit of the gate"
+        />
+      </label>
+      <label className="span-2">
+        Action
+        <TextField value={value.action} onChange={(v) => onChange({ action: v })} placeholder="What will be done about it?" />
+      </label>
+      <label>
+        Owner
+        <TextField value={value.owner_name} onChange={(v) => onChange({ owner_name: v })} />
+      </label>
+      <label>
+        Deadline
+        <DateField value={value.deadline} onChange={(v) => onChange({ deadline: v })} />
+      </label>
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Edit Action — a pop-up form (mirrors the "New action" fields) so an admin
@@ -23,20 +84,20 @@ function ActionEditModal({
   onCancel: () => void;
   onSaved: (updated: ActionItem) => void;
 }) {
-  const [pillarId, setPillarId] = useState(action.pillar_id);
-  const [kpiId, setKpiId] = useState(action.kpi_id ?? '');
-  const [relatedIssue, setRelatedIssue] = useState(action.related_issue);
-  const [actionText, setActionText] = useState(action.action);
-  const [ownerName, setOwnerName] = useState(action.owner_name);
-  const [deadline, setDeadline] = useState(action.deadline ?? '');
+  const [form, setForm] = useState({
+    pillar_id: action.pillar_id,
+    kpi_id: action.kpi_id ?? '',
+    related_issue: action.related_issue,
+    action: action.action,
+    owner_name: action.owner_name,
+    deadline: action.deadline ?? '',
+  });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const kpisForPillar = useMemo(() => kpis.filter((k) => k.pillar_id === pillarId && !k.is_secondary), [kpis, pillarId]);
-
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!pillarId || !relatedIssue.trim() || !actionText.trim() || !ownerName.trim()) {
+    if (!form.pillar_id || !form.related_issue.trim() || !form.action.trim() || !form.owner_name.trim()) {
       setError('Please fill in the pillar, issue, action, and owner.');
       return;
     }
@@ -45,12 +106,12 @@ function ActionEditModal({
     try {
       const updated = await updateAction({
         id: action.id,
-        pillar_id: pillarId,
-        kpi_id: kpiId || null,
-        related_issue: relatedIssue.trim(),
-        action: actionText.trim(),
-        owner_name: ownerName.trim(),
-        deadline: deadline || null,
+        pillar_id: form.pillar_id,
+        kpi_id: form.kpi_id || null,
+        related_issue: form.related_issue.trim(),
+        action: form.action.trim(),
+        owner_name: form.owner_name.trim(),
+        deadline: form.deadline || null,
       });
       onSaved(updated);
     } catch (err) {
@@ -62,64 +123,19 @@ function ActionEditModal({
   return (
     <Modal title="Edit Action" onClose={onCancel} maxWidth={560}>
       <form onSubmit={handleSubmit}>
-        <div className="form-grid">
-          <label>
-            Pillar
-            <select
-              className="input"
-              value={pillarId}
-              onChange={(e) => {
-                setPillarId(e.target.value);
-                setKpiId('');
-              }}
-            >
-              {pillars.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            KPI (optional)
-            <select className="input" value={kpiId} onChange={(e) => setKpiId(e.target.value)}>
-              <option value="">— None —</option>
-              {kpisForPillar.map((k) => (
-                <option key={k.id} value={k.id}>
-                  {k.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="span-2">
-            Related reason / issue
-            <input className="input" value={relatedIssue} onChange={(e) => setRelatedIssue(e.target.value)} />
-          </label>
-          <label className="span-2">
-            Action
-            <input className="input" value={actionText} onChange={(e) => setActionText(e.target.value)} />
-          </label>
-          <label>
-            Owner
-            <input className="input" value={ownerName} onChange={(e) => setOwnerName(e.target.value)} />
-          </label>
-          <label>
-            Deadline
-            <input type="date" className="input" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
-          </label>
-        </div>
+        <ActionFields value={form} onChange={(patch) => setForm((f) => ({ ...f, ...patch }))} pillars={pillars} kpis={kpis} />
         {error && (
           <div className="alert alert-error" style={{ marginTop: 12 }}>
             {error}
           </div>
         )}
         <div className="modal-actions">
-          <button type="button" className="btn btn-ghost-light" onClick={onCancel} disabled={saving}>
+          <Button type="button" onClick={onCancel} disabled={saving}>
             Cancel
-          </button>
-          <button type="submit" className="btn btn-primary" disabled={saving}>
+          </Button>
+          <Button type="submit" themeColor="primary" disabled={saving}>
             {saving ? 'Saving…' : 'Save'}
-          </button>
+          </Button>
         </div>
       </form>
     </Modal>
@@ -165,8 +181,6 @@ export default function ActionLog() {
     if (employee) setForm((f) => ({ ...f, owner_name: f.owner_name || employee.name }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const kpisForFormPillar = useMemo(() => kpis.filter((k) => k.pillar_id === form.pillar_id && !k.is_secondary), [kpis, form.pillar_id]);
 
   const filteredActions = useMemo(
     () => (filterPillar === 'all' ? actions : actions.filter((a) => a.pillar_id === filterPillar)),
@@ -216,7 +230,7 @@ export default function ActionLog() {
     }
   }
 
-  if (loading) return <div className="page-loading">Loading action log…</div>;
+  if (loading) return <PageLoader label="Loading action log…" />;
 
   return (
     <div className="page">
@@ -225,92 +239,39 @@ export default function ActionLog() {
           <h1>Action Log</h1>
           <p className="muted">Actions raised against Pareto reasons across all four pillars.</p>
         </div>
-        <button className="btn btn-primary" onClick={() => setShowForm((s) => !s)}>
-          {showForm ? 'Cancel' : '+ New action'}
-        </button>
+        <Button themeColor={showForm ? 'base' : 'primary'} svgIcon={showForm ? undefined : plusIcon} onClick={() => setShowForm((s) => !s)}>
+          {showForm ? 'Cancel' : 'New action'}
+        </Button>
       </div>
 
       {showForm && (
         <form className="card action-form" onSubmit={handleSubmit}>
-          <div className="form-grid">
-            <label>
-              Pillar
-              <select
-                className="input"
-                value={form.pillar_id}
-                onChange={(e) => setForm((f) => ({ ...f, pillar_id: e.target.value, kpi_id: '' }))}
-              >
-                {pillars.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              KPI (optional)
-              <select className="input" value={form.kpi_id} onChange={(e) => setForm((f) => ({ ...f, kpi_id: e.target.value }))}>
-                <option value="">— None —</option>
-                {kpisForFormPillar.map((k) => (
-                  <option key={k.id} value={k.id}>
-                    {k.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="span-2">
-              Related reason / issue
-              <input
-                className="input"
-                value={form.related_issue}
-                onChange={(e) => setForm((f) => ({ ...f, related_issue: e.target.value }))}
-                placeholder="e.g. Congestion at exit of the gate"
-              />
-            </label>
-            <label className="span-2">
-              Action
-              <input
-                className="input"
-                value={form.action}
-                onChange={(e) => setForm((f) => ({ ...f, action: e.target.value }))}
-                placeholder="What will be done about it?"
-              />
-            </label>
-            <label>
-              Owner
-              <input className="input" value={form.owner_name} onChange={(e) => setForm((f) => ({ ...f, owner_name: e.target.value }))} />
-            </label>
-            <label>
-              Deadline
-              <input
-                type="date"
-                className="input"
-                value={form.deadline}
-                onChange={(e) => setForm((f) => ({ ...f, deadline: e.target.value }))}
-              />
-            </label>
-          </div>
+          <ActionFields value={form} onChange={(patch) => setForm((f) => ({ ...f, ...patch }))} pillars={pillars} kpis={kpis} />
           {formError && <div className="alert alert-error">{formError}</div>}
-          <button className="btn btn-primary" type="submit" disabled={submitting}>
-            {submitting ? 'Saving…' : 'Add action'}
-          </button>
+          <div>
+            <Button themeColor="primary" type="submit" disabled={submitting}>
+              {submitting ? 'Saving…' : 'Add action'}
+            </Button>
+          </div>
         </form>
       )}
 
-      <div className="filter-row">
-        <button className={`chip ${filterPillar === 'all' ? 'chip-active' : ''}`} onClick={() => setFilterPillar('all')}>
-          All pillars
-        </button>
-        {pillars.map((p) => (
-          <button
-            key={p.id}
-            className={`chip ${filterPillar === p.id ? 'chip-active' : ''}`}
-            style={filterPillar === p.id ? { background: (PILLAR_COLORS[p.code] ?? PILLAR_COLORS.S).base, color: 'white' } : undefined}
-            onClick={() => setFilterPillar(p.id)}
-          >
-            {p.name}
-          </button>
-        ))}
+      <div className="filter-row" role="group" aria-label="Filter by pillar">
+        <Chip text="All pillars" selected={filterPillar === 'all'} rounded="full" onClick={() => setFilterPillar('all')} />
+        {pillars.map((p) => {
+          const selected = filterPillar === p.id;
+          const base = (PILLAR_COLORS[p.code] ?? PILLAR_COLORS.S).base;
+          return (
+            <Chip
+              key={p.id}
+              text={p.name}
+              rounded="full"
+              selected={selected}
+              style={selected ? { background: base, borderColor: base, color: 'white' } : undefined}
+              onClick={() => setFilterPillar(p.id)}
+            />
+          );
+        })}
       </div>
 
       <section className="card action-section">

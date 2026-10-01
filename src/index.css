@@ -267,12 +267,6 @@ p {
     margin-left: 0;
   }
 
-  .navbar-user .btn,
-  .navbar-user a.btn {
-    width: 100%;
-    text-align: center;
-  }
-
   .navbar-employee {
     font-size: 14px;
   }
@@ -293,29 +287,12 @@ p {
 }
 
 /* ---------------- Buttons / inputs ---------------- */
-.btn {
-  border: none;
-  border-radius: 8px;
-  padding: 9px 16px;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: opacity 0.15s ease;
-}
-
-.btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
 
 @media (max-width: 640px) {
   /* Slightly taller tap targets across the board's small interactive
      controls, without changing their look on desktop. */
-  .btn,
-  .chip,
   .entry-pill,
-  .kpi-pill,
-  .segmented-btn {
+  .kpi-pill {
     padding-top: 10px;
     padding-bottom: 10px;
   }
@@ -324,62 +301,6 @@ p {
     padding-left: 12px;
     padding-right: 12px;
   }
-}
-
-.btn-primary {
-  background: var(--primary);
-  color: white;
-  text-decoration: none;
-  display: inline-block;
-}
-
-.btn-primary:hover:not(:disabled) {
-  opacity: 0.9;
-}
-
-.btn-ghost {
-  background: rgba(255, 255, 255, 0.1);
-  color: white;
-}
-
-.btn-ghost-light {
-  background: #f1f5f9;
-  color: var(--text);
-  padding: 7px 12px;
-  font-size: 13px;
-}
-
-.btn-ghost-light:hover:not(:disabled) {
-  background: #e2e8f0;
-}
-
-.btn-lg {
-  padding: 12px 20px;
-  font-size: 15px;
-  width: 100%;
-}
-
-.input {
-  width: 100%;
-  padding: 9px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font-size: 14px;
-  background: white;
-  color: var(--text);
-  margin-bottom: 10px;
-}
-
-.input:focus {
-  outline: 2px solid var(--primary);
-  outline-offset: 1px;
-}
-
-.input-lg {
-  padding: 14px;
-  font-size: 18px;
-  text-align: center;
-  letter-spacing: 1px;
 }
 
 /* ---------------- Layout helpers ---------------- */
@@ -395,7 +316,10 @@ p {
 
 .page-loading {
   padding: 60px;
-  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
   color: var(--muted);
 }
 
@@ -438,10 +362,6 @@ p {
 
   .page-header-row .date-picker {
     align-items: stretch;
-  }
-
-  .page-header-row .date-picker .input {
-    width: 100%;
   }
 
   h1 {
@@ -575,20 +495,6 @@ p {
   color: var(--text);
 }
 
-.admin-kpi-delete-btn {
-  background: none;
-  border: 1px solid #fecaca;
-  color: #b91c1c;
-  border-radius: 6px;
-  padding: 4px 10px;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.admin-kpi-delete-btn:hover {
-  background: #fee2e2;
-}
-
 /* ---------------- Admin upload — column diff preview ---------------- */
 .upload-diff-group {
   margin-top: 8px;
@@ -667,18 +573,6 @@ p {
   margin-top: 20px;
 }
 
-.entry-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 16px;
-}
-
-@media (max-width: 340px) {
-  .entry-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
 .entry-card {
   border-top: 4px solid transparent;
   display: flex;
@@ -687,17 +581,6 @@ p {
 
 .entry-card-header {
   margin-bottom: 12px;
-}
-
-.pillar-tag {
-  display: inline-block;
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  margin-bottom: 6px;
 }
 
 .field-label {
@@ -727,20 +610,6 @@ p {
   align-items: flex-start;
 }
 
-.date-picker .input {
-  width: auto;
-}
-
-.segmented-sm {
-  align-self: flex-start;
-  margin-bottom: 12px;
-}
-
-.segmented-sm .segmented-btn {
-  padding: 5px 14px;
-  font-size: 12px;
-}
-
 .pill {
   display: inline-block;
   font-size: 12px;
@@ -767,7 +636,7 @@ p {
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 4px 16px;
+  gap: 14px 16px;
 }
 
 .form-grid label {
@@ -795,23 +664,6 @@ p {
   .span-2 {
     grid-column: span 1;
   }
-}
-
-.chip {
-  border: 1px solid var(--border);
-  background: white;
-  border-radius: 999px;
-  padding: 6px 14px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  color: var(--text);
-}
-
-.chip-active {
-  border-color: transparent;
-  background: var(--primary);
-  color: white;
 }
 
 .action-section {
@@ -936,16 +788,9 @@ p {
 }
 
 .board-reviewing-reset {
-  display: inline-block;
-  margin-left: 6px;
-  background: none;
-  border: none;
+  margin-left: 4px;
   color: var(--muted);
   font-size: 11.5px;
-  font-weight: 600;
-  cursor: pointer;
-  text-decoration: underline;
-  padding: 0;
 }
 
 .board-reviewing-reset:hover {
@@ -953,45 +798,10 @@ p {
 }
 
 /* ---------------- Segmented toggle (Daily / Weekly) ---------------- */
-.segmented {
-  display: inline-flex;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface);
-  padding: 3px;
-  gap: 2px;
-}
-
-.segmented-btn {
-  border: none;
-  background: transparent;
-  color: var(--muted);
-  font-size: 13px;
-  font-weight: 600;
-  padding: 7px 18px;
-  border-radius: 7px;
-  cursor: pointer;
-}
-
-.segmented-btn-active {
-  background: var(--text);
-  color: white;
-}
-
-.segmented-btn:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
-}
 
 .board-month-select {
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface);
-  color: var(--text);
-  font-size: 13px;
+  width: 170px;
   font-weight: 600;
-  padding: 8px 10px;
-  cursor: pointer;
 }
 
 .board-grid {
@@ -1317,13 +1127,12 @@ p {
   white-space: nowrap;
 }
 
-.status-select {
+.status-select.k-picker {
   font-size: 11.5px;
   font-weight: 700;
-  padding: 4px 8px;
   border-radius: 999px;
   border: none;
-  cursor: pointer;
+  min-width: 128px;
 }
 
 /* ---------------- Next 24 Hours board ---------------- */
@@ -1365,12 +1174,6 @@ p {
   }
 }
 
-.fl-empty,
-.fl-card-form,
-.fl-add-btn {
-  grid-column: 1 / -1;
-}
-
 .fl-column-header {
   display: flex;
   align-items: baseline;
@@ -1384,61 +1187,12 @@ p {
   color: var(--text);
 }
 
-.fl-column-date {
-  font-size: 12px;
-  color: var(--muted);
-  font-weight: 600;
-}
-
-.fl-empty {
-  text-align: center;
-  color: var(--muted);
-  font-size: 12.5px;
-  padding: 18px 8px;
-  border: 1px dashed var(--border);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.5);
-}
-
 .fl-card {
   background: var(--surface);
   border-radius: 10px;
   border-left: 4px solid transparent;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
   padding: 12px 12px 10px;
-}
-
-.fl-card-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
-}
-
-.fl-card-menu {
-  display: flex;
-  gap: 4px;
-}
-
-.fl-icon-btn {
-  border: 1px solid var(--border);
-  background: white;
-  color: var(--muted);
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
-  font-size: 12px;
-  cursor: pointer;
-  line-height: 1;
-}
-
-.fl-icon-btn:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-}
-
-.fl-icon-btn:hover:not(:disabled) {
-  background: #f1f5f9;
 }
 
 .fl-card-kpi {
@@ -1475,54 +1229,6 @@ p {
 }
 
 /* ---------------- Modal (KPI delete confirm, letter-grid day detail) ---------------- */
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.55);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-  z-index: 1000;
-}
-
-.modal-card {
-  background: var(--surface);
-  border-radius: 12px;
-  width: 100%;
-  max-height: 85vh;
-  overflow-y: auto;
-  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.25);
-}
-
-.modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 18px;
-  border-bottom: 1px solid var(--border);
-  position: sticky;
-  top: 0;
-  background: var(--surface);
-}
-
-.modal-header h3 {
-  margin: 0;
-}
-
-.modal-close {
-  background: none;
-  border: none;
-  font-size: 22px;
-  line-height: 1;
-  color: var(--muted);
-  cursor: pointer;
-  padding: 4px 6px;
-}
-
-.modal-close:hover {
-  color: var(--text);
-}
 
 .modal-body {
   padding: 18px;
@@ -1549,28 +1255,6 @@ p {
 }
 
 /* ---------------- Letter-grid day-detail modal ---------------- */
-.detail-shift {
-  padding: 10px 0;
-  border-bottom: 1px solid var(--grid-line);
-}
-
-.detail-shift:last-of-type {
-  border-bottom: none;
-}
-
-.detail-shift-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.detail-shift-label {
-  font-weight: 700;
-  font-size: 13px;
-  color: var(--muted);
-}
 
 /* ---------------- Insights page ---------------- */
 .insights-stack {
@@ -1613,12 +1297,7 @@ p {
   font-family: ui-monospace, 'SF Mono', Menlo, monospace;
   font-size: 12.5px;
   line-height: 1.5;
-  padding: 10px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
   background: #f8fafc;
-  color: var(--text);
-  resize: vertical;
 }
 
 /* ---------------- Excel-style DataTable ---------------- */
@@ -1684,10 +1363,6 @@ p {
 .data-table-filter-search {
   width: 100%;
   font-size: 12px;
-  padding: 5px 7px;
-  border-radius: 5px;
-  border: 1px solid var(--border);
-  box-sizing: border-box;
   margin-bottom: 6px;
 }
 
@@ -1965,20 +1640,6 @@ p {
 .category-add-input {
   flex: 1;
   min-width: 0;
-  padding: 5px 8px;
-  font-size: 12.5px;
-}
-
-.category-picker-loading {
-  font-size: 12.5px;
-}
-
-.cat-pareto-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  flex-wrap: wrap;
 }
 
 .cat-pareto-tabs {
@@ -2110,23 +1771,99 @@ p {
   text-align: center;
 }
 
-.btn-icon {
-  border: 1px solid var(--border);
-  background: white;
-  border-radius: 6px;
-  width: 28px;
-  height: 28px;
-  cursor: pointer;
-  font-size: 14px;
-  line-height: 1;
+/* ---------------- KendoReact integration ---------------- */
+/* Small adjustments so the Kendo (free) components sit naturally inside
+   the app's existing layout. Colours come from src/styles/kendo.scss. */
+
+.inline-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
 }
 
-.btn-icon:disabled {
-  opacity: 0.4;
-  cursor: default;
+/* Form labels stack their Kendo field underneath. */
+.form-grid label,
+.date-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
-.btn-sm {
-  padding: 5px 10px;
-  font-size: 12.5px;
+.login-card .k-input,
+.login-input {
+  font-size: 18px;
+}
+
+/* Navbar sits on the dark teal — outline buttons need light text. */
+.navbar .navbar-btn.k-button {
+  color: white;
+  border-color: rgba(255, 255, 255, 0.45);
+}
+.navbar .navbar-btn.k-button:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* Pill-shaped chips keep the bold, coloured look of the old pills; their
+   colours are still set inline from pillar/pass-fail state. */
+.k-chip.entry-pill,
+.k-chip.kpi-pill,
+.k-chip.category-chip {
+  border-width: 2px;
+  font-weight: 700;
+  height: auto;
+}
+.k-chip.category-chip {
+  border-width: 1px;
+  font-weight: 500;
+}
+.k-chip.entry-pill {
+  padding: 7px 14px;
+  font-size: 13px;
+}
+.k-chip.kpi-pill {
+  padding: 5px 12px;
+  font-size: 11.5px;
+}
+
+.entry-shift-toggle {
+  align-self: flex-start;
+  margin-bottom: 10px;
+}
+
+.reason-block .k-picker,
+.reason-block .k-input {
+  margin-bottom: 8px;
+}
+
+.cat-pareto-tabs.k-segmented-control {
+  margin: 6px 0 2px;
+}
+
+.board-page-controls .k-segmented-control {
+  flex-shrink: 0;
+}
+
+.admin-tabs.k-tabstrip > .k-tabstrip-content,
+.admin-tabs .k-tabstrip-content {
+  padding: 16px 0 0;
+  border: none;
+  background: transparent;
+}
+
+.app-dialog .k-dialog-content {
+  padding: 18px 20px;
+}
+
+
+.action-form .form-grid,
+.app-dialog .form-grid {
+  margin-bottom: 16px;
+}
+.date-picker .k-datepicker {
+  width: 190px;
+}
+.entry-card > .field-label,
+.entry-card .reason-block .field-label {
+  margin-top: 10px;
 }

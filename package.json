@@ -10,6 +10,20 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@progress/kendo-licensing": "^1.11.3",
+    "@progress/kendo-react-buttons": "^16.1.0",
+    "@progress/kendo-react-common": "^16.1.0",
+    "@progress/kendo-react-dateinputs": "^16.1.0",
+    "@progress/kendo-react-dialogs": "^16.1.0",
+    "@progress/kendo-react-dropdowns": "^16.1.0",
+    "@progress/kendo-react-indicators": "^16.1.0",
+    "@progress/kendo-react-inputs": "^16.1.0",
+    "@progress/kendo-react-intl": "^16.1.0",
+    "@progress/kendo-react-labels": "^16.1.0",
+    "@progress/kendo-react-layout": "^16.1.0",
+    "@progress/kendo-react-popup": "^16.1.0",
+    "@progress/kendo-svg-icons": "^5.5.0",
+    "@progress/kendo-theme-default": "^14.6.0",
     "@supabase/supabase-js": "^2.112.3",
     "date-fns": "^4.4.0",
     "exceljs": "^4.4.0",
@@ -26,6 +40,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.4",
     "oxlint": "^1.75.0",
+    "sass-embedded": "^1.105.1",
     "typescript": "~6.0.2",
     "vite": "^8.2.0"
   }

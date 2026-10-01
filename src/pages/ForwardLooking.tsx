@@ -2,6 +2,7 @@ import { format, parseISO } from 'date-fns';
 import { useEffect, useMemo, useState } from 'react';
 import { fetchLatestLeadingEntries, fetchLeadingKpis } from '../lib/data';
 import { PILLAR_COLORS, errorMessage, round2, type KpiWithPillar, type LeadingEntry } from '../types';
+import { PageLoader } from '../components/ui';
 
 const TODAY = new Date();
 
@@ -64,7 +65,7 @@ export default function ForwardLooking() {
     return Array.from(byPillar.values()).sort((a, b) => pillarOrderIndex(a.pillar.code) - pillarOrderIndex(b.pillar.code));
   }, [kpis]);
 
-  if (loading) return <div className="page-loading">Loading Next 24 Hours board…</div>;
+  if (loading) return <PageLoader label="Loading Next 24 Hours board…" />;
   if (error) return <div className="alert alert-error page-margin">{error}</div>;
 
   return (

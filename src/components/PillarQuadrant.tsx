@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { addDays, format, parseISO, startOfMonth, getDaysInMonth, startOfWeek, subWeeks, subDays, getISOWeek, getISOWeekYear } from 'date-fns';
 import { fetchActions, fetchCategorizedEntriesForKpiIds, fetchCustomParetosForPillar, fetchEntriesForKpi, fetchEntriesForKpisOnDate, fetchKpiDailyTargetsForDate, fetchReasonsForKpi, fetchWeeklyEntriesForKpiBase, fetchWeeklyEntriesForPillar, type CategorizedEntryRow, type CustomPareto } from '../lib/data';
 import { applyPivotFilter, computeChartData, computeCrossTab, pivotFieldLabel } from '../lib/pivot';
-import { WEEKLY_HEADER_TO_BASE } from '../lib/excelUpload';
+import { WEEKLY_HEADER_TO_BASE } from '../lib/weeklyKpis';
 
 const WEEKLY_TRACKED_BASE_NAMES = new Set(Object.values(WEEKLY_HEADER_TO_BASE));
 import { useEmployee } from '../context/EmployeeContext';
@@ -14,6 +14,7 @@ import CategoryPareto from './CategoryPareto';
 import { paretoPeriod as computeParetoPeriod, type ParetoPeriod } from '../lib/categoryCore';
 import ActionTable from './ActionTable';
 import PillarLetterGrid, { type DayStatus } from './PillarLetterGrid';
+import { InlineLoader } from './ui';
 
 export type Granularity = 'daily' | 'weekly';
 
@@ -744,7 +745,7 @@ export default function PillarQuadrant({
               {granularity === 'weekly' ? 'Trend — last 8 ISO weeks' : 'Trend — last 7 days'}
             </div>
             {loading ? (
-              <div className="empty-state">Loading…</div>
+              <InlineLoader />
             ) : (
               <KpiRunChart
                 points={chartPoints}

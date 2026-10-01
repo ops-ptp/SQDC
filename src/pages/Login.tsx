@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useEmployee } from '../context/EmployeeContext';
 import { errorMessage } from '../types';
+import { Button, TextField } from '../components/ui';
 
 export default function Login() {
   const { loginWithCode } = useEmployee();
@@ -32,18 +33,11 @@ export default function Login() {
       <form className="card login-card" onSubmit={handleSubmit}>
         <h1>Enter your Employee ID</h1>
         <p className="muted">Only accessible employee can enter this page.</p>
-        <input
-          autoFocus
-          className="input input-lg"
-          placeholder="000001"
-          inputMode="numeric"
-          value={code}
-          onChange={(e) => setCode(e.target.value)}
-        />
+        <TextField autoFocus className="login-input" placeholder="000001" inputMode="numeric" ariaLabel="Employee ID" value={code} onChange={setCode} />
         {error && <div className="alert alert-error">{error}</div>}
-        <button className="btn btn-primary btn-lg" type="submit" disabled={submitting}>
+        <Button themeColor="primary" size="large" type="submit" disabled={submitting}>
           {submitting ? 'Checking…' : 'Continue'}
-        </button>
+        </Button>
       </form>
     </div>
   );

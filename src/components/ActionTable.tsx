@@ -1,5 +1,8 @@
 import { format, parseISO } from 'date-fns';
 import { useEffect, useState } from 'react';
+import { DropDownList } from '@progress/kendo-react-dropdowns';
+import { pencilIcon } from '@progress/kendo-svg-icons';
+import { Button } from './ui';
 import { ACTION_STATUS_META, PILLAR_COLORS, getDisplayStatus, type ActionItem, type ActionStatus, type Pillar } from '../types';
 
 interface Props {
@@ -13,6 +16,7 @@ interface Props {
 }
 
 const STATUS_ORDER: ActionStatus[] = ['not_started', 'in_progress', 'dropped', 'completed'];
+const STATUS_OPTIONS = STATUS_ORDER.map((s) => ({ value: s, label: ACTION_STATUS_META[s].label }));
 
 /** Today's date as 'yyyy-MM-dd', re-synced automatically at the next local
  * midnight. The Action Log can stay open on a shared/kiosk display for
@@ -91,20 +95,18 @@ export default function ActionTable({ actions, onStatusChange, compact, pillars,
                 <td>{a.deadline ? format(parseISO(a.deadline), 'd MMM yyyy') : '—'}</td>
                 <td>
                   {onStatusChange ? (
-                    <select
+                    <DropDownList
                       className="status-select"
                       style={{ color: meta.color, background: meta.bg }}
-                      value={a.status}
-                      onChange={(e) => onStatusChange(a, e.target.value as ActionStatus)}
-                      aria-label="Change status"
+                      data={STATUS_OPTIONS}
+                      textField="label"
+                      dataItemKey="value"
+                      value={STATUS_OPTIONS.find((o) => o.value === a.status)}
+                      onChange={(e) => onStatusChange(a, (e.value as { value: ActionStatus }).value)}
+                      ariaLabel="Change status"
                       title={displayStatus === 'overdue' ? 'Past its deadline — pick a status to update it' : undefined}
-                    >
-                      {STATUS_ORDER.map((s) => (
-                        <option key={s} value={s}>
-                          {ACTION_STATUS_META[s].label}
-                        </option>
-                      ))}
-                    </select>
+                      size="small"
+                    />
                   ) : (
                     <span className="status-badge" style={{ color: meta.color, background: meta.bg }}>
                       {meta.label}
@@ -113,9 +115,9 @@ export default function ActionTable({ actions, onStatusChange, compact, pillars,
                 </td>
                 {onEdit && (
                   <td>
-                    <button type="button" className="btn btn-ghost-light" onClick={() => onEdit(a)}>
+                    <Button size="small" fillMode="flat" svgIcon={pencilIcon} onClick={() => onEdit(a)}>
                       Edit
-                    </button>
+                    </Button>
                   </td>
                 )}
               </tr>

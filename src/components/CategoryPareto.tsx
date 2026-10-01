@@ -5,6 +5,8 @@ import { computeParetoRows, orderedDimensions, type ParetoPeriod } from '../lib/
 import { errorMessage, round2 } from '../types';
 import CategoryPicker from './CategoryPicker';
 import ParetoChart from './ParetoChart';
+import { SegmentedControl } from '@progress/kendo-react-buttons';
+import { InlineLoader } from './ui';
 
 interface Props {
   pillarId: string;
@@ -99,31 +101,24 @@ export default function CategoryPareto({ pillarId, kpiBaseName, kpiIds, dayKpiId
     return '';
   }
 
-  if (loading && !hasLoaded) return <div className="empty-state">Loading…</div>;
+  if (loading && !hasLoaded) return <InlineLoader />;
   if (error) return <div className="alert alert-error">{error}</div>;
   if (list.length === 0 && tags.length === 0) return <>{fallback}</>;
 
   return (
     <div>
       {dimensions.length > 1 && (
-        <div className="cat-pareto-tabs segmented segmented-sm" role="tablist">
-          {dimensions.map((d) => (
-            <button
-              key={d}
-              type="button"
-              role="tab"
-              aria-selected={d === activeDimension}
-              className={`segmented-btn ${d === activeDimension ? 'segmented-btn-active' : ''}`}
-              onClick={() => {
-                setDimension(d);
-                setSelected(null);
-                setEditingEntryId(null);
-              }}
-            >
-              {d}
-            </button>
-          ))}
-        </div>
+        <SegmentedControl
+          size="small"
+          className="cat-pareto-tabs"
+          value={activeDimension}
+          onChange={(d) => {
+            setDimension(d);
+            setSelected(null);
+            setEditingEntryId(null);
+          }}
+          items={dimensions.map((d) => ({ value: d, text: d }))}
+        />
       )}
 
       {rows.length === 0 ? (

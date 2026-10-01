@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { CheckField, TextField } from './ui';
 
 export interface DataTableColumn<T> {
   key: string;
@@ -90,22 +91,16 @@ function FilterDropdown({
       ref={ref}
       style={{ position: 'fixed', top: anchorRect.bottom + 4, left: Math.min(anchorRect.left, window.innerWidth - 236) }}
     >
-      <input
-        className="data-table-filter-search"
-        placeholder="Search…"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        autoFocus
-      />
+      <TextField className="data-table-filter-search" placeholder="Search…" value={search} onChange={setSearch} autoFocus ariaLabel="Search values" />
       <label className="data-table-filter-option data-table-filter-select-all">
-        <input type="checkbox" checked={allVisibleChecked} onChange={toggleSelectAllVisible} />
+        <CheckField checked={allVisibleChecked} onChange={() => toggleSelectAllVisible()} />
         Select all
       </label>
       <div className="data-table-filter-option-list">
         {visibleValues.length === 0 && <div className="data-table-filter-empty">No matches</div>}
         {visibleValues.map((v) => (
           <label key={v} className="data-table-filter-option">
-            <input type="checkbox" checked={isChecked(v)} onChange={() => toggleValue(v)} />
+            <CheckField checked={isChecked(v)} onChange={() => toggleValue(v)} />
             <span className="data-table-filter-option-text">{v || '(blank)'}</span>
           </label>
         ))}

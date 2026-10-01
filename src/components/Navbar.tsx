@@ -1,10 +1,13 @@
 import { useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
+import { logoutIcon, userIcon } from '@progress/kendo-svg-icons';
+import { Button } from './ui';
 import { useEmployee } from '../context/EmployeeContext';
 
 export default function Navbar() {
   const { employee, logout } = useEmployee();
   const [menuOpen, setMenuOpen] = useState(false);
+  const navigate = useNavigate();
 
   const linkClass = ({ isActive }: { isActive: boolean }) => (isActive ? 'active' : '');
   const closeMenu = () => setMenuOpen(false);
@@ -62,20 +65,29 @@ export default function Navbar() {
               <span className="navbar-employee">
                 {employee.name} <span className="navbar-employee-code">({employee.employee_code})</span>
               </span>
-              <button
-                className="btn btn-ghost"
+              <Button
+                fillMode="outline"
+                className="navbar-btn"
+                svgIcon={logoutIcon}
                 onClick={() => {
                   closeMenu();
                   logout();
                 }}
               >
                 Switch user
-              </button>
+              </Button>
             </>
           ) : (
-            <NavLink to="/login" className="btn btn-primary" onClick={closeMenu}>
+            <Button
+              themeColor="primary"
+              svgIcon={userIcon}
+              onClick={() => {
+                closeMenu();
+                navigate('/login');
+              }}
+            >
               Log in
-            </NavLink>
+            </Button>
           )}
         </div>
       </div>

@@ -36,6 +36,14 @@ import { baseNameOf, errorMessage, normalizeEmployeeCode, type Employee, type Kp
 import Modal from '../components/Modal';
 import { bulkAddEntryCategories, bulkAddKpiCategories, fetchEntriesLite, fillEmptyRemarks } from '../lib/categories';
 import { familyOf, matchRows, parseParetoWorkbook } from '../lib/categoryImport';
+import { TabStrip, TabStripTab } from '@progress/kendo-react-layout';
+import { pencilIcon, plusIcon, trashIcon } from '@progress/kendo-svg-icons';
+import { Button, CheckField, InlineLoader, Select, TextField } from '../components/ui';
+
+const DIRECTION_OPTIONS = [
+  { value: 'higher', label: 'Higher is better' },
+  { value: 'lower', label: 'Lower is better' },
+];
 
 interface UploadResult {
   ok: boolean;
@@ -94,9 +102,9 @@ function UploadCard({
           if (file) handleFile(file);
         }}
       />
-      <button type="button" className="btn btn-primary" disabled={busy} onClick={() => inputRef.current?.click()}>
+      <Button type="button" themeColor="primary" disabled={busy} onClick={() => inputRef.current?.click()}>
         {busy ? 'Uploading…' : fileName ? `Upload another file` : 'Choose file & upload'}
-      </button>
+      </Button>
       {fileName && <div className="admin-filename muted">{fileName}</div>}
       {result && (
         <div className={`alert ${result.ok ? 'alert-success' : 'alert-error'}`} style={{ marginTop: 10 }}>
@@ -274,26 +282,26 @@ function DailyUploadCard({
         }}
       />
       {phase === 'idle' && (
-        <button type="button" className="btn btn-primary" onClick={() => inputRef.current?.click()}>
+        <Button type="button" themeColor="primary" onClick={() => inputRef.current?.click()}>
           {result ? 'Choose another file' : 'Choose file'}
-        </button>
+        </Button>
       )}
       {fileName && phase !== 'idle' && <div className="admin-filename muted">{fileName}</div>}
-      {phase === 'analyzing' && <div className="empty-state">Reading file…</div>}
+      {phase === 'analyzing' && <InlineLoader label="Reading file…" />}
       {phase === 'preview' && preview && (
         <>
           <ColumnChangeSummary preview={preview} />
           <div className="modal-actions">
-            <button type="button" className="btn btn-ghost-light" onClick={handleCancel}>
+            <Button type="button" onClick={handleCancel}>
               Cancel
-            </button>
-            <button type="button" className="btn btn-primary" onClick={handleConfirm}>
+            </Button>
+            <Button type="button" themeColor="primary" onClick={handleConfirm}>
               Confirm &amp; upload
-            </button>
+            </Button>
           </div>
         </>
       )}
-      {phase === 'uploading' && <div className="empty-state">Uploading…</div>}
+      {phase === 'uploading' && <InlineLoader label="Uploading…" />}
       {error && (
         <div className="alert alert-error" style={{ marginTop: 10 }}>
           {error}
@@ -411,22 +419,21 @@ function KpiManagementTable({
                   {r.hasSecondary && <span className="pill pill-bad admin-kpi-secondary-tag">+old calc</span>}
                 </td>
                 <td>
-                  <select
+                  <Select
                     className="admin-kpi-direction-select"
                     value={r.is_higher_better ? 'higher' : 'lower'}
-                    onChange={(e) => onChangeDirection(r.key, e.target.value === 'higher')}
-                  >
-                    <option value="higher">Higher is better</option>
-                    <option value="lower">Lower is better</option>
-                  </select>
+                    onChange={(v) => onChangeDirection(r.key, v === 'higher')}
+                    options={DIRECTION_OPTIONS}
+                    ariaLabel={`Direction for ${r.name}`}
+                  />
                 </td>
                 <td>
-                  <input type="checkbox" checked={r.active} onChange={(e) => onToggleVisible(r.key, e.target.checked)} />
+                  <CheckField checked={r.active} onChange={(v) => onToggleVisible(r.key, v)} />
                 </td>
                 <td>
-                  <button type="button" className="admin-kpi-delete-btn" onClick={() => onDelete(r)}>
+                  <Button type="button" size="small" fillMode="flat" themeColor="error" svgIcon={trashIcon} onClick={() => onDelete(r)}>
                     Delete
-                  </button>
+                  </Button>
                 </td>
               </tr>
             ))}
@@ -465,12 +472,12 @@ function DeleteKpiModal({ row, onCancel, onConfirmed }: { row: EditableGroup; on
       </p>
       {error && <div className="alert alert-error">{error}</div>}
       <div className="modal-actions">
-        <button type="button" className="btn btn-ghost-light" onClick={onCancel} disabled={deleting}>
+        <Button type="button" onClick={onCancel} disabled={deleting}>
           Cancel
-        </button>
-        <button type="button" className="admin-kpi-delete-btn" onClick={handleDelete} disabled={deleting}>
+        </Button>
+        <Button type="button" themeColor="error" onClick={handleDelete} disabled={deleting}>
           {deleting ? 'Deleting…' : 'Delete permanently'}
-        </button>
+        </Button>
       </div>
     </Modal>
   );
@@ -554,16 +561,16 @@ function KpiManagementSection({ refreshKey }: { refreshKey: number }) {
             per-person view. "Delete" is permanent and erases all of its history.
           </p>
         </div>
-        <button type="button" className="btn btn-primary" disabled={saving || dirtyRows.length === 0} onClick={handleSave}>
+        <Button type="button" themeColor="primary" disabled={saving || dirtyRows.length === 0} onClick={handleSave}>
           {saving ? 'Saving…' : dirtyRows.length > 0 ? `Save changes (${dirtyRows.length})` : 'Save changes'}
-        </button>
+        </Button>
       </div>
 
       {message && <div className="alert alert-success">{message}</div>}
       {error && <div className="alert alert-error">{error}</div>}
 
       {loading ? (
-        <div className="empty-state">Loading KPI catalog…</div>
+        <InlineLoader label="Loading KPI catalog…" />
       ) : (
         <>
           <KpiManagementTable
@@ -660,21 +667,14 @@ function EmployeeFormModal({
     <Modal title={mode === 'add' ? 'Add Employee' : 'Edit Employee'} onClose={onCancel}>
       <form onSubmit={handleSubmit}>
         <label className="field-label">Employee ID</label>
-        <input
-          autoFocus
-          className="input"
-          placeholder="000001"
-          inputMode="numeric"
-          value={code}
-          onChange={(e) => setCode(e.target.value)}
-        />
+        <TextField autoFocus placeholder="000001" inputMode="numeric" value={code} onChange={setCode} ariaLabel="Employee ID" />
         <label className="field-label" style={{ marginTop: 12, display: 'block' }}>
           Name
         </label>
-        <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
+        <TextField value={name} onChange={setName} ariaLabel="Name" />
         {mode === 'add' && (
           <label className="field-label" style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <input type="checkbox" checked={isAdmin} onChange={(e) => setIsAdmin(e.target.checked)} />
+            <CheckField checked={isAdmin} onChange={(v) => setIsAdmin(v)} />
             Admin (can access the Admin tab)
           </label>
         )}
@@ -684,12 +684,12 @@ function EmployeeFormModal({
           </div>
         )}
         <div className="modal-actions">
-          <button type="button" className="btn btn-ghost-light" onClick={onCancel} disabled={saving}>
+          <Button type="button" onClick={onCancel} disabled={saving}>
             Cancel
-          </button>
-          <button type="submit" className="btn btn-primary" disabled={saving}>
+          </Button>
+          <Button type="submit" themeColor="primary" disabled={saving}>
             {saving ? 'Saving…' : mode === 'add' ? 'Add Employee' : 'Save'}
-          </button>
+          </Button>
         </div>
       </form>
     </Modal>
@@ -767,12 +767,12 @@ function EmployeeManagementSection() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button type="button" className="btn btn-ghost-light" onClick={() => setFormModal({ mode: 'add' })}>
-            + Add Employee
-          </button>
-          <button type="button" className="btn btn-primary" disabled={saving || dirtyRows.length === 0} onClick={handleSave}>
+          <Button type="button" svgIcon={plusIcon} onClick={() => setFormModal({ mode: 'add' })}>
+            Add Employee
+          </Button>
+          <Button type="button" themeColor="primary" disabled={saving || dirtyRows.length === 0} onClick={handleSave}>
             {saving ? 'Saving…' : dirtyRows.length > 0 ? `Save changes (${dirtyRows.length})` : 'Save changes'}
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -780,7 +780,7 @@ function EmployeeManagementSection() {
       {error && <div className="alert alert-error">{error}</div>}
 
       {loading ? (
-        <div className="empty-state">Loading employees…</div>
+        <InlineLoader label="Loading employees…" />
       ) : (
         <div className="quadrant-section">
           <div className="table-scroll admin-kpi-table-scroll">
@@ -800,15 +800,15 @@ function EmployeeManagementSection() {
                     <td>{r.employee_code}</td>
                     <td>{r.name}</td>
                     <td>
-                      <input type="checkbox" checked={r.is_admin} onChange={(e) => handleToggleAdmin(r.id, e.target.checked)} />
+                      <CheckField checked={r.is_admin} onChange={(v) => handleToggleAdmin(r.id, v)} />
                     </td>
                     <td>
-                      <input type="checkbox" checked={r.active} onChange={(e) => handleToggleActive(r.id, e.target.checked)} />
+                      <CheckField checked={r.active} onChange={(v) => handleToggleActive(r.id, v)} />
                     </td>
                     <td>
-                      <button type="button" className="btn btn-ghost-light" onClick={() => setFormModal({ mode: 'edit', initial: r })}>
+                      <Button type="button" size="small" fillMode="flat" svgIcon={pencilIcon} onClick={() => setFormModal({ mode: 'edit', initial: r })}>
                         Edit
-                      </button>
+                      </Button>
                     </td>
                   </tr>
                 ))}
@@ -835,6 +835,7 @@ function EmployeeManagementSection() {
 }
 
 export default function Admin() {
+  const [tab, setTab] = useState(0);
   const { employee } = useEmployee();
   const [catalogVersion, setCatalogVersion] = useState(0);
 
@@ -1092,6 +1093,8 @@ export default function Admin() {
         </p>
       </div>
 
+      <TabStrip selected={tab} onSelect={(e) => setTab(e.selected)} className="admin-tabs" keepTabsMounted>
+        <TabStripTab title="Uploads">
       <div className="admin-upload-grid">
         <DailyUploadCard onAnalyze={analyzeDailyUpload} onCommit={commitDailyUpload} />
         <UploadCard
@@ -1108,8 +1111,14 @@ export default function Admin() {
         />
       </div>
 
-      <KpiManagementSection refreshKey={catalogVersion} />
-      <EmployeeManagementSection />
+        </TabStripTab>
+        <TabStripTab title="KPI Management">
+          <KpiManagementSection refreshKey={catalogVersion} />
+        </TabStripTab>
+        <TabStripTab title="Employees">
+          <EmployeeManagementSection />
+        </TabStripTab>
+      </TabStrip>
     </div>
   );
 }

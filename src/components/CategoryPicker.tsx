@@ -10,6 +10,10 @@ import {
   type KpiCategory,
 } from '../lib/categories';
 import { errorMessage } from '../types';
+import { Chip } from '@progress/kendo-react-buttons';
+import { AutoComplete } from '@progress/kendo-react-dropdowns';
+import { checkIcon } from '@progress/kendo-svg-icons';
+import { Button, InlineLoader } from './ui';
 
 interface Props {
   pillarId: string;
@@ -111,7 +115,7 @@ export default function CategoryPicker({ pillarId, kpiBaseName, entryId, employe
     }
   }
 
-  if (loading) return <div className="muted category-picker-loading">Loading categories…</div>;
+  if (loading) return <InlineLoader label="Loading categories…" />;
 
   return (
     <div className="category-picker">
@@ -131,18 +135,18 @@ export default function CategoryPicker({ pillarId, kpiBaseName, entryId, employe
               {visible.map((label) => {
                 const on = isOn(dimension, label);
                 return (
-                  <button
+                  <Chip
                     key={label}
-                    type="button"
+                    text={label}
+                    rounded="full"
                     className={`category-chip ${on ? 'category-chip-on' : ''}`}
-                    style={on ? { background: color, borderColor: color } : undefined}
+                    style={on ? { background: color, borderColor: color, color: 'white' } : undefined}
+                    svgIcon={on ? checkIcon : undefined}
+                    selected={on}
                     disabled={!editable || busy !== null}
-                    aria-pressed={on}
+                    ariaSelected={on}
                     onClick={() => toggle(dimension, label)}
-                  >
-                    {on && '✓ '}
-                    {label}
-                  </button>
+                  />
                 );
               })}
             </div>
@@ -154,21 +158,17 @@ export default function CategoryPicker({ pillarId, kpiBaseName, entryId, employe
                   addNew(dimension);
                 }}
               >
-                <input
-                  className="input category-add-input"
-                  list={`cat-list-${dimension}`}
-                  placeholder={`+ New ${dimension.toLowerCase()}…`}
+                <AutoComplete
+                  className="category-add-input"
+                  data={labels}
+                  size="small"
+                  placeholder={`New ${dimension.toLowerCase()}…`}
                   value={newText[dimension] ?? ''}
-                  onChange={(e) => setNewText((prev) => ({ ...prev, [dimension]: e.target.value }))}
+                  onChange={(e) => setNewText((prev) => ({ ...prev, [dimension]: String(e.value ?? '') }))}
                 />
-                <datalist id={`cat-list-${dimension}`}>
-                  {labels.map((l) => (
-                    <option key={l} value={l} />
-                  ))}
-                </datalist>
-                <button type="submit" className="btn btn-ghost-light btn-sm" disabled={!(newText[dimension] ?? '').trim() || busy !== null}>
+                <Button type="submit" size="small" disabled={!(newText[dimension] ?? '').trim() || busy !== null}>
                   Add
-                </button>
+                </Button>
               </form>
             )}
           </div>

@@ -5,6 +5,9 @@ import type { Kpi, Pillar } from '../types';
 import { errorMessage } from '../types';
 import PillarQuadrant, { type Granularity } from '../components/PillarQuadrant';
 import { paretoPeriod as computeParetoPeriod, type ParetoSpan } from '../lib/categoryCore';
+import { SegmentedControl } from '@progress/kendo-react-buttons';
+import { chevronDownIcon, chevronLeftIcon, chevronRightIcon, chevronUpIcon, xIcon } from '@progress/kendo-svg-icons';
+import { Button, PageLoader, Select } from '../components/ui';
 
 const MONTH_OPTIONS_COUNT = 12;
 
@@ -91,7 +94,7 @@ export default function Dashboard() {
     if (!isCurrentMonth) setGranularity('daily');
   }, [isCurrentMonth]);
 
-  if (loading) return <div className="page-loading">Loading board…</div>;
+  if (loading) return <PageLoader label="Loading board…" />;
   if (error) return <div className="alert alert-error page-margin">{error}</div>;
 
   return (
@@ -102,96 +105,76 @@ export default function Dashboard() {
           <span className="muted">{format(today, 'EEEE, d MMMM yyyy')}</span>
           <span className="board-reviewing-badge">Reviewing {format(referenceDate, 'EEEE, d MMMM yyyy')}</span>
           {selectedDay !== null && (
-            <button type="button" className="board-reviewing-reset" onClick={() => setSelectedDay(null)}>
-              × back to {isCurrentMonth ? 'yesterday' : 'month end'}
-            </button>
+            <Button size="small" fillMode="flat" svgIcon={xIcon} className="board-reviewing-reset" onClick={() => setSelectedDay(null)}>
+              Back to {isCurrentMonth ? 'yesterday' : 'month end'}
+            </Button>
           )}
         </div>
         <div className="board-page-controls">
-          <select
+          <Select
             className="board-month-select"
-            value={monthOffset}
-            onChange={(e) => handleMonthChange(Number(e.target.value))}
-            aria-label="Select month to review"
-          >
-            {monthOptions.map((m) => (
-              <option key={m.offset} value={m.offset}>
-                {m.label}
-              </option>
-            ))}
-          </select>
-          <div className="segmented" title={isCurrentMonth ? undefined : 'Only available for the current month'}>
-            <button
-              className={`segmented-btn ${granularity === 'daily' ? 'segmented-btn-active' : ''}`}
-              disabled={!isCurrentMonth}
-              onClick={() => setGranularity('daily')}
-            >
-              Daily
-            </button>
-            <button
-              className={`segmented-btn ${granularity === 'weekly' ? 'segmented-btn-active' : ''}`}
-              disabled={!isCurrentMonth}
-              onClick={() => setGranularity('weekly')}
-            >
-              Weekly
-            </button>
-          </div>
+            value={String(monthOffset)}
+            onChange={(v) => handleMonthChange(Number(v))}
+            options={monthOptions.map((m) => ({ value: String(m.offset), label: m.label }))}
+            ariaLabel="Select month to review"
+          />
+          <SegmentedControl
+            size="medium"
+            value={granularity}
+            onChange={(v) => setGranularity(v as Granularity)}
+            title={isCurrentMonth ? undefined : 'Weekly is only available for the current month'}
+            items={[
+              { value: 'daily', text: 'Daily' },
+              { value: 'weekly', text: 'Weekly', disabled: !isCurrentMonth },
+            ]}
+          />
           {granularity === 'weekly' && (
             <>
-              <div className="segmented" aria-label="Pareto period length">
-                <button
-                  className={`segmented-btn ${paretoSpan === 1 ? 'segmented-btn-active' : ''}`}
-                  onClick={() => {
-                    setParetoSpan(1);
-                    setParetoOffset(null);
-                  }}
-                >
-                  1 week
-                </button>
-                <button
-                  className={`segmented-btn ${paretoSpan === 2 ? 'segmented-btn-active' : ''}`}
-                  onClick={() => {
-                    setParetoSpan(2);
-                    setParetoOffset(null);
-                  }}
-                >
-                  2 weeks
-                </button>
-              </div>
+              <SegmentedControl
+                size="medium"
+                aria-label="Pareto period length"
+                value={String(paretoSpan)}
+                onChange={(v) => {
+                  setParetoSpan(Number(v) as ParetoSpan);
+                  setParetoOffset(null);
+                }}
+                items={[
+                  { value: '1', text: '1 week' },
+                  { value: '2', text: '2 weeks' },
+                ]}
+              />
               <div className="board-period">
-                <button
-                  type="button"
-                  className="btn-icon"
+                <Button
+                  fillMode="flat"
+                  svgIcon={chevronLeftIcon}
                   aria-label="Previous period"
+                  title="Previous period"
                   onClick={() => setParetoOffset(effectiveParetoOffset + 1)}
-                >
-                  ‹
-                </button>
+                />
                 <span className="board-period-label">
                   {paretoPeriod.label}
                   {paretoInProgress && <span className="muted"> (in progress)</span>}
                 </span>
-                <button
-                  type="button"
-                  className="btn-icon"
+                <Button
+                  fillMode="flat"
+                  svgIcon={chevronRightIcon}
                   aria-label="Next period"
+                  title="Next period"
                   disabled={effectiveParetoOffset === 0}
                   onClick={() => setParetoOffset(Math.max(0, effectiveParetoOffset - 1))}
-                >
-                  ›
-                </button>
+                />
               </div>
             </>
           )}
           {granularity === 'daily' && (
-            <button
-              type="button"
-              className="btn btn-ghost-light"
+            <Button
+              fillMode="outline"
+              svgIcon={showParetoActions ? chevronUpIcon : chevronDownIcon}
               onClick={() => setShowParetoActions((s) => !s)}
               aria-expanded={showParetoActions}
             >
-              {showParetoActions ? 'Hide Pareto & Actions ▲' : 'Show Pareto & Actions ▼'}
-            </button>
+              {showParetoActions ? 'Hide Pareto & Actions' : 'Show Pareto & Actions'}
+            </Button>
           )}
         </div>
       </div>

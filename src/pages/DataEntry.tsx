@@ -13,6 +13,8 @@ import {
 } from '../lib/data';
 import CategoryPicker from '../components/CategoryPicker';
 import { PILLAR_COLORS, errorMessage, metTarget, round2, type DailyEntry, type Kpi, type Pillar, type Reason } from '../types';
+import { Chip, SegmentedControl } from '@progress/kendo-react-buttons';
+import { Button, DateField, NumberField, PageLoader, Select, TextAreaField, TextField, InlineLoader } from '../components/ui';
 
 const TODAY = format(new Date(), 'yyyy-MM-dd');
 // Staff typically log the previous day's completed shift results each
@@ -403,7 +405,26 @@ export default function DataEntry() {
     );
   }
 
-  if (loading) return <div className="page-loading">Loading KPI catalog…</div>;
+  /** Reason category + "Other" free text — used by both the manual-entry
+   * and the remarks-only forms below. */
+  function renderReasonFields() {
+    return (
+      <>
+        <label className="field-label">Reason category</label>
+        <Select
+          value={form.reasonId}
+          placeholder="— Select a reason —"
+          onChange={(v) => patch({ reasonId: v, reasonOther: v === OTHER_SENTINEL ? form.reasonOther : '' })}
+          options={[...form.reasons.map((r) => ({ value: r.id, label: r.label })), { value: OTHER_SENTINEL, label: 'Other (please specify)' }]}
+        />
+        {form.reasonId === OTHER_SENTINEL && (
+          <TextField placeholder="Specify the reason category…" value={form.reasonOther} onChange={(v) => patch({ reasonOther: v })} />
+        )}
+      </>
+    );
+  }
+
+  if (loading) return <PageLoader label="Loading KPI catalog…" />;
   if (loadError) return <div className="alert alert-error page-margin">{loadError}</div>;
 
   const actualNum = Number(form.actualInput);
@@ -424,13 +445,7 @@ export default function DataEntry() {
         </div>
         <label className="date-picker">
           <span className="field-label">Date</span>
-          <input
-            type="date"
-            className="input"
-            value={selectedDate}
-            max={TODAY}
-            onChange={(e) => setSelectedDate(e.target.value)}
-          />
+          <DateField value={selectedDate} max={TODAY} onChange={(v) => v && setSelectedDate(v)} ariaLabel="Date" />
         </label>
       </div>
 
@@ -458,11 +473,13 @@ export default function DataEntry() {
               ? { background: '#94a3b8', borderColor: '#94a3b8', color: 'white' }
               : { background: '#f1f5f9', borderColor: '#e2e8f0', color: '#94a3b8' };
           return (
-            <button
+            <Chip
               key={p.id}
-              type="button"
+              rounded="full"
+              size="large"
               className="entry-pill entry-pill-pillar"
               style={style}
+              selected={isSelected}
               onClick={() => {
                 setSelectedPillarId(p.id);
                 const first = groups.find((g) => g.pillarId === p.id);
@@ -470,7 +487,7 @@ export default function DataEntry() {
               }}
             >
               {p.name}
-            </button>
+            </Chip>
           );
         })}
       </div>
@@ -495,10 +512,10 @@ export default function DataEntry() {
                 ? { background: colors.soft, borderColor: colors.base, color: colors.text }
                 : { background: '#f1f5f9', borderColor: '#e2e8f0', color: '#94a3b8' };
           return (
-            <button key={g.key} type="button" className="entry-pill entry-pill-kpi" style={style} onClick={() => setSelectedGroupKey(g.key)}>
+            <Chip key={g.key} rounded="full" className="entry-pill entry-pill-kpi" style={style} selected={isSelected} onClick={() => setSelectedGroupKey(g.key)}>
               {needsRemark ? <span className="entry-pill-check">!</span> : done && <span className="entry-pill-check">✓</span>} {g.label}
               {!g.manualEntry && <span className="entry-pill-remarks-tag"> · remarks only</span>}
-            </button>
+            </Chip>
           );
         })}
       </div>
@@ -513,31 +530,26 @@ export default function DataEntry() {
           </div>
 
           {hasShiftToggle && (
-            <div className="segmented segmented-sm">
-              <button type="button" className={`segmented-btn ${form.shift === 'day' ? 'segmented-btn-active' : ''}`} onClick={() => handleShiftChange('day')}>
-                Day
-              </button>
-              <button type="button" className={`segmented-btn ${form.shift === 'night' ? 'segmented-btn-active' : ''}`} onClick={() => handleShiftChange('night')}>
-                Night
-              </button>
-            </div>
+            <SegmentedControl
+              size="small"
+              className="entry-shift-toggle"
+              value={form.shift}
+              onChange={(v) => handleShiftChange(v as 'day' | 'night')}
+              items={[
+                { value: 'day', text: 'Day' },
+                { value: 'night', text: 'Night' },
+              ]}
+            />
           )}
 
           {form.loading ? (
-            <div className="empty-state">Loading…</div>
+            <InlineLoader />
           ) : selectedGroup.manualEntry ? (
             <>
               <label className="field-label">
                 Actual ({selectedGroup.unit}){hasShiftToggle ? ` — ${form.shift === 'day' ? 'Day' : 'Night'} shift` : ''}
               </label>
-              <input
-                type="number"
-                step="any"
-                className="input"
-                value={form.actualInput}
-                onChange={(e) => patch({ actualInput: e.target.value })}
-                placeholder="Enter value"
-              />
+              <NumberField value={form.actualInput} onChange={(v) => patch({ actualInput: v })} placeholder="Enter value" />
 
               {manualMet === true && (
                 <span className="pill pill-good" style={{ marginTop: 8 }}>
@@ -548,39 +560,12 @@ export default function DataEntry() {
               {manualMet === false && (
                 <div className="reason-block">
                   <span className="pill pill-bad">Target missed</span>
-                  <label className="field-label">Reason category</label>
-                  <select
-                    className="input"
-                    value={form.reasonId}
-                    onChange={(e) => patch({ reasonId: e.target.value, reasonOther: e.target.value === OTHER_SENTINEL ? form.reasonOther : '' })}
-                  >
-                    <option value="">— Select a reason —</option>
-                    {form.reasons.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.label}
-                      </option>
-                    ))}
-                    <option value={OTHER_SENTINEL}>Other (please specify)</option>
-                  </select>
-                  {form.reasonId === OTHER_SENTINEL && (
-                    <input
-                      className="input"
-                      placeholder="Specify the reason category…"
-                      value={form.reasonOther}
-                      onChange={(e) => patch({ reasonOther: e.target.value })}
-                    />
-                  )}
+                  {renderReasonFields()}
                 </div>
               )}
 
               <label className="field-label">Remarks{manualMet === false ? ' (required — target missed)' : ' (optional)'}</label>
-              <textarea
-                className="input entry-remarks"
-                rows={2}
-                value={form.remarks}
-                onChange={(e) => patch({ remarks: e.target.value })}
-                placeholder="What happened, what's being done about it…"
-              />
+              <TextAreaField className="entry-remarks" value={form.remarks} onChange={(v) => patch({ remarks: v })} placeholder="What happened, what's being done about it…" />
 
               {form.existing &&
                 !metTarget({ is_higher_better: selectedGroup.isHigherBetter }, form.existing.target, form.existing.actual) &&
@@ -588,9 +573,11 @@ export default function DataEntry() {
 
               {form.error && <div className="alert alert-error">{form.error}</div>}
 
-              <button className="btn btn-primary" disabled={form.saving} onClick={handleSaveManual}>
-                {form.saving ? 'Saving…' : form.saved ? 'Saved ✓' : form.existing ? 'Update entry' : 'Save entry'}
-              </button>
+              <div>
+                <Button themeColor="primary" disabled={form.saving} onClick={handleSaveManual}>
+                  {form.saving ? 'Saving…' : form.saved ? 'Saved ✓' : form.existing ? 'Update entry' : 'Save entry'}
+                </Button>
+              </div>
             </>
           ) : !form.existing ? (
             <div className="empty-state">
@@ -616,28 +603,7 @@ export default function DataEntry() {
 
                     {!existingMet && (
                       <div className="reason-block">
-                        <label className="field-label">Reason category</label>
-                        <select
-                          className="input"
-                          value={form.reasonId}
-                          onChange={(e) => patch({ reasonId: e.target.value, reasonOther: e.target.value === OTHER_SENTINEL ? form.reasonOther : '' })}
-                        >
-                          <option value="">— Select a reason —</option>
-                          {form.reasons.map((r) => (
-                            <option key={r.id} value={r.id}>
-                              {r.label}
-                            </option>
-                          ))}
-                          <option value={OTHER_SENTINEL}>Other (please specify)</option>
-                        </select>
-                        {form.reasonId === OTHER_SENTINEL && (
-                          <input
-                            className="input"
-                            placeholder="Specify the reason category…"
-                            value={form.reasonOther}
-                            onChange={(e) => patch({ reasonOther: e.target.value })}
-                          />
-                        )}
+                        {renderReasonFields()}
                       </div>
                     )}
                   </>
@@ -648,22 +614,18 @@ export default function DataEntry() {
                 Remarks
                 {!metTarget({ is_higher_better: selectedGroup.isHigherBetter }, form.existing.target, form.existing.actual) ? ' (required — target missed)' : ' (optional)'}
               </label>
-              <textarea
-                className="input entry-remarks"
-                rows={2}
-                value={form.remarks}
-                onChange={(e) => patch({ remarks: e.target.value })}
-                placeholder="What happened, what's being done about it…"
-              />
+              <TextAreaField className="entry-remarks" value={form.remarks} onChange={(v) => patch({ remarks: v })} placeholder="What happened, what's being done about it…" />
 
               {!metTarget({ is_higher_better: selectedGroup.isHigherBetter }, form.existing.target, form.existing.actual) &&
                 renderCategories(form.existing.id)}
 
               {form.error && <div className="alert alert-error">{form.error}</div>}
 
-              <button className="btn btn-primary" disabled={form.saving} onClick={handleSaveRemarks}>
-                {form.saving ? 'Saving…' : form.saved ? 'Saved ✓' : 'Save remark'}
-              </button>
+              <div>
+                <Button themeColor="primary" disabled={form.saving} onClick={handleSaveRemarks}>
+                  {form.saving ? 'Saving…' : form.saved ? 'Saved ✓' : 'Save remark'}
+                </Button>
+              </div>
             </>
           )}
         </div>

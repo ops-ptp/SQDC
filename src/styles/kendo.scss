@@ -1,0 +1,46 @@
+// KendoReact theme — only the free components this app actually uses are
+// compiled in (instead of the ~770 kB full Default theme). Brand colours are
+// fed in as theme variables so every Kendo component picks them up.
+@use "@progress/kendo-theme-default/scss/index.scss" as * with (
+  $kendo-colors: (
+    // Matches --primary in index.css (the "Lean For All" orange); the
+    // navbar teal (#2a544f) is used as Kendo's secondary colour.
+    primary: #f5821e,
+    primary-hover: #e3741a,
+    primary-active: #c2650f,
+    primary-emphasis: #f8a660,
+    primary-subtle: #fef1e6,
+    primary-subtle-hover: #fde3cc,
+    primary-subtle-active: #fbd1ac,
+    primary-on-subtle: #8a4609,
+    on-primary: #ffffff,
+    primary-on-surface: #c2650f,
+    secondary: #2a544f,
+    secondary-hover: #234641,
+    secondary-active: #1c3a36,
+    on-secondary: #ffffff,
+  ),
+  $kendo-font-family: inherit,
+);
+
+@include kendo-button--styles();
+@include kendo-segmented-control--styles();
+@include kendo-chip--styles();
+@include kendo-input--styles();
+@include kendo-textbox--styles();
+@include kendo-textarea--styles();
+@include kendo-numeric-textbox--styles();
+@include kendo-checkbox--styles();
+@include kendo-switch--styles();
+@include kendo-dropdown-list--styles();
+@include kendo-date-picker--styles();
+@include kendo-calendar--styles();
+@include kendo-dialog--styles();
+@include kendo-loader--styles();
+@include kendo-badge--styles();
+@include kendo-card--styles();
+@include kendo-tabstrip--styles();
+@include kendo-autocomplete--styles();
+@include kendo-popup--styles();
+@include kendo-list--styles();
+@include kendo-icon--styles();
