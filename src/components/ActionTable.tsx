@@ -57,10 +57,10 @@ export default function ActionTable({ actions, onStatusChange, compact, pillars,
         <thead>
           <tr>
             <th>Action</th>
-            <th>Related reason / issue</th>
+            {!compact && <th>Related reason / issue</th>}
             {pillars && <th>Pillar</th>}
             <th>Owner</th>
-            <th>Deadline</th>
+            <th>{compact ? 'Due' : 'Deadline'}</th>
             <th>Status</th>
             {onEdit && <th>Edit</th>}
           </tr>
@@ -72,8 +72,8 @@ export default function ActionTable({ actions, onStatusChange, compact, pillars,
             const pillar = pillarById.get(a.pillar_id);
             return (
               <tr key={a.id} className={ROW_CLASS[displayStatus]}>
-                <td>{a.action}</td>
-                <td>{a.related_issue}</td>
+                <td title={compact ? a.related_issue : undefined}>{a.action}</td>
+                {!compact && <td>{a.related_issue}</td>}
                 {pillars && (
                   <td>
                     {pillar ? (
@@ -92,7 +92,7 @@ export default function ActionTable({ actions, onStatusChange, compact, pillars,
                   </td>
                 )}
                 <td>{a.owner_name}</td>
-                <td>{a.deadline ? format(parseISO(a.deadline), 'd MMM yyyy') : '—'}</td>
+                <td>{a.deadline ? format(parseISO(a.deadline), compact ? 'd MMM' : 'd MMM yyyy') : '—'}</td>
                 <td>
                   {onStatusChange ? (
                     <DropDownList

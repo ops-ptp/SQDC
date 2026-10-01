@@ -434,9 +434,9 @@ textarea {
 
 .card {
   background: var(--surface);
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
-  padding: 20px;
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 1px 2px rgba(19, 49, 45, 0.04), 0 4px 16px rgba(19, 49, 45, 0.04);
 }
 
 .login-card {
@@ -520,12 +520,18 @@ textarea {
 }
 
 .empty-state {
-  padding: 24px;
+  padding: 20px 16px;
   text-align: center;
   color: var(--muted);
   font-size: 14px;
-  background: var(--surface-sunk);
-  border-radius: 8px;
+}
+
+/* Inside a quadrant, an empty chart/table is a single quiet line — never a
+   tall grey slab that has to be read around. */
+.quadrant .empty-state {
+  height: auto !important;
+  padding: 8px 20px 4px;
+  text-align: left;
 }
 
 /* ---------------- Admin KPI Management table ---------------- */
@@ -879,8 +885,8 @@ textarea {
 
 .board-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 20px;
   align-items: start;
 }
 
@@ -908,7 +914,7 @@ textarea {
 
 @media (max-width: 1200px) {
   .board-grid {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .quadrant {
@@ -926,9 +932,10 @@ textarea {
 
 .quadrant {
   background: var(--surface);
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
+  border-radius: 16px;
   overflow: hidden;
+  min-width: 0;
+  box-shadow: 0 1px 2px rgba(19, 49, 45, 0.04), 0 4px 16px rgba(19, 49, 45, 0.04);
 }
 
 .quadrant-section {
@@ -949,10 +956,9 @@ textarea {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
-  padding: 20px 14px 16px;
+  gap: 12px;
+  padding: 24px 16px 20px;
   background: #eef2f7;
-  border-bottom: 1px solid var(--border);
 }
 
 .letter-grid-svg {
@@ -987,15 +993,20 @@ textarea {
 }
 
 .kpi-pills {
-  /* One line per quadrant, scrolling sideways when a pillar has many KPIs —
-     keeps every quadrant's rows the same height so nothing leaves gaps. */
+  /* One line per quadrant, scrolling sideways (no visible scrollbar) when a
+     pillar has many KPIs — every quadrant keeps the same row height. */
   display: flex;
+  align-items: center;
   gap: 6px;
   flex-wrap: nowrap;
   overflow-x: auto;
-  scrollbar-width: thin;
-  padding: 16px 16px 4px;
-  mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+  scrollbar-width: none;
+  padding: 20px 20px 0;
+  mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+}
+
+.kpi-pills::-webkit-scrollbar {
+  display: none;
 }
 
 .kpi-pill {
@@ -1015,12 +1026,10 @@ textarea {
 }
 
 .kpi-headline {
-  /* Name + target on top, then the figures in equal columns underneath —
-     the numbers get the full quadrant width, so nothing clips. */
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 16px 16px 0;
+  gap: 14px;
+  padding: 20px 20px 0;
 }
 
 .kpi-headline h3 {
@@ -1101,7 +1110,7 @@ textarea {
   }
 
   .quadrant-block-title {
-    padding: 12px 10px 4px;
+    padding: 20px 16px 6px;
   }
 
   .remarks-summary {
@@ -1130,9 +1139,7 @@ textarea {
   font-size: 17px;
   font-weight: 600;
   color: var(--text);
-  padding: 14px 16px 6px;
-  margin-top: 12px;
-  border-top: 1px solid var(--grid-line);
+  padding: 24px 20px 8px;
 }
 
 .quadrant .action-table {
@@ -1140,20 +1147,20 @@ textarea {
 }
 
 .quadrant .table-scroll {
-  padding: 0 16px 16px;
+  padding: 0 20px 20px;
 }
 
 .remarks-summary {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 0 16px 14px;
+  gap: 12px;
+  padding: 0 20px 4px;
 }
 
 .remarks-block {
-  background: var(--surface-sunk);
-  border-radius: 8px;
-  padding: 9px 12px;
+  /* A quiet left rule instead of another grey box. */
+  padding: 2px 0 2px 12px;
+  border-left: 2px solid var(--grid-line);
 }
 
 .remarks-block-label {
@@ -1177,8 +1184,11 @@ textarea {
   display: block;
   width: 100%;
   text-align: left;
-  border: 1px solid var(--bad);
-  background: #fee2e2;
+  border: none;
+  border-left: 2px solid var(--bad);
+  border-radius: 0 6px 6px 0;
+  padding: 6px 10px 6px 12px;
+  background: #fef2f2;
   cursor: pointer;
   font: inherit;
   color: inherit;
@@ -2025,4 +2035,107 @@ textarea {
 .admin-tabs .k-tabstrip-content > div {
   width: 100%;
   box-sizing: border-box;
+}
+
+/* No-data figure: a plain label, not a stray dash. */
+.headline-value.value-nodata {
+  font-family: var(--font-body);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.6;
+}
+.headline-value.value-nodata .headline-unit {
+  display: none;
+}
+
+/* Board tables: wrap cleanly inside a quarter-width column. */
+.quadrant .action-table th,
+.quadrant .action-table td {
+  padding: 8px 6px;
+}
+.quadrant .action-table td:first-child {
+  min-width: 120px;
+}
+
+/* Sticky table headers stay above Kendo dropdowns when the table scrolls. */
+.admin-kpi-table-scroll thead th {
+  z-index: 3;
+}
+.admin-kpi-table .k-picker {
+  width: 170px;
+}
+
+/* Dialog: one even padding, no divider under the title. */
+.app-dialog .k-window-titlebar {
+  border-bottom: none;
+  padding: 18px 22px 4px;
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+}
+.app-dialog .k-dialog-content {
+  padding: 12px 22px 22px;
+}
+.app-dialog .modal-body {
+  padding: 0;
+}
+
+/* Secondary buttons: quiet outline on white rather than a grey slab. */
+.k-button-solid-base {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text);
+}
+.k-button-solid-base:hover {
+  background: var(--surface-sunk);
+}
+
+/* Form fields: softer frame, consistent 36px height. */
+.k-input,
+.k-picker {
+  border-radius: 8px;
+}
+.k-input-md,
+.k-picker-md {
+  min-height: 36px;
+}
+
+/* Grid children default to min-width:auto, which lets a chart's first
+   measured width hold its section wider than the column. Pin them. */
+.quadrant > *,
+.quadrant-section {
+  min-width: 0;
+}
+.chart-wrap {
+  width: 100%;
+  min-width: 0;
+  padding: 0 16px 0 8px;
+}
+
+/* Compact board action table: fixed column shares so it always fits the
+   quarter-width column; the related issue shows on hover over the action. */
+.quadrant .action-table {
+  table-layout: fixed;
+}
+.quadrant .action-table th:nth-child(1) { width: 40%; }
+.quadrant .action-table th:nth-child(2) { width: 24%; }
+.quadrant .action-table th:nth-child(3) { width: 13%; }
+.quadrant .action-table th:nth-child(4) { width: 23%; }
+.quadrant .action-table td:first-child {
+  min-width: 0;
+}
+.quadrant .action-table td {
+  overflow-wrap: break-word;
+}
+.quadrant .action-table td:last-child {
+  overflow-wrap: normal;
+}
+.quadrant .status-badge {
+  white-space: nowrap;
+  font-size: 10.5px;
+  padding: 3px 7px;
+}
+
+.quadrant .action-table td:nth-child(3) {
+  white-space: nowrap;
 }

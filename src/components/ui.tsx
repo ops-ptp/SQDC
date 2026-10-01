@@ -32,10 +32,12 @@ export function Select({
   className,
   disabled,
   placeholder,
+  size,
 }: {
   value: string;
   onChange: (value: string) => void;
   options: SelectOption[];
+  size?: 'small' | 'medium' | 'large';
   ariaLabel?: string;
   className?: string;
   disabled?: boolean;
@@ -54,6 +56,7 @@ export function Select({
       ariaLabel={ariaLabel}
       className={className}
       disabled={disabled}
+      size={size}
     />
   );
 }

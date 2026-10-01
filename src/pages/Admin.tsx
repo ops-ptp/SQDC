@@ -401,7 +401,7 @@ function KpiManagementTable({
             <tr>
               <th>Pillar</th>
               <th>KPI Name</th>
-              <th>Higher is better</th>
+              <th>Direction</th>
               <th>Visible</th>
               <th>Delete</th>
             </tr>
@@ -420,6 +420,7 @@ function KpiManagementTable({
                     value={r.is_higher_better ? 'higher' : 'lower'}
                     onChange={(v) => onChangeDirection(r.key, v === 'higher')}
                     options={DIRECTION_OPTIONS}
+                    size="small"
                     ariaLabel={`Direction for ${r.name}`}
                   />
                 </td>

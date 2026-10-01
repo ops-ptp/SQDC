@@ -696,7 +696,7 @@ export default function PillarQuadrant({
                     <div className="headline-shift" key={`${year}-${week}`}>
                       {periodWeeks.length > 1 && <span className="headline-shift-label">Wk {week}</span>}
                       <span className={`headline-value ${w ? (groupMetTarget(selectedGroup, w.actual, w.target) ? 'value-good' : 'value-bad') : 'value-nodata'}`}>
-                        {w ? round2(w.actual) : '—'}
+                        {w ? round2(w.actual) : 'No data'}
                         <span className="headline-unit">{selectedGroup.unit}</span>
                       </span>
                     </div>
@@ -704,7 +704,7 @@ export default function PillarQuadrant({
                 })
               ) : selectedGroup.single ? (
                 <div className={`headline-value ${referenceSingleEntry ? (groupMetTarget(selectedGroup, referenceSingleEntry.actual, referenceSingleEntry.target) ? 'value-good' : 'value-bad') : 'value-nodata'}`}>
-                  {referenceSingleEntry ? round2(referenceSingleEntry.actual) : '—'}
+                  {referenceSingleEntry ? round2(referenceSingleEntry.actual) : 'No data'}
                   <span className="headline-unit">{selectedGroup.unit}</span>
                 </div>
               ) : (
@@ -712,7 +712,7 @@ export default function PillarQuadrant({
                   <div className="headline-shift">
                     <span className="headline-shift-label">Day</span>
                     <span className={`headline-value ${referenceDayEntry ? (groupMetTarget(selectedGroup, referenceDayEntry.actual, referenceDayEntry.target) ? 'value-good' : 'value-bad') : 'value-nodata'}`}>
-                      {referenceDayEntry ? round2(referenceDayEntry.actual) : '—'}
+                      {referenceDayEntry ? round2(referenceDayEntry.actual) : 'No data'}
                       <span className="headline-unit">{selectedGroup.unit}</span>
                     </span>
                     {selectedGroup.oldDay && (
@@ -725,7 +725,7 @@ export default function PillarQuadrant({
                   <div className="headline-shift">
                     <span className="headline-shift-label">Night</span>
                     <span className={`headline-value ${referenceNightEntry ? (groupMetTarget(selectedGroup, referenceNightEntry.actual, referenceNightEntry.target) ? 'value-good' : 'value-bad') : 'value-nodata'}`}>
-                      {referenceNightEntry ? round2(referenceNightEntry.actual) : '—'}
+                      {referenceNightEntry ? round2(referenceNightEntry.actual) : 'No data'}
                       <span className="headline-unit">{selectedGroup.unit}</span>
                     </span>
                     {selectedGroup.oldNight && (
