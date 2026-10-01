@@ -73,8 +73,24 @@ const CATEGORY_TO_PILLAR_CODE: Record<string, 'S' | 'Q' | 'D' | 'C'> = {
   COST: 'C',
 };
 
+/** Plain text of a cell value. ExcelJS returns objects, not strings, for
+ * rich-text cells (any header with mixed formatting or an Alt+Enter line
+ * break), formula cells, and hyperlinks — String()-ing those gave
+ * "[object Object]", so a newly added column with a formatted header was
+ * auto-created under that junk name and never matched its own data. */
+function cellText(v: unknown): string {
+  if (v === null || v === undefined) return '';
+  if (v instanceof Date) return v.toISOString();
+  if (typeof v !== 'object') return String(v);
+  const o = v as { richText?: { text: string }[]; result?: unknown; text?: unknown };
+  if (Array.isArray(o.richText)) return o.richText.map((r) => r.text).join('');
+  if ('result' in o) return cellText(o.result);
+  if ('text' in o) return cellText(o.text);
+  return '';
+}
+
 function norm(s: unknown): string {
-  return String(s ?? '').replace(/\s+/g, ' ').trim();
+  return cellText(s).replace(/\s+/g, ' ').trim();
 }
 
 function cellNumber(v: ExcelJS.CellValue): number | null {
