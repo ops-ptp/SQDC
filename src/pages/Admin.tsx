@@ -474,7 +474,7 @@ function DeleteKpiModal({ row, onCancel, onConfirmed }: { row: EditableGroup; on
   );
 }
 
-function KpiManagementSection() {
+function KpiManagementSection({ refreshKey }: { refreshKey: number }) {
   const [rows, setRows] = useState<EditableGroup[]>([]);
   const [original, setOriginal] = useState<Map<string, { active: boolean; is_higher_better: boolean }>>(new Map());
   const [loading, setLoading] = useState(true);
@@ -495,10 +495,13 @@ function KpiManagementSection() {
       .finally(() => setLoading(false));
   }
 
+  // Reload whenever an upload changes the catalog — without this the list
+  // only loaded once on page open, so a KPI the upload had just created
+  // stayed invisible here until a manual page refresh.
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [refreshKey]);
 
   function handleToggleVisible(key: string, active: boolean) {
     setMessage(null);
@@ -831,6 +834,7 @@ function EmployeeManagementSection() {
 
 export default function Admin() {
   const { employee } = useEmployee();
+  const [catalogVersion, setCatalogVersion] = useState(0);
 
   async function analyzeDailyUpload(file: File): Promise<DailyUploadPreview> {
     const [pillars, allKpisInitial, buffer] = await Promise.all([fetchPillars(), fetchAllKpisAdmin(), file.arrayBuffer()]);
@@ -923,6 +927,7 @@ export default function Admin() {
     }
 
     const catalogChanged = addedDaily.length > 0 || addedLeading.length > 0 || hideUpdates.length > 0;
+    if (catalogChanged) setCatalogVersion((v) => v + 1);
     const refetchedKpis = catalogChanged ? await fetchAllKpisAdmin() : null;
     const kpis = refetchedKpis ? refetchedKpis.filter((k) => !k.is_leading) : preview.kpisInitial;
     const leadingKpis = refetchedKpis ? refetchedKpis.filter((k) => k.is_leading) : preview.leadingKpisInitial;
@@ -1017,7 +1022,7 @@ export default function Admin() {
         />
       </div>
 
-      <KpiManagementSection />
+      <KpiManagementSection refreshKey={catalogVersion} />
       <EmployeeManagementSection />
     </div>
   );
