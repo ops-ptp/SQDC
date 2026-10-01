@@ -4,6 +4,7 @@ import { fetchAllKpisAdmin, fetchPillars } from '../lib/data';
 import type { Kpi, Pillar } from '../types';
 import { errorMessage } from '../types';
 import PillarQuadrant, { type Granularity } from '../components/PillarQuadrant';
+import { paretoPeriod as computeParetoPeriod, type ParetoSpan } from '../lib/categoryCore';
 
 const MONTH_OPTIONS_COUNT = 12;
 
@@ -25,6 +26,12 @@ export default function Dashboard() {
   // last day for a past one). Cleared whenever the month picker changes, so
   // switching months always starts from that month's own default day.
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
+  // Weekly view's Pareto period: one ISO week or a two-week pair (default,
+  // matching the team's "Week 36 & 37" sheets). Offset counts periods back
+  // from the one containing the reviewed day; null = the default, which is
+  // the latest COMPLETED period (a review looks back at a finished week).
+  const [paretoSpan, setParetoSpan] = useState<ParetoSpan>(2);
+  const [paretoOffset, setParetoOffset] = useState<number | null>(null);
 
   useEffect(() => {
     // Fetches every lagging KPI, active AND hidden — the Board itself
@@ -48,6 +55,13 @@ export default function Dashboard() {
   // "yesterday" to speak of — review it as of its own last day instead.
   const defaultReferenceDate = isCurrentMonth ? subDays(today, 1) : endOfMonth(subMonths(today, monthOffset));
   const referenceDate = selectedDay !== null ? new Date(defaultReferenceDate.getFullYear(), defaultReferenceDate.getMonth(), selectedDay) : defaultReferenceDate;
+
+  const referenceYmd = format(referenceDate, 'yyyy-MM-dd');
+  const currentParetoPeriod = computeParetoPeriod(referenceDate, paretoSpan, 0);
+  const defaultParetoOffset = currentParetoPeriod.to > referenceYmd ? 1 : 0;
+  const effectiveParetoOffset = paretoOffset ?? defaultParetoOffset;
+  const paretoPeriod = computeParetoPeriod(referenceDate, paretoSpan, effectiveParetoOffset);
+  const paretoInProgress = paretoPeriod.to > referenceYmd;
 
   const monthOptions = useMemo(
     () =>
@@ -122,6 +136,53 @@ export default function Dashboard() {
               Weekly
             </button>
           </div>
+          {granularity === 'weekly' && (
+            <>
+              <div className="segmented" aria-label="Pareto period length">
+                <button
+                  className={`segmented-btn ${paretoSpan === 1 ? 'segmented-btn-active' : ''}`}
+                  onClick={() => {
+                    setParetoSpan(1);
+                    setParetoOffset(null);
+                  }}
+                >
+                  1 week
+                </button>
+                <button
+                  className={`segmented-btn ${paretoSpan === 2 ? 'segmented-btn-active' : ''}`}
+                  onClick={() => {
+                    setParetoSpan(2);
+                    setParetoOffset(null);
+                  }}
+                >
+                  2 weeks
+                </button>
+              </div>
+              <div className="board-period">
+                <button
+                  type="button"
+                  className="btn-icon"
+                  aria-label="Previous period"
+                  onClick={() => setParetoOffset(effectiveParetoOffset + 1)}
+                >
+                  ‹
+                </button>
+                <span className="board-period-label">
+                  {paretoPeriod.label}
+                  {paretoInProgress && <span className="muted"> (in progress)</span>}
+                </span>
+                <button
+                  type="button"
+                  className="btn-icon"
+                  aria-label="Next period"
+                  disabled={effectiveParetoOffset === 0}
+                  onClick={() => setParetoOffset(Math.max(0, effectiveParetoOffset - 1))}
+                >
+                  ›
+                </button>
+              </div>
+            </>
+          )}
           {granularity === 'daily' && (
             <button
               type="button"
@@ -145,6 +206,7 @@ export default function Dashboard() {
             referenceDate={referenceDate}
             latestAvailableDate={defaultReferenceDate}
             onDayClick={handleDayClick}
+            paretoPeriod={paretoPeriod}
           />
         ))}
       </div>

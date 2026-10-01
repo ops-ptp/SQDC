@@ -11,6 +11,7 @@ import {
   fetchReasonsForKpi,
   upsertDailyEntry,
 } from '../lib/data';
+import CategoryPicker from '../components/CategoryPicker';
 import { PILLAR_COLORS, errorMessage, metTarget, round2, type DailyEntry, type Kpi, type Pillar, type Reason } from '../types';
 
 const TODAY = format(new Date(), 'yyyy-MM-dd');
@@ -378,6 +379,30 @@ export default function DataEntry() {
     }
   }
 
+  /** Category chips for the saved entry of the selected shift — feeds the
+   * Weekly/Bi-weekly Pareto. Saves on click, independent of the Save
+   * button, so it only appears once there's a saved entry to tag. */
+  function renderCategories(entryId: string) {
+    if (!selectedGroup) return null;
+    const pillarColor = (PILLAR_COLORS[pillars.find((p) => p.id === selectedGroup.pillarId)?.code ?? 'S'] ?? PILLAR_COLORS.S).base;
+    return (
+      <div className="category-block">
+        <label className="field-label">
+          Categories <span className="category-block-hint">— tick every cause that applied; saved instantly, used by the Weekly Pareto</span>
+        </label>
+        <CategoryPicker
+          key={entryId}
+          pillarId={selectedGroup.pillarId}
+          kpiBaseName={selectedGroup.label}
+          entryId={entryId}
+          employeeId={employee?.id ?? null}
+          editable={Boolean(employee)}
+          color={pillarColor}
+        />
+      </div>
+    );
+  }
+
   if (loading) return <div className="page-loading">Loading KPI catalog…</div>;
   if (loadError) return <div className="alert alert-error page-margin">{loadError}</div>;
 
@@ -557,6 +582,10 @@ export default function DataEntry() {
                 placeholder="What happened, what's being done about it…"
               />
 
+              {form.existing &&
+                !metTarget({ is_higher_better: selectedGroup.isHigherBetter }, form.existing.target, form.existing.actual) &&
+                renderCategories(form.existing.id)}
+
               {form.error && <div className="alert alert-error">{form.error}</div>}
 
               <button className="btn btn-primary" disabled={form.saving} onClick={handleSaveManual}>
@@ -626,6 +655,9 @@ export default function DataEntry() {
                 onChange={(e) => patch({ remarks: e.target.value })}
                 placeholder="What happened, what's being done about it…"
               />
+
+              {!metTarget({ is_higher_better: selectedGroup.isHigherBetter }, form.existing.target, form.existing.actual) &&
+                renderCategories(form.existing.id)}
 
               {form.error && <div className="alert alert-error">{form.error}</div>}
 

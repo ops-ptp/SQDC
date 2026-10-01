@@ -34,6 +34,8 @@ import {
 } from '../lib/excelUpload';
 import { baseNameOf, errorMessage, normalizeEmployeeCode, type Employee, type Kpi, type KpiWithPillar, type Pillar } from '../types';
 import Modal from '../components/Modal';
+import { bulkAddEntryCategories, bulkAddKpiCategories, fetchEntriesLite, fillEmptyRemarks } from '../lib/categories';
+import { familyOf, matchRows, parseParetoWorkbook } from '../lib/categoryImport';
 
 interface UploadResult {
   ok: boolean;
@@ -1000,6 +1002,84 @@ export default function Admin() {
     };
   }
 
+  /** Pareto-categories workbook (weekly_paretto.xlsx): reads each KPI's
+   * remarks-log sheet and attaches its category tags to the matching daily
+   * entries (KPI + date + shift). Additive only — see lib/categories.ts. */
+  async function handleParetoUpload(file: File): Promise<UploadResult> {
+    const [allKpis, buffer] = await Promise.all([fetchAllKpisAdmin(), file.arrayBuffer()]);
+    const lagging = allKpis.filter((k) => !k.is_leading);
+    const baseNames = Array.from(new Set(lagging.filter((k) => !k.is_secondary).map((k) => baseNameOf(k.name))));
+    const sheets = await parseParetoWorkbook(buffer, baseNames);
+    if (sheets.length === 0) {
+      return { ok: false, message: 'No remarks sheets found — expected sheets with date, shift and "category 1…" columns.', warnings: [] };
+    }
+
+    const warnings: string[] = [];
+    const listRows: { pillar_id: string; kpi_base_name: string; dimension: string; label: string; sort_order: number }[] = [];
+    const tagRows: { entry_id: string; dimension: string; category: string; created_by: string | null }[] = [];
+    const remarkFills: { id: string; remarks: string }[] = [];
+    const summary: string[] = [];
+
+    for (const sheet of sheets) {
+      if (!sheet.kpiBase) {
+        warnings.push(`Sheet "${sheet.sheet}": couldn't match it to a KPI by name — skipped.`);
+        continue;
+      }
+      const family = familyOf(lagging, sheet.kpiBase);
+      const primary = family.find((k) => !k.is_secondary);
+      const tagged = sheet.rows.filter((r) => r.tags.length > 0);
+      if (!primary || tagged.length === 0) continue;
+
+      // Pick-list: every category seen on this sheet, in first-seen order.
+      const seen = new Set<string>();
+      for (const r of tagged) {
+        for (const t of r.tags) {
+          const key = `${t.dimension}\u0000${t.category}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          listRows.push({ pillar_id: primary.pillar_id, kpi_base_name: sheet.kpiBase, dimension: t.dimension, label: t.category, sort_order: seen.size });
+        }
+      }
+
+      const dates = tagged.map((r) => r.date).sort();
+      const entries = await fetchEntriesLite(family.map((k) => k.id), dates[0], dates[dates.length - 1]);
+      const { matches, unmatched } = matchRows(sheet.rows, family, entries);
+      const entryById = new Map(entries.map((e) => [e.id, e]));
+      let tagCount = 0;
+      for (const m of matches) {
+        for (const t of m.row.tags) {
+          tagRows.push({ entry_id: m.entryId, dimension: t.dimension, category: t.category, created_by: employee?.id ?? null });
+          tagCount++;
+        }
+        const entry = entryById.get(m.entryId);
+        const text = m.row.remarks || m.row.reason;
+        if (!m.secondary && entry && entry.remarks === null && text) remarkFills.push({ id: m.entryId, remarks: text });
+      }
+      for (const r of unmatched) {
+        warnings.push(`${sheet.kpiBase}: ${r.date} ${r.shift ?? ''} (sheet row ${r.rowNumber}) has no matching entry in the app yet — upload that day's Daily file first, then re-import.`);
+      }
+      const secondary = matches.filter((m) => m.secondary).length;
+      summary.push(
+        `${sheet.kpiBase}: ${matches.length} shift(s), ${tagCount} tag(s)` +
+          (secondary ? ` (${secondary} on the old calculation, not counted)` : '') +
+          (unmatched.length ? `, ${unmatched.length} unmatched` : '')
+      );
+    }
+
+    await bulkAddKpiCategories(listRows);
+    await bulkAddEntryCategories(tagRows);
+    const filled = await fillEmptyRemarks(remarkFills);
+
+    return {
+      ok: tagRows.length > 0,
+      message:
+        `Imported ${tagRows.length} category tag(s) across ${summary.length} KPI(s). ${summary.join(' · ')}.` +
+        (filled ? ` Also filled ${filled} empty remark(s) from the sheet.` : '') +
+        ' Re-importing is safe — existing tags are kept, nothing is deleted.',
+      warnings,
+    };
+  }
+
   return (
     <div className="page">
       <div className="page-header">
@@ -1019,6 +1099,12 @@ export default function Admin() {
           description="OPS SQDC Weekly.xlsx — the “Weekly Database” sheet (ISO week rows, can span multiple years). This is the authoritative source for the Board's Weekly view — the 7 KPIs it tracks (Accident During Operation, Delay – Waiting for CHE, Overall Mixing Yard, GMPH Mainliner, GMPH Feeder, Mainliner Load GMPH, QC Preventive Maintenance & Service) show their headline and trend from this upload, not from daily figures. Every other KPI is hidden on the Weekly view — it only exists in the Daily file."
           accept=".xlsx"
           onUpload={handleWeeklyUpload}
+        />
+        <UploadCard
+          title="Pareto categories upload"
+          description="weekly_paretto.xlsx — each KPI's remarks sheet (date, shift, actual, …, category 1–N). Tags every listed shift with its categories so the Weekly view's Pareto can count them, and seeds each KPI's category pick-list. Accident's Location / Equipment / Symptom columns become three separate Paretos. Only adds — re-uploading never removes tags added in the app."
+          accept=".xlsx"
+          onUpload={handleParetoUpload}
         />
       </div>
 

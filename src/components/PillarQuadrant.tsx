@@ -10,6 +10,8 @@ import { useEmployee } from '../context/EmployeeContext';
 import { baseNameOf, metTarget, PILLAR_COLORS, round2, type ActionItem, type DailyEntry, type Kpi, type Pillar, type PerformanceStatus, type WeeklyEntry } from '../types';
 import KpiRunChart, { type RunPoint } from './KpiRunChart';
 import ParetoChart, { type ParetoDatum } from './ParetoChart';
+import CategoryPareto from './CategoryPareto';
+import { paretoPeriod as computeParetoPeriod, type ParetoPeriod } from '../lib/categoryCore';
 import ActionTable from './ActionTable';
 import PillarLetterGrid, { type DayStatus } from './PillarLetterGrid';
 
@@ -43,6 +45,10 @@ interface Props {
    * see Dashboard.tsx's handleDayClick for why this lives there rather than
    * being handled locally per quadrant. */
   onDayClick?: (day: number) => void;
+  /** Weekly view only — the week or two-week pair the Pareto covers, chosen
+   * by the board-wide Weekly / Bi-weekly control in Dashboard.tsx. Defaults
+   * to the pair containing the reviewed day when not given. */
+  paretoPeriod?: ParetoPeriod;
 }
 
 /** One logical KPI as shown on the board: a single pill, backed by up to a
@@ -138,6 +144,7 @@ export default function PillarQuadrant({
   referenceDate: referenceDateProp,
   latestAvailableDate: latestAvailableDateProp,
   onDayClick,
+  paretoPeriod: paretoPeriodProp,
 }: Props) {
   const navigate = useNavigate();
   const { employee } = useEmployee();
@@ -200,6 +207,7 @@ export default function PillarQuadrant({
   const latestAvailableDay = latestAvailableDate.getDate();
   const referenceDateStr = format(referenceDate, 'yyyy-MM-dd');
   const referenceDay = referenceDate.getDate();
+  const paretoPeriod = paretoPeriodProp ?? computeParetoPeriod(referenceDate, 2, 0);
 
   // Reference-day entries for EVERY KPI in the pillar — drives the red/green
   // outline on every pill, not just the selected one.
@@ -268,10 +276,9 @@ export default function PillarQuadrant({
         : format(subDays(referenceDate, 6), 'yyyy-MM-dd');
     // Pareto window: daily reuses the chart's 7-day window; weekly is a
     // shorter last-2-weeks lookback, not the chart's 8-week one.
-    const paretoSince =
-      granularity === 'weekly'
-        ? format(subWeeks(startOfWeek(referenceDate, { weekStartsOn: 1 }), 1), 'yyyy-MM-dd')
-        : windowSince;
+    // Weekly: the board-wide Weekly / Bi-weekly period (upper bound applied
+    // when counting, below).
+    const paretoSince = granularity === 'weekly' ? paretoPeriod.from : windowSince;
 
     Promise.all([
       Promise.all(ids.map((id) => fetchEntriesForKpi(id, monthSince))),
@@ -293,7 +300,7 @@ export default function PillarQuadrant({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedGroup?.key, granularity, referenceDateStr]);
+  }, [selectedGroup?.key, granularity, referenceDateStr, paretoPeriod.from]);
 
   // Weekly view's headline + Trend chart source, for the 7 KPIs the Weekly
   // upload actually tracks — read directly from weekly_entries, not
@@ -508,12 +515,13 @@ export default function PillarQuadrant({
     const counts = new Map<string, number>();
     for (const e of paretoEntries) {
       if (!ids.has(e.kpi_id)) continue;
+      if (granularity === 'weekly' && e.entry_date > paretoPeriod.to) continue;
       if (groupMetTarget(selectedGroup, e.actual, e.target)) continue;
       const label = e.reason_other?.trim() || (e.reason_id ? reasonLabelById.get(e.reason_id) : undefined) || 'Unspecified';
       counts.set(label, (counts.get(label) ?? 0) + 1);
     }
     return Array.from(counts.entries()).map(([label, count]) => ({ label, count }));
-  }, [paretoEntries, reasonLabelById, selectedGroup]);
+  }, [paretoEntries, reasonLabelById, selectedGroup, granularity, paretoPeriod.to]);
 
   // ---- Custom Pareto (admin-saved from Insights) — applies the SAME
   // shared pivot logic Insights itself uses, against live categorized
@@ -702,10 +710,28 @@ export default function PillarQuadrant({
           {(granularity === 'weekly' || showParetoActions) && (
             <>
               <div className="quadrant-section">
-                <div className="quadrant-block-title">
-                  Pareto of reasons — {granularity === 'weekly' ? 'last 2 weeks' : 'last 7 days'}
-                </div>
-                <ParetoChart data={paretoData} barColor={colors.base} />
+                {granularity === 'weekly' ? (
+                  <>
+                    <div className="quadrant-block-title">Pareto — {paretoPeriod.label}</div>
+                    <CategoryPareto
+                      pillarId={pillar.id}
+                      kpiBaseName={selectedGroup.label}
+                      kpiIds={primaryKpiIds(selectedGroup)}
+                      dayKpiId={selectedGroup.day?.id}
+                      nightKpiId={selectedGroup.night?.id}
+                      unit={selectedGroup.unit}
+                      period={paretoPeriod}
+                      color={colors.base}
+                      employeeId={employee?.id ?? null}
+                      fallback={<ParetoChart data={paretoData} barColor={colors.base} />}
+                    />
+                  </>
+                ) : (
+                  <>
+                    <div className="quadrant-block-title">Pareto of reasons — last 7 days</div>
+                    <ParetoChart data={paretoData} barColor={colors.base} />
+                  </>
+                )}
               </div>
 
               <div className="quadrant-section">

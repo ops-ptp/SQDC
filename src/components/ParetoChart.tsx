@@ -1,6 +1,7 @@
 import {
   Bar,
   CartesianGrid,
+  Cell,
   ComposedChart,
   Label,
   LabelList,
@@ -22,6 +23,17 @@ interface Props {
   /** Bar color — pass the pillar's brand color (e.g. colors.base) so the
    * chart reads as belonging to that pillar. Falls back to neutral grey. */
   barColor?: string;
+  /** How many bars to draw (top N by count). Default 6 — the board's
+   * narrow quadrants can't fit many more labels. */
+  maxBars?: number;
+  /** Bar click → the clicked category's label (Weekly Pareto drill-down). */
+  onBarClick?: (label: string) => void;
+  /** Label of the bar to emphasise (others drawn lighter). */
+  selectedLabel?: string | null;
+  /** When true, cumulative % is a share of ALL occurrences (incl. ones past
+   * maxBars), as the team's Excel Pareto computes it. Default false keeps
+   * the original behaviour: a share of only the bars drawn. */
+  cumulativeOfAll?: boolean;
 }
 
 const DEFAULT_BAR_COLOR = '#64748b';
@@ -58,9 +70,10 @@ function AngledTick({ x, y, payload }: { x: number | string; y: number | string;
   );
 }
 
-export default function ParetoChart({ data, barColor = DEFAULT_BAR_COLOR }: Props) {
-  const sorted = [...data].sort((a, b) => b.count - a.count).slice(0, 6);
-  const total = sorted.reduce((sum, d) => sum + d.count, 0);
+export default function ParetoChart({ data, barColor = DEFAULT_BAR_COLOR, maxBars = 6, onBarClick, selectedLabel = null, cumulativeOfAll = false }: Props) {
+  const all = [...data].sort((a, b) => b.count - a.count);
+  const sorted = all.slice(0, maxBars);
+  const total = (cumulativeOfAll ? all : sorted).reduce((sum, d) => sum + d.count, 0);
   const { rows: chartData } = sorted.reduce<{ running: number; rows: Array<ParetoDatum & { cumulativePct: number }> }>(
     (acc, d) => {
       const running = acc.running + d.count;
@@ -103,7 +116,19 @@ export default function ParetoChart({ data, barColor = DEFAULT_BAR_COLOR }: Prop
           <ReferenceLine yAxisId="right" y={80} stroke="#94a3b8" strokeDasharray="4 4">
             <Label value="80%" position="insideTopLeft" offset={6} fontSize={10} fill="#64748b" />
           </ReferenceLine>
-          <Bar yAxisId="left" dataKey="count" fill={barColor} radius={[3, 3, 0, 0]} name="Occurrences" maxBarSize={48}>
+          <Bar
+            yAxisId="left"
+            dataKey="count"
+            fill={barColor}
+            radius={[3, 3, 0, 0]}
+            name="Occurrences"
+            maxBarSize={48}
+            cursor={onBarClick ? 'pointer' : undefined}
+            onClick={onBarClick ? (d: { payload?: ParetoDatum }) => d?.payload && onBarClick(d.payload.label) : undefined}
+          >
+            {chartData.map((d) => (
+              <Cell key={d.label} fill={barColor} fillOpacity={selectedLabel && selectedLabel !== d.label ? 0.35 : 1} />
+            ))}
             <LabelList dataKey="count" position="top" fontSize={11} fontWeight={700} fill="#334155" />
           </Bar>
           <Line
