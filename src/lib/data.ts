@@ -320,6 +320,19 @@ export async function bulkUpsertWeeklyEntriesFromUpload(rows: UploadWeeklyRow[])
 
 /** All uploaded weekly figures for one pillar's KPI base name — the Weekly
  * board's fallback source for ISO weeks with no live daily_entries. */
+/** Every uploaded weekly figure for one pillar (all its KPIs) — lets the
+ * Weekly board colour every KPI pill from its weekly result in one query. */
+export async function fetchWeeklyEntriesForPillar(pillarId: string): Promise<WeeklyEntry[]> {
+  const { data, error } = await supabase
+    .from('weekly_entries')
+    .select('*')
+    .eq('pillar_id', pillarId)
+    .order('iso_year')
+    .order('iso_week');
+  if (error) throw error;
+  return data as WeeklyEntry[];
+}
+
 export async function fetchWeeklyEntriesForKpiBase(pillarId: string, kpiBaseName: string): Promise<WeeklyEntry[]> {
   const { data, error } = await supabase
     .from('weekly_entries')

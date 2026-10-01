@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format, startOfMonth, getDaysInMonth, startOfWeek, subWeeks, subDays, getISOWeek, getISOWeekYear } from 'date-fns';
-import { fetchActions, fetchCategorizedEntriesForKpiIds, fetchCustomParetosForPillar, fetchEntriesForKpi, fetchEntriesForKpisOnDate, fetchKpiDailyTargetsForDate, fetchReasonsForKpi, fetchWeeklyEntriesForKpiBase, type CategorizedEntryRow, type CustomPareto } from '../lib/data';
+import { fetchActions, fetchCategorizedEntriesForKpiIds, fetchCustomParetosForPillar, fetchEntriesForKpi, fetchEntriesForKpisOnDate, fetchKpiDailyTargetsForDate, fetchReasonsForKpi, fetchWeeklyEntriesForKpiBase, fetchWeeklyEntriesForPillar, type CategorizedEntryRow, type CustomPareto } from '../lib/data';
 import { applyPivotFilter, computeChartData, computeCrossTab, pivotFieldLabel } from '../lib/pivot';
 import { WEEKLY_HEADER_TO_BASE } from '../lib/excelUpload';
 
@@ -178,6 +178,9 @@ export default function PillarQuadrant({
   // Fallback source for the Weekly trend — uploaded weekly figures, used only
   // for ISO weeks that have no live daily_entries to aggregate (item 1/8).
   const [weeklySource, setWeeklySource] = useState<WeeklyEntry[]>([]);
+  // Weekly view only — every KPI's weekly figures for this pillar, so each
+  // pill can be coloured by its own weekly result (see groupStatus).
+  const [pillarWeekly, setPillarWeekly] = useState<WeeklyEntry[]>([]);
   const [actions, setActions] = useState<ActionItem[]>([]);
   const [reasonLabelById, setReasonLabelById] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(true);
@@ -321,11 +324,37 @@ export default function PillarQuadrant({
       .catch(() => setWeeklySource([]));
   }, [granularity, selectedGroup?.key, pillar.id, selectedGroup?.label]);
 
+  useEffect(() => {
+    if (granularity !== 'weekly') return;
+    fetchWeeklyEntriesForPillar(pillar.id)
+      .then(setPillarWeekly)
+      .catch(() => setPillarWeekly([]));
+  }, [granularity, pillar.id]);
+
+  // Latest weekly figure at or before the reviewed date's ISO week, from a
+  // year/week-ascending list — shared by the pills and the headline.
+  function latestWeekly(entries: WeeklyEntry[]): WeeklyEntry | undefined {
+    const refKey = getISOWeekYear(referenceDate) * 100 + getISOWeek(referenceDate);
+    for (let i = entries.length - 1; i >= 0; i--) {
+      if (entries[i].iso_year * 100 + entries[i].iso_week <= refKey) return entries[i];
+    }
+    return undefined;
+  }
+
   // ---- Pill status (reference day's combined Day+Night average vs target) -
   // Target is averaged from each entry's own snapshotted `target`, not the
   // live KPI catalog value — correct for KPIs like Moves whose target
   // varies by date (the day's uploaded Projection figure).
   function groupStatus(g: KpiGroup): PerformanceStatus {
+    // Weekly view: the pill follows the KPI's weekly figure — the same
+    // "latest week with a figure, up to the reviewed week" the headline
+    // shows — not the reviewed DAY's shift results, which can pass while
+    // the week as a whole failed (and vice versa).
+    if (granularity === 'weekly') {
+      const w = latestWeekly(pillarWeekly.filter((x) => x.kpi_base_name === g.label));
+      if (!w) return 'nodata';
+      return groupMetTarget(g, w.actual, w.target) ? 'met' : 'missed';
+    }
     const ids = primaryKpiIds(g);
     const entries = referenceEntries.filter((e) => ids.includes(e.kpi_id));
     return combinedStatus(g, entries);
@@ -395,11 +424,7 @@ export default function PillarQuadrant({
   // figure until it's over, so mid-week the board showed "—" even with
   // last week's numbers sitting right there. weeklySource is ordered by
   // year/week ascending; a small (≤ ~80 row) array, so no memo needed.
-  const refWeekKey = getISOWeekYear(referenceDate) * 100 + getISOWeek(referenceDate);
-  const currentWeekEntry =
-    granularity === 'weekly'
-      ? [...weeklySource].reverse().find((w) => w.iso_year * 100 + w.iso_week <= refWeekKey)
-      : undefined;
+  const currentWeekEntry = granularity === 'weekly' ? latestWeekly(weeklySource) : undefined;
 
   const targetLabel = (() => {
     if (!selectedGroup) return '';
