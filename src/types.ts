@@ -145,10 +145,12 @@ export interface LeadingEntry {
 }
 
 export const PILLAR_COLORS: Record<string, { base: string; soft: string; text: string }> = {
-  S: { base: '#dc2626', soft: '#fee2e2', text: '#7f1d1d' },
-  Q: { base: '#2563eb', soft: '#dbeafe', text: '#1e3a8a' },
-  D: { base: '#16a34a', soft: '#dcfce7', text: '#14532d' },
-  C: { base: '#d97706', soft: '#fef3c7', text: '#78350f' },
+  // Deliberately clear of red and green, which are reserved for pass/fail
+  // everywhere on the board (letter-grid cells, figures, trend dots).
+  S: { base: '#b45309', soft: '#fdf1dc', text: '#78350f' }, // amber — safety signage
+  Q: { base: '#0e7490', soft: '#dff3f7', text: '#164e63' }, // teal-cyan
+  D: { base: '#4338ca', soft: '#e7e8fb', text: '#312e81' }, // indigo
+  C: { base: '#a21caf', soft: '#f7e6f8', text: '#701a75' }, // plum
 };
 
 export type PerformanceStatus = 'met' | 'missed' | 'nodata' | 'future';
