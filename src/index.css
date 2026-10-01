@@ -1,19 +1,23 @@
 :root {
-  --bg: #f1f5f9;
+  /* Quayside palette — the brand teal for structure, signal orange only for
+     actions and the "reviewing" marker. --good/--bad stay pure pass/fail
+     semantics and never follow brand changes. */
+  --bg: #edf1f0;
   --surface: #ffffff;
-  --text: #0f172a;
-  --muted: #64748b;
-  --border: #e2e8f0;
-  --grid-line: #eef2f7;
-  --good: #16a34a;
+  --surface-sunk: #f4f7f6;
+  --text: #13312d;
+  --muted: #5e716d;
+  --border: #d5dedc;
+  --grid-line: #e6ecea;
+  --good: #15803d;
   --bad: #dc2626;
-  /* Brand palette, from the "Lean For All" logo: orange as the primary
-     action color, dark teal for the navbar (both sampled from the mark).
-     --good/--bad stay green/red regardless — those are pass/fail semantics,
-     not brand color, and shouldn't shift with a rebrand. */
   --primary: #f5821e;
   --primary-dark: #c2650f;
-  --navbar-bg: #2a544f;
+  --navbar-bg: #1f403c;
+  --teal: #2a544f;
+  --font-body: 'Barlow', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-display: 'Barlow Condensed', 'Barlow', system-ui, sans-serif;
+  --radius: 10px;
   color-scheme: light;
 }
 
@@ -29,30 +33,54 @@ body,
 
 body {
   margin: 0;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.45;
   background: var(--bg);
   color: var(--text);
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
 }
 
 h1, h2, h3 {
   margin: 0 0 4px 0;
-  line-height: 1.2;
+  line-height: 1.1;
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 0.005em;
+}
+
+h1 {
+  font-size: 34px;
+}
+
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 
 p {
   margin: 0;
 }
 
+/* Native buttons/fields don't inherit the page font by default. */
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
 .muted {
   color: var(--muted);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 /* ---------------- App footer ---------------- */
 .app-footer {
   text-align: center;
-  padding: 14px 16px 18px;
-  font-size: 12px;
+  padding: 18px 16px 22px;
+  font-size: 13px;
   color: var(--muted);
 }
 
@@ -78,7 +106,8 @@ p {
   display: flex;
   align-items: center;
   gap: 24px;
-  padding: 10px 24px;
+  padding: 0 24px;
+  min-height: 56px;
   background: var(--navbar-bg);
   color: white;
   position: sticky;
@@ -108,9 +137,13 @@ p {
 }
 
 .navbar-title {
-  font-size: 13px;
-  font-weight: 500;
-  color: #cbd5e1;
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #c9d9d6;
+  padding-left: 12px;
+  border-left: 1px solid rgba(255, 255, 255, 0.2);
 }
 
 /* Hamburger toggle — hidden on desktop, shown only under the mobile
@@ -175,23 +208,32 @@ p {
 
 .navbar-links {
   display: flex;
-  gap: 4px;
+  gap: 2px;
   flex: 1;
+  align-self: stretch;
 }
 
 .navbar-links a {
-  color: #cbd5e1;
+  color: #c9d9d6;
   text-decoration: none;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 500;
-  padding: 8px 12px;
-  border-radius: 6px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  /* Active page = an orange signal bar along the bottom edge, like a
+     lit indicator, rather than a filled pill. */
+  box-shadow: inset 0 -3px 0 transparent;
+  transition: color 0.12s ease, box-shadow 0.12s ease;
 }
 
-.navbar-links a.active,
 .navbar-links a:hover {
-  background: rgba(255, 255, 255, 0.1);
   color: white;
+}
+
+.navbar-links a.active {
+  color: white;
+  box-shadow: inset 0 -3px 0 var(--primary);
 }
 
 .navbar-user {
@@ -206,8 +248,13 @@ p {
   margin-left: auto;
 }
 
+.navbar-employee {
+  font-weight: 600;
+}
+
 .navbar-employee-code {
-  color: #94a3b8;
+  color: #9fb6b2;
+  font-weight: 400;
 }
 
 /* ---------------- Mobile navbar ---------------- */
@@ -252,9 +299,20 @@ p {
     gap: 2px;
   }
 
+  .navbar-links {
+    align-self: auto;
+  }
+
   .navbar-links a {
     padding: 11px 12px;
-    font-size: 15px;
+    font-size: 16px;
+    border-radius: 6px;
+    box-shadow: inset 3px 0 0 transparent;
+  }
+
+  .navbar-links a.active {
+    background: rgba(255, 255, 255, 0.08);
+    box-shadow: inset 3px 0 0 var(--primary);
   }
 
   .navbar-user {
@@ -305,7 +363,7 @@ p {
 
 /* ---------------- Layout helpers ---------------- */
 .page {
-  padding: 24px;
+  padding: 28px 24px 40px;
   max-width: 1200px;
   margin: 0 auto;
 }
@@ -324,7 +382,12 @@ p {
 }
 
 .page-header {
-  margin-bottom: 20px;
+  margin-bottom: 24px;
+  max-width: 78ch;
+}
+
+.page-header-row {
+  max-width: none;
 }
 
 .page-header-row {
@@ -365,16 +428,15 @@ p {
   }
 
   h1 {
-    font-size: 20px;
+    font-size: 28px;
   }
 }
 
 .card {
   background: var(--surface);
-  border-radius: 12px;
+  border-radius: var(--radius);
   border: 1px solid var(--border);
-  padding: 18px;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  padding: 20px;
 }
 
 .login-card {
@@ -384,7 +446,7 @@ p {
 }
 
 .login-card h1 {
-  font-size: 20px;
+  font-size: 28px;
 }
 
 .login-card p {
@@ -461,8 +523,8 @@ p {
   padding: 24px;
   text-align: center;
   color: var(--muted);
-  font-size: 13px;
-  background: #f8fafc;
+  font-size: 14px;
+  background: var(--surface-sunk);
   border-radius: 8px;
 }
 
@@ -584,7 +646,7 @@ p {
 }
 
 .field-label {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--muted);
   display: block;
@@ -640,7 +702,7 @@ p {
 }
 
 .form-grid label {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--muted);
 }
@@ -683,17 +745,17 @@ p {
 .action-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .action-table th {
   text-align: left;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
+  font-size: 12.5px;
+  font-weight: 600;
   color: var(--muted);
-  padding: 6px 8px;
-  border-bottom: 2px solid var(--border);
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
 }
 
 .action-table td {
@@ -734,16 +796,26 @@ p {
 
 /* ---------------- Dashboard / board ---------------- */
 .board-page {
-  padding: 20px 24px 40px;
+  padding: 24px 24px 40px;
+  max-width: 1920px;
+  margin: 0 auto;
 }
 
 .board-page-header {
   display: flex;
-  align-items: flex-start;
+  align-items: flex-end;
   justify-content: space-between;
-  gap: 12px;
+  gap: 16px;
   margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
   flex-wrap: wrap;
+}
+
+.board-page-header h1 {
+  font-size: 40px;
+  line-height: 1;
+  margin-bottom: 8px;
 }
 
 .board-page-controls {
@@ -778,13 +850,14 @@ p {
 
 .board-reviewing-badge {
   display: inline-block;
-  margin-left: 10px;
-  padding: 2px 9px;
-  border-radius: 999px;
-  background: #fdecd8;
-  color: var(--primary-dark);
-  font-size: 11.5px;
-  font-weight: 700;
+  margin-left: 12px;
+  padding: 3px 10px 3px 8px;
+  border-left: 4px solid var(--primary);
+  background: #fff4ea;
+  color: #8a4609;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 0 6px 6px 0;
 }
 
 .board-reviewing-reset {
@@ -853,10 +926,9 @@ p {
 
 .quadrant {
   background: var(--surface);
-  border-radius: 12px;
-  border-top: 6px solid #cbd5e1;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
   overflow: hidden;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
 }
 
 .quadrant-section {
@@ -878,8 +950,9 @@ p {
   flex-direction: column;
   align-items: center;
   gap: 10px;
-  padding: 18px 14px;
+  padding: 20px 14px 16px;
   background: #eef2f7;
+  border-bottom: 1px solid var(--border);
 }
 
 .letter-grid-svg {
@@ -904,18 +977,20 @@ p {
 }
 
 .quadrant-hero-name {
-  font-weight: 800;
-  font-size: 14px;
-  letter-spacing: 1.5px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 26px;
+  line-height: 1;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #334155;
+  color: var(--text);
 }
 
 .kpi-pills {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
-  padding: 10px 14px 0;
+  padding: 14px 16px 0;
   align-content: flex-start;
 }
 
@@ -923,8 +998,8 @@ p {
   border: 2px solid transparent;
   border-radius: 999px;
   padding: 5px 12px;
-  font-size: 11.5px;
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
   background: white;
   transition: background 0.12s ease, color 0.12s ease;
@@ -934,19 +1009,27 @@ p {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  padding: 12px 14px 0;
-  gap: 10px;
+  padding: 14px 16px 0;
+  gap: 12px;
 }
 
 .kpi-headline h3 {
-  font-size: 14px;
+  font-size: 21px;
+  line-height: 1.1;
 }
 
 .headline-values {
   display: flex;
-  gap: 14px;
+  gap: 16px;
   align-items: flex-end;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+}
+
+/* The KPI name takes whatever width the Day/Night figures leave, so the
+   two figures always sit side by side instead of stacking. */
+.kpi-headline > div:first-child {
+  flex: 1 1 auto;
   min-width: 0;
 }
 
@@ -958,29 +1041,30 @@ p {
 }
 
 .headline-shift-label {
-  font-size: 10.5px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
+  font-size: 13px;
+  font-weight: 600;
   color: var(--muted);
-  margin-bottom: 1px;
+  margin-bottom: 2px;
 }
 
 /* Enlarged per spec (was 26px) — also no longer force nowrap, so a longer
  * unit like "Count" wraps under the number instead of clipping/overlapping
  * a neighbouring Day/Night value in a narrow quadrant column. */
 .headline-value {
-  font-size: 34px;
-  font-weight: 800;
-  line-height: 1.05;
+  font-family: var(--font-display);
+  font-size: 46px;
+  font-weight: 700;
+  line-height: 0.95;
   white-space: normal;
   word-break: break-word;
+  font-variant-numeric: tabular-nums lining-nums;
 }
 
 .headline-unit {
-  font-size: 12px;
-  font-weight: 600;
-  margin-left: 3px;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  margin-left: 4px;
   color: var(--muted);
   white-space: nowrap;
 }
@@ -1003,7 +1087,7 @@ p {
   }
 
   .headline-value {
-    font-size: 28px;
+    font-size: 38px;
   }
 
   .kpi-headline {
@@ -1036,49 +1120,48 @@ p {
 }
 
 .value-nodata {
-  color: #94a3b8;
+  color: #a3b3b0;
 }
 
 .quadrant-block-title {
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
-  color: var(--muted);
-  padding: 14px 14px 4px;
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text);
+  padding: 14px 16px 6px;
+  margin-top: 12px;
+  border-top: 1px solid var(--grid-line);
 }
 
 .quadrant .action-table {
-  font-size: 11.5px;
+  font-size: 13px;
 }
 
 .quadrant .table-scroll {
-  padding: 0 14px 14px;
+  padding: 0 16px 16px;
 }
 
 .remarks-summary {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 0 14px 12px;
+  padding: 0 16px 14px;
 }
 
 .remarks-block {
-  background: #f8fafc;
+  background: var(--surface-sunk);
   border-radius: 8px;
-  padding: 8px 10px;
+  padding: 9px 12px;
 }
 
 .remarks-block-label {
-  font-size: 10.5px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
+  font-size: 13px;
+  font-weight: 600;
   color: var(--muted);
 }
 
 .remarks-text {
-  font-size: 12.5px;
+  font-size: 14px;
   color: var(--text);
   margin-top: 2px;
   line-height: 1.4;
@@ -1148,10 +1231,10 @@ p {
 }
 
 .fl-column {
-  background: #eef2f7;
-  border-radius: 12px;
-  padding: 12px;
-  min-height: 160px;
+  background: transparent;
+  border-top: 1px solid var(--border);
+  padding: 14px 0 4px;
+  min-height: 0;
 }
 
 /* Today's forecast cards read left-to-right in a 3-column grid rather than
@@ -1182,30 +1265,32 @@ p {
 }
 
 .fl-column-title {
-  font-weight: 800;
-  font-size: 15px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 24px;
   color: var(--text);
 }
 
 .fl-card {
   background: var(--surface);
-  border-radius: 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
   border-left: 4px solid transparent;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
-  padding: 12px 12px 10px;
+  padding: 14px 16px 12px;
 }
 
 .fl-card-kpi {
-  font-size: 13px;
-  font-weight: 700;
+  font-size: 15px;
+  font-weight: 600;
   margin-bottom: 6px;
 }
 
 .fl-card-value {
-  font-size: 22px;
-  font-weight: 800;
+  font-family: var(--font-display);
+  font-size: 40px;
+  font-weight: 700;
   color: var(--text);
-  line-height: 1.15;
+  line-height: 1;
 }
 
 .fl-card-unit {
@@ -1223,9 +1308,8 @@ p {
 }
 
 .fl-card-nodata {
-  font-size: 13px;
+  font-size: 14px;
   color: var(--muted);
-  font-style: italic;
 }
 
 /* ---------------- Modal (KPI delete confirm, letter-grid day detail) ---------------- */
