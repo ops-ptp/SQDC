@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useEmployee } from '../context/EmployeeContext';
 import { errorMessage } from '../types';
-import { Button, TextField } from '../components/ui';
+import { Button, TextField, InfoTip } from '../components/ui';
 
 export default function Login() {
   const { loginWithCode } = useEmployee();
@@ -31,8 +31,7 @@ export default function Login() {
   return (
     <div className="center-page">
       <form className="card login-card" onSubmit={handleSubmit}>
-        <h1>Enter your Employee ID</h1>
-        <p className="muted">Only accessible employee can enter this page.</p>
+        <h1>Enter your Employee ID <InfoTip>Only accessible employee can enter this page.</InfoTip></h1>
         <TextField autoFocus className="login-input" placeholder="000001" inputMode="numeric" ariaLabel="Employee ID" value={code} onChange={setCode} />
         {error && <div className="alert alert-error">{error}</div>}
         <Button themeColor="primary" size="large" type="submit" disabled={submitting}>

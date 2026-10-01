@@ -670,7 +670,7 @@ export default function PillarQuadrant({
                   : { background: 'white', borderColor: color, color }
               }
               onClick={() => setSelectedKey(g.key)}
-              title={groupHasManualEntry(g) ? `${g.label} — manually entered` : undefined}
+              title={groupHasManualEntry(g) ? `${g.label} (manually entered)` : g.label}
             >
               {g.label}
             </button>

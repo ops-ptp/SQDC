@@ -24,6 +24,7 @@
     "@progress/kendo-react-labels": "^16.1.0",
     "@progress/kendo-react-layout": "^16.1.0",
     "@progress/kendo-react-popup": "^16.1.0",
+    "@progress/kendo-react-tooltip": "^16.1.0",
     "@progress/kendo-svg-icons": "^5.5.0",
     "@progress/kendo-theme-default": "^14.6.0",
     "@supabase/supabase-js": "^2.112.3",

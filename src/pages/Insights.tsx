@@ -21,7 +21,7 @@ import DataTable, { type DataTableColumn } from '../components/DataTable';
 import ParetoChart from '../components/ParetoChart';
 import PivotFieldPanel, { type PivotZone } from '../components/PivotFieldPanel';
 import { Chip } from '@progress/kendo-react-buttons';
-import { Button, CheckField, InlineLoader, PageLoader, TextAreaField, TextField } from '../components/ui';
+import { Button, CheckField, InlineLoader, PageLoader, TextAreaField, TextField, InfoTip } from '../components/ui';
 
 const LOOKBACK_DAYS = 180;
 
@@ -165,12 +165,9 @@ function ExportTableSection({ kpiGroup, refreshKey }: { kpiGroup: KpiGroupOption
 
   return (
     <div className="card">
-      <h3>Missed-target remarks {kpiGroup ? `— ${kpiGroup.label}` : ''}</h3>
-      <p className="muted">
-        Last {LOOKBACK_DAYS} days. Click a column header to sort, type in the box under a header to filter — same idea
+      <h3>Missed-target remarks {kpiGroup ? `— ${kpiGroup.label}` : ''} <InfoTip>Last {LOOKBACK_DAYS} days. Click a column header to sort, type in the box under a header to filter — same idea
         as an Excel table. "Download CSV" exports exactly what's showing here (filtered/sorted), ready to run through
-        an AI tool and re-import once it's added a "category" column.
-      </p>
+        an AI tool and re-import once it's added a "category" column.</InfoTip></h3>
       {error && <div className="alert alert-error">{error}</div>}
       {loading ? (
         <InlineLoader />
@@ -238,11 +235,8 @@ function ImportSection({ onImported }: { onImported: () => void }) {
 
   return (
     <div className="card">
-      <h3>Re-import the categorized file</h3>
-      <p className="muted">
-        Upload the CSV back once your AI tool has added the "category" column — matched by the hidden id column, only
-        that field is written back.
-      </p>
+      <h3>Re-import the categorized file <InfoTip>Upload the CSV back once your AI tool has added the "category" column — matched by the hidden id column, only
+        that field is written back.</InfoTip></h3>
       <input
         ref={inputRef}
         type="file"
@@ -404,13 +398,10 @@ function PivotSection({ pillarId, kpiGroup, refreshKey }: { pillarId: string | n
 
   return (
     <div className="card">
-      <h3>Pivot builder {kpiGroup ? `— ${kpiGroup.label}` : ''}</h3>
-      <p className="muted">
-        Drag fields into Filters / Rows / Columns to slice the categorized entries for this KPI — same idea as an
+      <h3>Pivot builder {kpiGroup ? `— ${kpiGroup.label}` : ''} <InfoTip>Drag fields into Filters / Rows / Columns to slice the categorized entries for this KPI — same idea as an
         Excel PivotChart. Only entries that have been categorized (via the export/re-import cycle above) show up here.
         Save it to also show this breakdown as an extra Pareto card on the SQDC Board for this KPI — it stays live,
-        recomputed from whatever's categorized whenever the board loads, not a frozen snapshot.
-      </p>
+        recomputed from whatever's categorized whenever the board loads, not a frozen snapshot.</InfoTip></h3>
       {error && <div className="alert alert-error">{error}</div>}
       {!kpiGroup ? (
         <div className="empty-state">Pick a pillar and KPI above.</div>
@@ -564,11 +555,8 @@ export default function Insights() {
   return (
     <div className="page">
       <div className="page-header">
-        <h1>Insights</h1>
-        <p className="muted">
-          Pick a pillar and KPI, export its missed-target remarks, run them through whatever AI tool you already have,
-          re-import, and build a pivot breakdown — no AI plugged into this app itself.
-        </p>
+        <h1>Insights <InfoTip>Pick a pillar and KPI, export its missed-target remarks, run them through whatever AI tool you already have,
+          re-import, and build a pivot breakdown — no AI plugged into this app itself.</InfoTip></h1>
       </div>
 
       <div className="card" style={{ marginBottom: 16 }}>

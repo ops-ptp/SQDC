@@ -11,6 +11,10 @@ import { DropDownList } from '@progress/kendo-react-dropdowns';
 import { DatePicker } from '@progress/kendo-react-dateinputs';
 import { Checkbox, Input, NumericTextBox, TextArea } from '@progress/kendo-react-inputs';
 import { Loader } from '@progress/kendo-react-indicators';
+import { Popover } from '@progress/kendo-react-tooltip';
+import { SvgIcon } from '@progress/kendo-react-common';
+import { infoCircleIcon } from '@progress/kendo-svg-icons';
+import { useState } from 'react';
 
 export { Button } from '@progress/kendo-react-buttons';
 
@@ -190,5 +194,33 @@ export function InlineLoader({ label = 'Loading…' }: { label?: string }) {
       <Loader type="pulsing" size="small" themeColor="primary" />
       <span>{label}</span>
     </div>
+  );
+}
+
+/** Small "i" button that reveals explanatory text on hover, focus or tap —
+ * keeps help copy available without leaving paragraphs on screen. */
+export function InfoTip({ children, label = 'More info' }: { children: React.ReactNode; label?: string }) {
+  const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        ref={setAnchor}
+        className="info-tip"
+        aria-label={label}
+        aria-expanded={open}
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        onClick={() => setOpen((o) => !o)}
+      >
+        <SvgIcon icon={infoCircleIcon} size="small" />
+      </button>
+      <Popover show={open && Boolean(anchor)} anchor={anchor} position="bottom" callout className="info-tip-popover">
+        <div className="info-tip-body">{children}</div>
+      </Popover>
+    </>
   );
 }

@@ -2,7 +2,7 @@ import { format, parseISO } from 'date-fns';
 import { useEffect, useMemo, useState } from 'react';
 import { fetchLatestLeadingEntries, fetchLeadingKpis } from '../lib/data';
 import { PILLAR_COLORS, errorMessage, round2, type KpiWithPillar, type LeadingEntry } from '../types';
-import { PageLoader } from '../components/ui';
+import { PageLoader, InfoTip } from '../components/ui';
 
 const TODAY = new Date();
 
@@ -71,10 +71,7 @@ export default function ForwardLooking() {
   return (
     <div className="page fl-page">
       <div className="page-header">
-        <h1>Next 24 Hours</h1>
-        <p className="muted">
-          Leading indicators for the day ahead.
-        </p>
+        <h1>Next 24 Hours <InfoTip>Leading indicators for the day ahead.</InfoTip></h1>
       </div>
 
       {kpis.length === 0 ? (

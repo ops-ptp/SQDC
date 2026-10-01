@@ -38,7 +38,7 @@ import { bulkAddEntryCategories, bulkAddKpiCategories, fetchEntriesLite, fillEmp
 import { familyOf, matchRows, parseParetoWorkbook } from '../lib/categoryImport';
 import { TabStrip, TabStripTab } from '@progress/kendo-react-layout';
 import { pencilIcon, plusIcon, trashIcon } from '@progress/kendo-svg-icons';
-import { Button, CheckField, InlineLoader, Select, TextField } from '../components/ui';
+import { Button, CheckField, InlineLoader, Select, TextField, InfoTip } from '../components/ui';
 
 const DIRECTION_OPTIONS = [
   { value: 'higher', label: 'Higher is better' },
@@ -90,8 +90,7 @@ function UploadCard({
 
   return (
     <div className="card admin-upload-card">
-      <h3>{title}</h3>
-      <p className="muted">{description}</p>
+      <h3>{title} <InfoTip>{description}</InfoTip></h3>
       <input
         ref={inputRef}
         type="file"
@@ -264,13 +263,10 @@ function DailyUploadCard({
 
   return (
     <div className="card admin-upload-card">
-      <h3>Daily upload</h3>
-      <p className="muted">
-        OPS SQDC Daily.xlsx — "Daily Database" (Date + Day/Night shift rows), "Target" (per-day/shift targets — a
+      <h3>Daily upload <InfoTip>OPS SQDC Daily.xlsx — "Daily Database" (Date + Day/Night shift rows), "Target" (per-day/shift targets — a
         KPI's target can now change over time), and "Next 24hrs" (leading KPI projections). Re-uploading updates
         matching date rows only; other dates are untouched. The file is read first — you'll see exactly what KPI
-        catalog changes it would make before anything is written.
-      </p>
+        catalog changes it would make before anything is written.</InfoTip></h3>
       <input
         ref={inputRef}
         type="file"
@@ -554,12 +550,9 @@ function KpiManagementSection({ refreshKey }: { refreshKey: number }) {
     <div className="card" style={{ marginTop: 24 }}>
       <div className="page-header-row" style={{ marginBottom: 14 }}>
         <div>
-          <h3>KPI Management</h3>
-          <p className="muted">
-            Every KPI across the Board (lagging) and Next 24 Hours (leading), Day/Night combined into one row.
+          <h3>KPI Management <InfoTip>Every KPI across the Board (lagging) and Next 24 Hours (leading), Day/Night combined into one row.
             "Visible" hides a KPI everywhere without losing its data — a shared setting for the whole board, not a
-            per-person view. "Delete" is permanent and erases all of its history.
-          </p>
+            per-person view. "Delete" is permanent and erases all of its history.</InfoTip></h3>
         </div>
         <Button type="button" themeColor="primary" disabled={saving || dirtyRows.length === 0} onClick={handleSave}>
           {saving ? 'Saving…' : dirtyRows.length > 0 ? `Save changes (${dirtyRows.length})` : 'Save changes'}
@@ -760,11 +753,8 @@ function EmployeeManagementSection() {
     <div className="card" style={{ marginTop: 24 }}>
       <div className="page-header-row" style={{ marginBottom: 14 }}>
         <div>
-          <h3>Employee Management</h3>
-          <p className="muted">
-            Add or update the roster staff use to log in. "Active" turns off a person's login without deleting their
-            history — a past remark or upload always stays attributed to them, so there's no permanent delete here.
-          </p>
+          <h3>Employee Management <InfoTip>Add or update the roster staff use to log in. "Active" turns off a person's login without deleting their
+            history — a past remark or upload always stays attributed to them, so there's no permanent delete here.</InfoTip></h3>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <Button type="button" svgIcon={plusIcon} onClick={() => setFormModal({ mode: 'add' })}>
@@ -1084,13 +1074,10 @@ export default function Admin() {
   return (
     <div className="page">
       <div className="page-header">
-        <h1>Admin</h1>
-        <p className="muted">
-          Upload the daily and weekly Excel exports here — they write straight into the board's data, replacing manual
+        <h1>Admin <InfoTip>Upload the daily and weekly Excel exports here — they write straight into the board's data, replacing manual
           entry for every KPI except the 3 that stay manual (Accident During Operation, QC Preventive Maintenance &amp;
           Service, Average Litres per Vessel Call). The Daily upload also reads the Target sheet's per-day targets and
-          the Next 24hrs sheet's leading-KPI figures in the same pass.
-        </p>
+          the Next 24hrs sheet's leading-KPI figures in the same pass.</InfoTip></h1>
       </div>
 
       <TabStrip selected={tab} onSelect={(e) => setTab(e.selected)} className="admin-tabs" keepTabsMounted>

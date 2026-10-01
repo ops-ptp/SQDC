@@ -14,7 +14,7 @@ import {
 import CategoryPicker from '../components/CategoryPicker';
 import { PILLAR_COLORS, errorMessage, metTarget, round2, type DailyEntry, type Kpi, type Pillar, type Reason } from '../types';
 import { Chip, SegmentedControl } from '@progress/kendo-react-buttons';
-import { Button, DateField, NumberField, PageLoader, Select, TextAreaField, TextField, InlineLoader } from '../components/ui';
+import { Button, DateField, NumberField, PageLoader, Select, TextAreaField, TextField, InlineLoader, InfoTip } from '../components/ui';
 
 const TODAY = format(new Date(), 'yyyy-MM-dd');
 // Staff typically log the previous day's completed shift results each
@@ -390,7 +390,7 @@ export default function DataEntry() {
     return (
       <div className="category-block">
         <label className="field-label">
-          Categories <span className="category-block-hint">— tick every cause that applied; saved instantly, used by the Weekly Pareto</span>
+          Categories <InfoTip>Tick every cause that applied. Saved instantly and counted in the Weekly Pareto.</InfoTip>
         </label>
         <CategoryPicker
           key={entryId}
@@ -437,11 +437,8 @@ export default function DataEntry() {
     <div className="page">
       <div className="page-header page-header-row">
         <div>
-          <h1>Enter Remarks</h1>
-          <p className="muted">
-            Logged in as {employee?.name}. Performance values come from the daily Admin upload — pick a KPI below to add
-            the remark or reason for it.
-          </p>
+          <h1>Enter Remarks <InfoTip>Logged in as {employee?.name}. Performance values come from the daily Admin upload — pick a KPI below to add
+            the remark or reason for it.</InfoTip></h1>
         </div>
         <label className="date-picker">
           <span className="field-label">Date</span>
@@ -493,7 +490,7 @@ export default function DataEntry() {
       </div>
 
       <div className="field-label" style={{ marginTop: 14 }}>
-        KPI <span className="entry-pill-hint">— grey until updated, red if target was missed and still needs a remark</span>
+        KPI <InfoTip>Grey until updated. Red if the target was missed and a remark is still needed.</InfoTip>
       </div>
       <div className="entry-kpi-pills">
         {pillarGroups.length === 0 && <span className="muted">No KPIs in this pillar.</span>}

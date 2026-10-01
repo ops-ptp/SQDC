@@ -6,7 +6,7 @@ import ActionTable from '../components/ActionTable';
 import Modal from '../components/Modal';
 import { Chip } from '@progress/kendo-react-buttons';
 import { plusIcon } from '@progress/kendo-svg-icons';
-import { Button, DateField, PageLoader, Select, TextField, type SelectOption } from '../components/ui';
+import { Button, DateField, PageLoader, Select, TextField, type SelectOption, InfoTip } from '../components/ui';
 
 /** The six action fields, shared by the "New action" form and the Edit
  * dialog so the two can't drift apart. */
@@ -236,8 +236,7 @@ export default function ActionLog() {
     <div className="page">
       <div className="page-header page-header-row">
         <div>
-          <h1>Action Log</h1>
-          <p className="muted">Actions raised against Pareto reasons across all four pillars.</p>
+          <h1>Action Log <InfoTip>Actions raised against Pareto reasons across all four pillars.</InfoTip></h1>
         </div>
         <Button themeColor={showForm ? 'base' : 'primary'} svgIcon={showForm ? undefined : plusIcon} onClick={() => setShowForm((s) => !s)}>
           {showForm ? 'Cancel' : 'New action'}
