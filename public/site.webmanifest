@@ -1,0 +1,15 @@
+{
+  "name": "SQDC Board — Operations Division",
+  "short_name": "SQDC",
+  "description": "Daily Safety, Quality, Delivery and Cost performance for the shift huddle.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#edf1f0",
+  "theme_color": "#1f403c",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
