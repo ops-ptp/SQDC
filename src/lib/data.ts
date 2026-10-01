@@ -116,8 +116,15 @@ export async function upsertDailyEntry(input: UpsertEntryInput): Promise<DailyEn
 
 /** All lagging KPIs (active, non-leading), regardless of manual_entry — the
  * full catalog the Admin upload needs to map spreadsheet columns against. */
+/** KPIs the Weekly upload matches its columns against: every lagging KPI,
+ * visible AND hidden. "Visible" in KPI Management is a Daily-board concept
+ * only — the Weekly board always shows its 7 tracked KPIs regardless — so
+ * filtering to active KPIs here silently dropped hidden ones' weekly figures
+ * (e.g. Delay – Waiting for CHE, QC Preventive Maintenance & Service). */
 export async function fetchKpisForUpload(): Promise<Kpi[]> {
-  return fetchKpis();
+  const { data, error } = await supabase.from('kpis').select('*').eq('is_leading', false).order('sort_order');
+  if (error) throw error;
+  return data as Kpi[];
 }
 
 /** Which (kpi_id, entry_date) pairs already carry a person-typed value for a

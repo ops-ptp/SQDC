@@ -626,7 +626,8 @@ export async function parseWeeklyWorkbook(buffer: ArrayBuffer, kpis: Kpi[], uplo
       }
       const kpi = findRepresentativeKpi(kpis, base);
       if (!kpi) {
-        warnings.push(`"${base}" has no matching KPI in the catalog — skipped.`);
+        const msg = `"${base}" has no matching KPI in the catalog — skipped.`;
+        if (!warnings.includes(msg)) warnings.push(msg);
         continue;
       }
       const actual = convertValue(raw, kpi);
