@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { format, startOfMonth, getDaysInMonth, startOfWeek, subWeeks, subDays, getISOWeek, getISOWeekYear } from 'date-fns';
+import { addDays, format, parseISO, startOfMonth, getDaysInMonth, startOfWeek, subWeeks, subDays, getISOWeek, getISOWeekYear } from 'date-fns';
 import { fetchActions, fetchCategorizedEntriesForKpiIds, fetchCustomParetosForPillar, fetchEntriesForKpi, fetchEntriesForKpisOnDate, fetchKpiDailyTargetsForDate, fetchReasonsForKpi, fetchWeeklyEntriesForKpiBase, fetchWeeklyEntriesForPillar, type CategorizedEntryRow, type CustomPareto } from '../lib/data';
 import { applyPivotFilter, computeChartData, computeCrossTab, pivotFieldLabel } from '../lib/pivot';
 import { WEEKLY_HEADER_TO_BASE } from '../lib/excelUpload';
@@ -331,12 +331,32 @@ export default function PillarQuadrant({
       .catch(() => setPillarWeekly([]));
   }, [granularity, pillar.id]);
 
-  // Latest weekly figure at or before the reviewed date's ISO week, from a
-  // year/week-ascending list — shared by the pills and the headline.
+  // The ISO weeks in the period picked by the board's 1 week / 2 weeks
+  // selector — the WHOLE Weekly view (pills, headline, trend, Pareto)
+  // follows this, not just the Pareto.
+  const periodWeeks = useMemo(() => {
+    const start = parseISO(paretoPeriod.from);
+    // from = Monday, to = the Sunday ending the period, so the span is a
+    // whole number of weeks once the end day itself is counted.
+    const n = Math.round(((parseISO(paretoPeriod.to).getTime() - start.getTime()) / 86400000 + 1) / 7);
+    return Array.from({ length: Math.max(1, n) }, (_, i) => {
+      const d = addDays(start, i * 7);
+      return { year: getISOWeekYear(d), week: getISOWeek(d) };
+    });
+  }, [paretoPeriod.from, paretoPeriod.to]);
+
+  function weeklyFor(entries: WeeklyEntry[], year: number, week: number): WeeklyEntry | undefined {
+    return entries.find((e) => e.iso_year === year && e.iso_week === week);
+  }
+
+  // The latest week IN the selected period that has a figure (a 2-week
+  // period whose second week isn't uploaded yet falls back to its first).
+  // Undefined when the period has no figures at all — shown as "—", rather
+  // than silently borrowing an older week the person didn't select.
   function latestWeekly(entries: WeeklyEntry[]): WeeklyEntry | undefined {
-    const refKey = getISOWeekYear(referenceDate) * 100 + getISOWeek(referenceDate);
-    for (let i = entries.length - 1; i >= 0; i--) {
-      if (entries[i].iso_year * 100 + entries[i].iso_week <= refKey) return entries[i];
+    for (let i = periodWeeks.length - 1; i >= 0; i--) {
+      const e = weeklyFor(entries, periodWeeks[i].year, periodWeeks[i].week);
+      if (e) return e;
     }
     return undefined;
   }
@@ -430,7 +450,7 @@ export default function PillarQuadrant({
     if (!selectedGroup) return '';
     if (granularity === 'weekly') {
       const t = currentWeekEntry?.target ?? selectedGroup.target;
-      return `Target ${round2(t)} ${selectedGroup.unit} · Wk ${currentWeekEntry?.iso_week ?? getISOWeek(referenceDate)}`;
+      return `Target ${round2(t)} ${selectedGroup.unit} · ${paretoPeriod.label.split(' · ')[0]}`;
     }
     if (selectedGroup.single) {
       const t = referenceTargets.get(selectedGroup.single.id) ?? referenceSingleEntry?.target ?? selectedGroup.target;
@@ -502,7 +522,9 @@ export default function PillarQuadrant({
     // week's blended figure (the source sheet has no Day/Night split) is
     // plotted on both the Day and Night lines, same documented
     // simplification as before — there's no real split to show.
-    const currentIsoWeekStart = startOfWeek(referenceDate, { weekStartsOn: 1 });
+    // Ends at the last week of the selected period, so stepping the period
+    // back also steps the trend back.
+    const currentIsoWeekStart = startOfWeek(parseISO(paretoPeriod.to), { weekStartsOn: 1 });
     const sourceByWeek = new Map(weeklySource.map((w) => [`${w.iso_year}-${w.iso_week}`, w]));
     const points: RunPoint[] = [];
     for (let w = 7; w >= 0; w--) {
@@ -526,7 +548,7 @@ export default function PillarQuadrant({
     }
     return points;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [windowEntries, weeklySource, selectedGroup?.key, granularity]);
+  }, [windowEntries, weeklySource, selectedGroup?.key, granularity, paretoPeriod.to]);
 
   // ---- Pareto: missed-target reasons within the Pareto-specific window ---
   // Recomputed live via groupMetTarget rather than trusting each entry's
@@ -664,10 +686,21 @@ export default function PillarQuadrant({
             </div>
             <div className="headline-values">
               {granularity === 'weekly' ? (
-                <div className={`headline-value ${currentWeekEntry ? (groupMetTarget(selectedGroup, currentWeekEntry.actual, currentWeekEntry.target) ? 'value-good' : 'value-bad') : 'value-nodata'}`}>
-                  {currentWeekEntry ? round2(currentWeekEntry.actual) : '—'}
-                  <span className="headline-unit">{selectedGroup.unit}</span>
-                </div>
+                // One value per week in the selected period — side by side
+                // for a 2-week period, same layout as the Daily view's
+                // Day / Night pair.
+                periodWeeks.map(({ year, week }) => {
+                  const w = weeklyFor(weeklySource, year, week);
+                  return (
+                    <div className="headline-shift" key={`${year}-${week}`}>
+                      {periodWeeks.length > 1 && <span className="headline-shift-label">Wk {week}</span>}
+                      <span className={`headline-value ${w ? (groupMetTarget(selectedGroup, w.actual, w.target) ? 'value-good' : 'value-bad') : 'value-nodata'}`}>
+                        {w ? round2(w.actual) : '—'}
+                        <span className="headline-unit">{selectedGroup.unit}</span>
+                      </span>
+                    </div>
+                  );
+                })
               ) : selectedGroup.single ? (
                 <div className={`headline-value ${referenceSingleEntry ? (groupMetTarget(selectedGroup, referenceSingleEntry.actual, referenceSingleEntry.target) ? 'value-good' : 'value-bad') : 'value-nodata'}`}>
                   {referenceSingleEntry ? round2(referenceSingleEntry.actual) : '—'}
