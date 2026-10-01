@@ -607,10 +607,22 @@ export async function parseWeeklyWorkbook(buffer: ArrayBuffer, kpis: Kpi[], uplo
   const unresolvedFormulaBases = new Set<string>();
   let rowsRead = 0;
 
+  // Weeks that haven't started yet are skipped: the team's template is
+  // pre-filled with future weeks whose formulas match on week number only
+  // (not year), so e.g. every "2027 Week NN" row repeated 2026 Week NN's
+  // figure, plus the odd stray value (QC PM's "Week 52 = 302.33"). A weekly
+  // actual can't exist for a week that hasn't begun, so nothing is lost.
+  const currentWeekKey = nowIsoYear * 100 + nowIsoWeek;
+  let skippedFutureRows = 0;
+
   for (const { r, isoWeek } of weekLabelRows) {
     const row = sheet.getRow(r);
     const isoYear = isoYearByRow.get(r)!;
     rowsRead++;
+    if (isoYear * 100 + isoWeek > currentWeekKey) {
+      if (cols.some(({ col }) => cellNumber(row.getCell(col).value) !== null)) skippedFutureRows++;
+      continue;
+    }
 
     for (const { col, base } of cols) {
       const cellValue = row.getCell(col).value;
@@ -642,6 +654,12 @@ export async function parseWeeklyWorkbook(buffer: ArrayBuffer, kpis: Kpi[], uplo
         uploaded_by: uploadedBy,
       });
     }
+  }
+
+  if (skippedFutureRows > 0) {
+    warnings.push(
+      `Skipped ${skippedFutureRows} future week row(s) (after Week ${nowIsoWeek} ${nowIsoYear}) that already had figures — usually formulas that match on week number only, not year. They'll load once those weeks arrive.`
+    );
   }
 
   for (const base of unresolvedFormulaBases) {

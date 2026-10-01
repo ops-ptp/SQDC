@@ -387,19 +387,25 @@ export default function PillarQuadrant({
   // default only when neither source has anything for this date. Shows one
   // number when Day and Night share the same target, or "Day X · Night Y"
   // when they genuinely differ.
-  // The Weekly toggle's headline source — the ISO week containing the
-  // reviewed date, read straight from weekly_entries (see weeklySource's
-  // fetch effect below for why this isn't daily-derived). Only meaningful
-  // in weekly mode; deliberately not memoized, it's a cheap find() over a
-  // small (≤ ~80 row) array.
+  // The Weekly toggle's headline source, read straight from weekly_entries
+  // (see weeklySource's fetch effect below for why this isn't daily-derived):
+  // the LATEST week that has a figure, up to and including the week of the
+  // reviewed date. Using only the reviewed date's own week blanked the
+  // headline for most of every week — the week in progress has no weekly
+  // figure until it's over, so mid-week the board showed "—" even with
+  // last week's numbers sitting right there. weeklySource is ordered by
+  // year/week ascending; a small (≤ ~80 row) array, so no memo needed.
+  const refWeekKey = getISOWeekYear(referenceDate) * 100 + getISOWeek(referenceDate);
   const currentWeekEntry =
-    granularity === 'weekly' ? weeklySource.find((w) => w.iso_year === getISOWeekYear(referenceDate) && w.iso_week === getISOWeek(referenceDate)) : undefined;
+    granularity === 'weekly'
+      ? [...weeklySource].reverse().find((w) => w.iso_year * 100 + w.iso_week <= refWeekKey)
+      : undefined;
 
   const targetLabel = (() => {
     if (!selectedGroup) return '';
     if (granularity === 'weekly') {
       const t = currentWeekEntry?.target ?? selectedGroup.target;
-      return `Target ${round2(t)} ${selectedGroup.unit} · Wk ${getISOWeek(referenceDate)}`;
+      return `Target ${round2(t)} ${selectedGroup.unit} · Wk ${currentWeekEntry?.iso_week ?? getISOWeek(referenceDate)}`;
     }
     if (selectedGroup.single) {
       const t = referenceTargets.get(selectedGroup.single.id) ?? referenceSingleEntry?.target ?? selectedGroup.target;
