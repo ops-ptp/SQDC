@@ -15,6 +15,7 @@ import { paretoPeriod as computeParetoPeriod, type ParetoPeriod } from '../lib/c
 import ActionTable from './ActionTable';
 import PillarLetterGrid, { type DayStatus } from './PillarLetterGrid';
 import { InlineLoader } from './ui';
+import ScrollFadeRow from './ScrollFadeRow';
 
 export type Granularity = 'daily' | 'weekly';
 
@@ -655,7 +656,7 @@ export default function PillarQuadrant({
     <section className="quadrant">
       {hero}
 
-      <div className="kpi-pills">
+      <ScrollFadeRow className="kpi-pills">
         {groups.map((g) => {
           const status = groupStatus(g);
           const isSelected = g.key === selectedKey;
@@ -676,7 +677,7 @@ export default function PillarQuadrant({
             </button>
           );
         })}
-      </div>
+      </ScrollFadeRow>
 
       {selectedGroup && (
         <>

@@ -1002,7 +1002,6 @@ textarea {
   overflow-x: auto;
   scrollbar-width: none;
   padding: 20px 20px 0;
-  mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
 }
 
 .kpi-pills::-webkit-scrollbar {
@@ -2138,4 +2137,16 @@ textarea {
 
 .quadrant .action-table td:nth-child(3) {
   white-space: nowrap;
+}
+
+/* Edge fades for sideways-scrolling rows — only on the side(s) with
+   hidden content (classes set by ScrollFadeRow). */
+.scroll-fade.fade-right {
+  mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+}
+.scroll-fade.fade-left {
+  mask-image: linear-gradient(to right, transparent, #000 32px);
+}
+.scroll-fade.fade-left.fade-right {
+  mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent);
 }
