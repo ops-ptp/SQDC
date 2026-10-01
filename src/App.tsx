@@ -13,12 +13,28 @@ const Admin = lazy(() => import('./pages/Admin'));
 const Insights = lazy(() => import('./pages/Insights'));
 import Login from './pages/Login';
 import { PageLoader } from './components/ui';
+import { supabaseConfigured } from './lib/supabaseClient';
 
 // The Board is the landing page and stays in the main bundle; everything
 // else (notably Admin/Insights, which pull in the Excel parser) loads on
 // first visit so a shared board screen starts faster.
 
 export default function App() {
+  if (!supabaseConfigured) {
+    return (
+      <div className="center-page">
+        <div className="card login-card">
+          <h1>Database not configured</h1>
+          <p className="muted">
+            This deployment was built without <code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_ANON_KEY</code>. In
+            Vercel, open the project's Settings → Environment Variables, tick <strong>Preview</strong> (as well as
+            Production) for both, then redeploy.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <EmployeeProvider>
       <BrowserRouter>
