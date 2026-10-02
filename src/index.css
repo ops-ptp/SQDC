@@ -993,19 +993,40 @@ textarea {
 }
 
 .kpi-pills {
-  /* One line per quadrant, scrolling sideways (no visible scrollbar) when a
-     pillar has many KPIs — every quadrant keeps the same row height. */
+  /* One line per quadrant, scrolling sideways when a pillar has many KPIs —
+     every quadrant keeps the same row height. A thin scrollbar appears on
+     hover/focus so mice without a sideways wheel can still drag it; its
+     space is always reserved, so the pills never jump when it appears. */
   display: flex;
   align-items: center;
   gap: 6px;
   flex-wrap: nowrap;
   overflow-x: auto;
-  scrollbar-width: none;
-  padding: 20px 20px 0;
+  padding: 20px 20px 6px;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color 0.15s ease;
 }
 
+.kpi-pills:hover,
+.kpi-pills:focus-within {
+  scrollbar-color: #a3b3b0 transparent;
+}
+
+/* Safari / older Chromium */
 .kpi-pills::-webkit-scrollbar {
-  display: none;
+  height: 6px;
+}
+.kpi-pills::-webkit-scrollbar-track {
+  background: transparent;
+}
+.kpi-pills::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 999px;
+}
+.kpi-pills:hover::-webkit-scrollbar-thumb,
+.kpi-pills:focus-within::-webkit-scrollbar-thumb {
+  background: #a3b3b0;
 }
 
 .kpi-pill {
