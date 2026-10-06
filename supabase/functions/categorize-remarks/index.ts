@@ -13,6 +13,13 @@
 //   Supabase dashboard → Edge Functions → Secrets
 //     GEMINI_API_KEY = <key from aistudio.google.com>
 //     GEMINI_MODEL   = gemini-3.8-flash   (optional; any Gemini model id)
+//     GEMINI_FALLBACK_MODELS = gemini-3.7-flash,gemini-3.5-flash-lite
+//                      (optional; tried in order when the main model is
+//                       overloaded or unavailable)
+//
+// Google's models are sometimes briefly overloaded (503 "high demand"). Each
+// model is retried a couple of times with a short back-off before moving on
+// to the next one in the list, so a busy spell rarely reaches the user.
 //
 // Without GEMINI_API_KEY the function answers 503 "not configured" and the
 // Insights page shows the feature as switched off.
@@ -28,9 +35,19 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY') ?? '';
 const GEMINI_MODEL = Deno.env.get('GEMINI_MODEL') || 'gemini-3.8-flash';
+const FALLBACK_MODELS = (Deno.env.get('GEMINI_FALLBACK_MODELS') ?? 'gemini-3.7-flash,gemini-3.5-flash-lite')
+  .split(',')
+  .map((m) => m.trim())
+  .filter(Boolean);
+const MODELS = Array.from(new Set([GEMINI_MODEL, ...FALLBACK_MODELS]));
 // Gemini 3 and later reject sampling parameters (temperature/top_p/top_k);
 // older models still take a low temperature for consistent labels.
-const LEGACY_MODEL = /^gemini-[12]\./.test(GEMINI_MODEL);
+const isLegacyModel = (model: string) => /^gemini-[12]\./.test(model);
+
+// Transient upstream trouble: worth retrying, then trying another model.
+const RETRYABLE = new Set([429, 500, 502, 503, 504]);
+const BACKOFF_MS = [1500, 4000];
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 
@@ -69,7 +86,7 @@ const SYSTEM = [
   'Reason: one short phrase quoting or paraphrasing the words in the remark that led to the category.',
 ].join(' ');
 
-async function categorizeChunk(instruction: string, categories: string[], allowNew: boolean, items: Item[]): Promise<Suggestion[]> {
+async function categorizeChunkWith(model: string, instruction: string, categories: string[], allowNew: boolean, items: Item[]): Promise<Suggestion[]> {
   // Short keys instead of uuids keep the prompt small and the output reliable.
   const keyed = items.map((it, i) => ({ key: `r${i + 1}`, text: it.text }));
   const constrained = categories.length > 0 && !allowNew;
@@ -92,14 +109,14 @@ async function categorizeChunk(instruction: string, categories: string[], allowN
     'Return one result per remark key, in the same order.',
   ].join('\n');
 
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(GEMINI_MODEL)}:generateContent`, {
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY },
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: SYSTEM }] },
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       generationConfig: {
-        ...(LEGACY_MODEL ? { temperature: 0.1 } : {}),
+        ...(isLegacyModel(model) ? { temperature: 0.1 } : {}),
         responseMimeType: 'application/json',
         responseSchema: {
           type: 'ARRAY',
@@ -144,6 +161,35 @@ async function categorizeChunk(instruction: string, categories: string[], allowN
     const category = p?.category?.toString().trim() || null;
     return { id: items[i].id, category, confidence: p ? confidence : 'low', reason: p?.reason?.toString().slice(0, 300) ?? 'No suggestion returned' };
   });
+}
+
+/**
+ * Tries each model in turn; each one gets a few attempts with back-off on
+ * transient errors (overloaded, rate-limited, 5xx). A model that is missing
+ * or retired for this key (400/403/404) is skipped straight away.
+ */
+async function categorizeChunk(
+  instruction: string,
+  categories: string[],
+  allowNew: boolean,
+  items: Item[],
+): Promise<{ model: string; results: Suggestion[] }> {
+  let lastError: unknown = null;
+  for (const model of MODELS) {
+    for (let attempt = 0; attempt <= BACKOFF_MS.length; attempt++) {
+      try {
+        return { model, results: await categorizeChunkWith(model, instruction, categories, allowNew, items) };
+      } catch (e) {
+        lastError = e;
+        const status = (e as { status?: number }).status;
+        if (status === 401) throw e; // bad key — no other model will help
+        const retryable = status === undefined || RETRYABLE.has(status);
+        if (!retryable) break; // this model is unusable for this key — next model
+        if (attempt < BACKOFF_MS.length) await sleep(BACKOFF_MS[attempt]);
+      }
+    }
+  }
+  throw lastError ?? new Error('Categorisation failed');
 }
 
 Deno.serve(async (req) => {
@@ -195,14 +241,20 @@ Deno.serve(async (req) => {
   try {
     const clipped = items.map((i) => ({ id: i.id, text: i.text.slice(0, MAX_TEXT) }));
     const results: Suggestion[] = [];
+    const used = new Set<string>();
     for (let i = 0; i < clipped.length; i += CHUNK) {
-      results.push(...(await categorizeChunk(String(body.instruction ?? ''), categories, Boolean(body.allowNew), clipped.slice(i, i + CHUNK))));
+      const chunk = await categorizeChunk(String(body.instruction ?? ''), categories, Boolean(body.allowNew), clipped.slice(i, i + CHUNK));
+      used.add(chunk.model);
+      results.push(...chunk.results);
     }
-    return json({ model: GEMINI_MODEL, results });
+    return json({ model: Array.from(used).join(', '), results });
   } catch (e) {
     const status = (e as { status?: number }).status;
     const message = e instanceof Error ? e.message : 'Categorisation failed';
     if (status === 429) return json({ error: 'rate_limited', message: `Gemini rate limit reached (${message}). Wait a minute, or run a smaller batch.` }, 429);
+    if (status !== undefined && RETRYABLE.has(status)) {
+      return json({ error: 'busy', message: `Google Gemini is busy right now — tried ${MODELS.join(', ')} with retries. Please try again in a few minutes. (${message})` }, 503);
+    }
     return json({ error: 'upstream_error', message }, 502);
   }
 });
