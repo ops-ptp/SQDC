@@ -327,7 +327,7 @@ any new category into the KPI's pick-list.
 
 The Gemini key never reaches the browser. It lives in the Supabase Edge Function
 supabase/functions/categorize-remarks as a secret: Supabase dashboard → Edge Functions →
-Secrets → GEMINI_API_KEY (and optionally GEMINI_MODEL, default gemini-2.5-flash). With no
+Secrets → GEMINI_API_KEY (and optionally GEMINI_MODEL, default gemini-3.8-flash). With no
 key set, the section says the feature is switched off. The function only serves
 department admins of that department (and site admins), checked server-side by Employee
 ID. Use a paid (billing-enabled) Google AI Studio key for live data: on the free tier

@@ -12,7 +12,7 @@
 //
 //   Supabase dashboard → Edge Functions → Secrets
 //     GEMINI_API_KEY = <key from aistudio.google.com>
-//     GEMINI_MODEL   = gemini-2.5-flash   (optional; any Gemini model id)
+//     GEMINI_MODEL   = gemini-3.8-flash   (optional; any Gemini model id)
 //
 // Without GEMINI_API_KEY the function answers 503 "not configured" and the
 // Insights page shows the feature as switched off.
@@ -27,7 +27,10 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY') ?? '';
-const GEMINI_MODEL = Deno.env.get('GEMINI_MODEL') || 'gemini-2.5-flash';
+const GEMINI_MODEL = Deno.env.get('GEMINI_MODEL') || 'gemini-3.8-flash';
+// Gemini 3 and later reject sampling parameters (temperature/top_p/top_k);
+// older models still take a low temperature for consistent labels.
+const LEGACY_MODEL = /^gemini-[12]\./.test(GEMINI_MODEL);
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 
@@ -96,7 +99,7 @@ async function categorizeChunk(instruction: string, categories: string[], allowN
       systemInstruction: { parts: [{ text: SYSTEM }] },
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       generationConfig: {
-        temperature: 0.1,
+        ...(LEGACY_MODEL ? { temperature: 0.1 } : {}),
         responseMimeType: 'application/json',
         responseSchema: {
           type: 'ARRAY',
