@@ -1,27 +1,51 @@
 import { supabase } from './supabaseClient';
 
 // ---------------------------------------------------------------------------
-// AI-suggested Pareto categories (Google Gemini), via the categorize-remarks
+// AI-suggested Pareto tags (Google Gemini), via the categorize-remarks
 // Supabase Edge Function — the API key lives only there, never in the
 // browser. The function only SUGGESTS; nothing is written until a
 // department admin reviews the suggestions in Insights and saves them.
+//
+// One run can look at a remark from several ANGLES at once (Cause,
+// Equipment, Location…). Each angle allows one tag per remark, or up to
+// three when the angle is set to multi-tag.
 // ---------------------------------------------------------------------------
+
+export type AiConfidence = 'high' | 'medium' | 'low';
+
+export interface AiTag {
+  category: string;
+  confidence: AiConfidence;
+}
+
+export interface AiAngleResult {
+  tags: AiTag[];
+  reason: string;
+}
 
 export interface AiSuggestion {
   id: string;
-  category: string | null;
-  confidence: 'high' | 'medium' | 'low';
-  reason: string;
+  /** Keyed by angle name. */
+  angles: Record<string, AiAngleResult>;
+}
+
+export interface AiAngleRequest {
+  name: string;
+  categories: string[];
+  allowNew: boolean;
+  multi: boolean;
 }
 
 export interface AiCategorizeRequest {
   employeeCode: string;
   departmentId: string;
   instruction: string;
-  categories: string[];
-  allowNew: boolean;
+  angles: AiAngleRequest[];
   items: { id: string; text: string }[];
 }
+
+export const MAX_AI_ANGLES = 5;
+export const MAX_AI_TAGS = 3;
 
 export class AiNotConfiguredError extends Error {}
 
@@ -41,7 +65,12 @@ export async function suggestCategories(req: AiCategorizeRequest): Promise<{ mod
     if (body?.error === 'not_configured') throw new AiNotConfiguredError(body.message ?? 'AI categorisation is not configured.');
     throw new Error(body?.message ?? error.message ?? 'AI categorisation failed');
   }
-  return data as { model: string; results: AiSuggestion[] };
+  const res = data as { model: string; results: AiSuggestion[] };
+  if (!Array.isArray(res?.results) || (res.results[0] && !res.results[0].angles)) {
+    // An older deployment of the function answered in the single-category shape.
+    throw new Error('The AI function on the server is an older version — ask a site admin to redeploy categorize-remarks.');
+  }
+  return res;
 }
 
 /** What the model reads for one entry: its reason and remark together. */

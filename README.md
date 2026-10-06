@@ -318,12 +318,27 @@ fix. Since Admin uploads are trusted-user-only, exceljs was used instead.
 ### Built-in AI categorisation (Google Gemini)
 
 Insights → "AI categorisation" sends one KPI's missed-target remarks (a date range,
-up to 300 at a time) to Google Gemini with the admin's instruction and category list
-(pre-filled from the KPI's own Pareto pick-list). Gemini only SUGGESTS a category per
-remark, with a confidence and the words behind it. The department admin reviews every
-row, edits or unticks, sees a preview Pareto, and only "Save" writes anything: the
-remark's Weekly Pareto tag (entry_categories), its Insights category (ai_category), and
-any new category into the KPI's pick-list.
+up to 300 at a time) to Google Gemini and asks it to tag each remark from one or more
+ANGLES at once (up to 5) — e.g. Cause, Equipment, Location, Crew. An angle is a Pareto
+"dimension": it has its own category pick-list (kpi_categories) and its own Pareto tab
+in the Weekly view. Admins can add a new angle right there ("+ New angle"); its settings
+live in kpi_dimensions. Each angle is either single-tag (one answer per remark, e.g.
+Location) or multi-tag ("Up to 3 tags per remark", e.g. a delay caused by both a CHE
+breakdown and a manpower shortage).
+
+Gemini only SUGGESTS tags, each with a confidence and the words behind it. The
+department admin reviews every row — removes or adds tags per angle, unticks rows —
+sees each angle's preview Pareto, and only "Save" writes anything: the tags
+(entry_categories — the same tags Enter Remarks, the Weekly Pareto and the pivot use),
+any new category into that angle's pick-list, and the angle settings. Saving only adds
+tags; it never removes ones already on a remark. It no longer writes ai_category — that
+column is now only the "Category (CSV)" of the export → re-import cycle.
+
+In the pivot builder every angle is a field of its own, so two angles can be crossed
+(Rows = Cause, Columns = Equipment). A remark with several tags in one angle counts once
+under each; when that happens the chart labels each bar with its share of remarks
+("2 · 67%") and notes that the bars add up to more than the remarks behind them.
+Saved pivots on the board work the same way.
 
 The Gemini key never reaches the browser. It lives in the Supabase Edge Function
 supabase/functions/categorize-remarks as a secret: Supabase dashboard → Edge Functions →

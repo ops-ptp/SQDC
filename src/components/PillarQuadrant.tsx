@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { addDays, format, parseISO, startOfMonth, getDaysInMonth, startOfWeek, subWeeks, subDays, getISOWeek, getISOWeekYear } from 'date-fns';
 import { fetchActions, fetchCategorizedEntriesForKpiIds, fetchCustomParetosForPillar, fetchEntriesForKpi, fetchEntriesForKpis, fetchEntriesForKpisOnDate, fetchKpiDailyTargetsForDate, fetchReasonsForKpi, fetchWeeklyEntriesForKpiBase, fetchWeeklyEntriesForPillar, type CategorizedEntryRow, type CustomPareto } from '../lib/data';
-import { applyPivotFilter, computeChartData, computeCrossTab, pivotFieldLabel } from '../lib/pivot';
+import { applyPivotFilter, computeChartData, computeCrossTab, pivotCoverage, pivotFieldLabel } from '../lib/pivot';
 import { rollUpWeekly } from '../lib/weeklyRollup';
 import { useEmployee } from '../context/EmployeeContext';
 import { useDepartment, useDeptPath } from '../context/DepartmentContext';
@@ -607,6 +607,10 @@ export default function PillarQuadrant({
     () => (customPareto ? computeChartData(customParetoFilteredEntries, customPareto.row_field) : []),
     [customPareto, customParetoFilteredEntries]
   );
+  const customParetoCoverage = useMemo(
+    () => (customPareto ? pivotCoverage(customParetoFilteredEntries, customPareto.row_field) : { entries: 0, multi: false }),
+    [customPareto, customParetoFilteredEntries]
+  );
   const customParetoCrossTab = useMemo(
     () => (customPareto?.column_field ? computeCrossTab(customParetoFilteredEntries, customPareto.row_field, customPareto.column_field) : null),
     [customPareto, customParetoFilteredEntries]
@@ -857,7 +861,7 @@ export default function PillarQuadrant({
                     ) : customParetoChartData.length === 0 ? (
                       <div className="empty-state">No categorized entries yet.</div>
                     ) : (
-                      <ParetoChart data={customParetoChartData} barColor={colors.base} />
+                      <ParetoChart data={customParetoChartData} barColor={colors.base} shareOf={customParetoCoverage.multi ? customParetoCoverage.entries : undefined} />
                     )}
                   </>
                 )}

@@ -2554,3 +2554,145 @@ textarea {
   align-items: flex-start;
   gap: 8px;
 }
+
+/* ---------------- Insights: AI angles + multi-tag review ---------------- */
+.ai-cat-angles-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.ai-cat-angles {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.ai-cat-angle-chip {
+  border-color: var(--border) !important;
+  background: white !important;
+  color: var(--text) !important;
+}
+
+.ai-cat-angle-chip.is-selected {
+  background: var(--text) !important;
+  border-color: var(--text) !important;
+  color: white !important;
+}
+
+.ai-cat-new-angle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.ai-cat-new-angle .k-input {
+  max-width: 260px;
+}
+
+.field-error {
+  margin-top: 6px;
+  font-size: 13px;
+  color: #b91c1c;
+}
+
+.ai-cat-angle-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.ai-cat-angle-card > label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ai-cat-angle-card > label.ai-cat-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.ai-cat-angle-card-title {
+  font-weight: 700;
+}
+
+.ai-cat-th-note {
+  font-weight: 400;
+  font-size: 12px;
+}
+
+.ai-cat-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.ai-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 4px 2px 9px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.ai-cat-conf-manual {
+  background: #e2e8f0;
+  color: #1e293b;
+}
+
+.ai-tag-remove {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  padding: 0 4px;
+  border-radius: 999px;
+  opacity: 0.7;
+}
+
+.ai-tag-remove:hover,
+.ai-tag-remove:focus-visible {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.ai-tag-add {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.ai-tag-add .k-autocomplete {
+  min-width: 150px;
+}
+
+.ai-cat-preview-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.ai-cat-preview-head .k-dropdownlist {
+  width: 180px;
+}
+
+.ai-cat-preview-note,
+.pivot-multi-note {
+  font-size: 12.5px;
+  margin-top: 4px;
+}

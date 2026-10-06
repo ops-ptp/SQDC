@@ -799,31 +799,83 @@ export interface CategorizedEntryRow {
   id: string;
   entry_date: string;
   shift: 'Day' | 'Night' | null;
-  category: string;
+  /** The single category from the CSV export → re-import cycle (ai_category). */
+  category: string | null;
+  /** Pareto tags per angle (entry_categories), e.g. { Cause: ['QC breakdown', 'Manpower'] }. */
+  tags: Record<string, string[]>;
 }
 
-/** Already-categorized entries for one logical KPI (Day + Night ids
- * combined) — feeds the pivot/Pareto builder, scoped to whichever KPI is
- * currently selected via the pillar/KPI pills rather than the whole board.
- * Only rows with a category set (from a prior export -> AI -> import
- * cycle) come back; anything not yet categorized is simply absent rather
- * than showing up as a misleading "Uncategorized" bucket. */
+const PAGE = 1000;
+
+/** Reads every row of a PostgREST query, a page at a time (the API caps a
+ * single response at 1,000 rows). */
+async function fetchAllPages<T>(page: (from: number, to: number) => PromiseLike<{ data: unknown; error: unknown }>): Promise<T[]> {
+  const out: T[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await page(from, from + PAGE - 1);
+    if (error) throw error;
+    const rows = (data ?? []) as T[];
+    out.push(...rows);
+    if (rows.length < PAGE) return out;
+  }
+}
+
+/** Already-categorised entries for one logical KPI (Day + Night ids
+ * combined) — feeds the pivot/Pareto builder in Insights and the board's
+ * saved Pareto card. An entry comes back when it has a CSV category or at
+ * least one Pareto tag (from Enter Remarks, the AI review or the Pareto
+ * workbook import); anything not categorised yet is simply absent rather
+ * than showing up as a misleading "Uncategorised" bucket. */
 export async function fetchCategorizedEntriesForKpiIds(kpiIds: string[]): Promise<CategorizedEntryRow[]> {
   if (kpiIds.length === 0) return [];
-  const { data, error } = await supabase
-    .from('daily_entries')
-    .select('id, entry_date, ai_category, kpi:kpis(name)')
-    .in('kpi_id', kpiIds)
-    .not('ai_category', 'is', null)
-    .order('entry_date');
-  if (error) throw error;
-  const rows = (data ?? []) as unknown as { id: string; entry_date: string; ai_category: string; kpi: { name: string } | null }[];
-  return rows.map((r) => ({
-    id: r.id,
-    entry_date: r.entry_date,
-    shift: r.kpi ? shiftFromKpiName(r.kpi.name) : null,
-    category: r.ai_category,
-  }));
+  type EntryRow = { id: string; entry_date: string; ai_category: string | null; kpi: { name: string } | null };
+  type TagRow = { dimension: string; category: string; entry: EntryRow };
+  const [withCategory, tagRows] = await Promise.all([
+    fetchAllPages<EntryRow>((a, b) =>
+      supabase.from('daily_entries').select('id, entry_date, ai_category, kpi:kpis(name)').in('kpi_id', kpiIds).not('ai_category', 'is', null).order('id').range(a, b)
+    ),
+    fetchAllPages<TagRow>((a, b) =>
+      supabase
+        .from('entry_categories')
+        .select('dimension, category, entry:daily_entries!inner(id, entry_date, ai_category, kpi_id, kpi:kpis(name))')
+        .in('entry.kpi_id', kpiIds)
+        .order('id')
+        .range(a, b)
+    ),
+  ]);
+
+  const byId = new Map<string, CategorizedEntryRow>();
+  const ensure = (r: EntryRow) => {
+    let row = byId.get(r.id);
+    if (!row) {
+      row = { id: r.id, entry_date: r.entry_date, shift: r.kpi ? shiftFromKpiName(r.kpi.name) : null, category: r.ai_category, tags: {} };
+      byId.set(r.id, row);
+    }
+    return row;
+  };
+  for (const r of withCategory) ensure(r);
+  for (const t of tagRows) {
+    const row = ensure(t.entry);
+    const list = (row.tags[t.dimension] ??= []);
+    if (!list.includes(t.category)) list.push(t.category);
+  }
+  return Array.from(byId.values()).sort((a, b) => a.entry_date.localeCompare(b.entry_date));
+}
+
+/** Pareto tags on the given entries, grouped per entry and angle — for the
+ * Tags column of the Insights remarks table. */
+export async function fetchTagsByEntry(entryIds: string[]): Promise<Map<string, Record<string, string[]>>> {
+  const out = new Map<string, Record<string, string[]>>();
+  for (let i = 0; i < entryIds.length; i += 200) {
+    const { data, error } = await supabase.from('entry_categories').select('entry_id, dimension, category').in('entry_id', entryIds.slice(i, i + 200));
+    if (error) throw error;
+    for (const t of (data ?? []) as { entry_id: string; dimension: string; category: string }[]) {
+      const rec = out.get(t.entry_id) ?? {};
+      (rec[t.dimension] ??= []).push(t.category);
+      out.set(t.entry_id, rec);
+    }
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------

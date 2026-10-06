@@ -34,6 +34,10 @@ interface Props {
    * maxBars), as the team's Excel Pareto computes it. Default false keeps
    * the original behaviour: a share of only the bars drawn. */
   cumulativeOfAll?: boolean;
+  /** When set, each bar's label also shows its share of this many items
+   * (e.g. remarks). Used where one remark can carry several tags, so the
+   * bars add up to more than the remarks behind them. */
+  shareOf?: number;
 }
 
 const DEFAULT_BAR_COLOR = '#64748b';
@@ -70,7 +74,8 @@ function AngledTick({ x, y, payload }: { x: number | string; y: number | string;
   );
 }
 
-export default function ParetoChart({ data, barColor = DEFAULT_BAR_COLOR, maxBars = 6, onBarClick, selectedLabel = null, cumulativeOfAll = false }: Props) {
+export default function ParetoChart({ data, barColor = DEFAULT_BAR_COLOR, maxBars = 6, onBarClick, selectedLabel = null, cumulativeOfAll = false, shareOf }: Props) {
+  const shareLabel = (count: number) => (shareOf && shareOf > 0 ? `${count} · ${Math.round((count / shareOf) * 100)}%` : String(count));
   const all = [...data].sort((a, b) => b.count - a.count);
   const sorted = all.slice(0, maxBars);
   const total = (cumulativeOfAll ? all : sorted).reduce((sum, d) => sum + d.count, 0);
@@ -111,7 +116,10 @@ export default function ParetoChart({ data, barColor = DEFAULT_BAR_COLOR, maxBar
           />
           <Tooltip
             contentStyle={{ fontSize: 12, borderRadius: 8 }}
-            formatter={(value, name) => [name === 'Cumulative %' ? `${value}%` : value, String(name)]}
+            formatter={(value, name) => [
+              name === 'Cumulative %' ? `${value}%` : shareOf ? `${shareLabel(Number(value))} of ${shareOf} remarks` : value,
+              String(name),
+            ]}
           />
           <ReferenceLine yAxisId="right" y={80} stroke="#94a3b8" strokeDasharray="4 4">
             <Label value="80%" position="insideTopLeft" offset={6} fontSize={10} fill="#64748b" />
@@ -129,7 +137,7 @@ export default function ParetoChart({ data, barColor = DEFAULT_BAR_COLOR, maxBar
             {chartData.map((d) => (
               <Cell key={d.label} fill={barColor} fillOpacity={selectedLabel && selectedLabel !== d.label ? 0.35 : 1} />
             ))}
-            <LabelList dataKey="count" position="top" fontSize={11} fontWeight={700} fill="#334155" />
+            <LabelList dataKey="count" position="top" fontSize={11} fontWeight={700} fill="#334155" formatter={(v: unknown) => shareLabel(Number(v))} />
           </Bar>
           <Line
             yAxisId="right"

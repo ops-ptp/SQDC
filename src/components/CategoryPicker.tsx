@@ -3,10 +3,12 @@ import {
   addEntryCategory,
   addKpiCategory,
   fetchEntryCategories,
+  fetchKpiAngles,
   fetchKpiCategories,
   orderedDimensions,
   removeEntryCategory,
   type EntryCategory,
+  type KpiAngle,
   type KpiCategory,
 } from '../lib/categories';
 import { useDepartment } from '../context/DepartmentContext';
@@ -41,6 +43,7 @@ interface Props {
 export default function CategoryPicker({ pillarId, kpiBaseName, entryId, employeeId, editable, onChange, color = '#2A544F' }: Props) {
   const department = useDepartment();
   const [list, setList] = useState<KpiCategory[]>([]);
+  const [angles, setAngles] = useState<KpiAngle[]>([]);
   const [tags, setTags] = useState<EntryCategory[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
@@ -51,10 +54,11 @@ export default function CategoryPicker({ pillarId, kpiBaseName, entryId, employe
     // Starts in the loading state; callers key this component by entry, so
     // a different shift always mounts a fresh instance.
     let cancelled = false;
-    Promise.all([fetchKpiCategories(department.id, pillarId, kpiBaseName), fetchEntryCategories([entryId])])
-      .then(([l, t]) => {
+    Promise.all([fetchKpiCategories(department.id, pillarId, kpiBaseName), fetchKpiAngles(department.id, pillarId, kpiBaseName).catch(() => []), fetchEntryCategories([entryId])])
+      .then(([l, a, t]) => {
         if (cancelled) return;
         setList(l);
+        setAngles(a);
         setTags(t);
       })
       .catch((e) => !cancelled && setError(errorMessage(e, 'Failed to load categories')))
@@ -67,7 +71,8 @@ export default function CategoryPicker({ pillarId, kpiBaseName, entryId, employe
   // Dimensions come from the KPI's list AND from any tags already on this
   // entry, so a tag whose list item was removed still shows (and can be
   // un-ticked) rather than silently disappearing from view.
-  const dimensions = useMemo(() => orderedDimensions([...list, ...tags]), [list, tags]);
+  // Angles created in Insights show up even before they have any category.
+  const dimensions = useMemo(() => orderedDimensions([...list, ...angles.map((a) => ({ dimension: a.dimension })), ...tags]), [list, angles, tags]);
 
   function isOn(dimension: string, label: string) {
     return tags.some((t) => t.dimension === dimension && t.category === label);

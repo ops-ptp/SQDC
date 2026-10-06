@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { format, parseISO } from 'date-fns';
-import { fetchKpiCategories, fetchTaggedEntries, type KpiCategory, type TaggedEntryRow } from '../lib/categories';
+import { fetchKpiAngles, fetchKpiCategories, fetchTaggedEntries, type KpiAngle, type KpiCategory, type TaggedEntryRow } from '../lib/categories';
 import { computeParetoRows, orderedDimensions, type ParetoPeriod } from '../lib/categoryCore';
 import { useDepartment } from '../context/DepartmentContext';
 import { errorMessage, round2 } from '../types';
@@ -37,6 +37,7 @@ const VITAL_FEW_PCT = 80;
 export default function CategoryPareto({ pillarId, kpiBaseName, kpiIds, dayKpiId, nightKpiId, unit, period, color, employeeId, fallback }: Props) {
   const department = useDepartment();
   const [list, setList] = useState<KpiCategory[]>([]);
+  const [angles, setAngles] = useState<KpiAngle[]>([]);
   const [tags, setTags] = useState<TaggedEntryRow[]>([]);
   const [loading, setLoading] = useState(true);
   // True after the first successful load — later refreshes (after a tag
@@ -54,10 +55,11 @@ export default function CategoryPareto({ pillarId, kpiBaseName, kpiIds, dayKpiId
     let cancelled = false;
     setLoading(true);
     setError(null);
-    Promise.all([fetchKpiCategories(department.id, pillarId, kpiBaseName), fetchTaggedEntries(kpiIds, period.from, period.to)])
-      .then(([l, t]) => {
+    Promise.all([fetchKpiCategories(department.id, pillarId, kpiBaseName), fetchKpiAngles(department.id, pillarId, kpiBaseName).catch(() => []), fetchTaggedEntries(kpiIds, period.from, period.to)])
+      .then(([l, a, t]) => {
         if (cancelled) return;
         setList(l);
+        setAngles(a);
         setTags(t);
         setHasLoaded(true);
       })
@@ -75,7 +77,8 @@ export default function CategoryPareto({ pillarId, kpiBaseName, kpiIds, dayKpiId
     setEditingEntryId(null);
   }, [kpiBaseName, period.from, period.to]);
 
-  const dimensions = useMemo(() => orderedDimensions([...list, ...tags]), [list, tags]);
+  // Angles created in Insights show up even before they have any category.
+  const dimensions = useMemo(() => orderedDimensions([...list, ...angles.map((a) => ({ dimension: a.dimension })), ...tags]), [list, angles, tags]);
   const activeDimension = dimensions.includes(dimension) ? dimension : dimensions[0];
   const dimTags = useMemo(() => tags.filter((t) => t.dimension === activeDimension), [tags, activeDimension]);
   const rows = useMemo(() => computeParetoRows(dimTags), [dimTags]);

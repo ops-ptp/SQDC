@@ -79,6 +79,45 @@ export async function addKpiCategory(
   return label;
 }
 
+// ---------------------------------------------------------------------------
+// Angles (kpi_dimensions). An angle is a "dimension" with its own pick-list
+// and Pareto. Older angles exist only through kpi_categories; this table
+// adds angles created from Insights (possibly with no categories yet) and
+// the per-angle multi_tag setting the AI uses.
+// ---------------------------------------------------------------------------
+
+export interface KpiAngle {
+  id: string;
+  department_id: string;
+  pillar_id: string;
+  kpi_base_name: string;
+  dimension: string;
+  multi_tag: boolean;
+  sort_order: number;
+}
+
+export async function fetchKpiAngles(departmentId: string, pillarId: string, kpiBaseName: string): Promise<KpiAngle[]> {
+  const { data, error } = await supabase
+    .from('kpi_dimensions')
+    .select('*')
+    .eq('department_id', departmentId)
+    .eq('pillar_id', pillarId)
+    .eq('kpi_base_name', kpiBaseName)
+    .order('sort_order')
+    .order('dimension');
+  if (error) throw error;
+  return data as KpiAngle[];
+}
+
+/** Creates the angles if new, and updates their multi-tag setting if not. */
+export async function upsertKpiAngles(
+  rows: { department_id: string; pillar_id: string; kpi_base_name: string; dimension: string; multi_tag: boolean }[]
+): Promise<void> {
+  if (rows.length === 0) return;
+  const { error } = await supabase.from('kpi_dimensions').upsert(rows, { onConflict: 'department_id,pillar_id,kpi_base_name,dimension' });
+  if (error) throw error;
+}
+
 export async function fetchEntryCategories(entryIds: string[]): Promise<EntryCategory[]> {
   if (entryIds.length === 0) return [];
   const { data, error } = await supabase.from('entry_categories').select('id, entry_id, dimension, category').in('entry_id', entryIds);

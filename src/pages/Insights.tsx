@@ -10,13 +10,14 @@ import {
   fetchKpis,
   fetchMissedEntriesForKpiIds,
   fetchPillars,
+  fetchTagsByEntry,
   saveCustomPareto,
   type CategorizedEntryRow,
   type CustomPareto,
   type RawEntryRow,
 } from '../lib/data';
 import { buildExportCsv, parseCategoryCsv } from '../lib/csv';
-import { applyPivotFilter, computeChartData, computeCrossTab, pivotDimValue, pivotFieldLabel, PIVOT_FIELDS } from '../lib/pivot';
+import { applyPivotFilter, computeChartData, computeCrossTab, pivotCoverage, pivotFieldLabel, pivotFieldsFor, pivotFilterOptions } from '../lib/pivot';
 import { baseNameOf, errorMessage, PILLAR_COLORS, round2, type Kpi, type Pillar } from '../types';
 import DataTable, { type DataTableColumn } from '../components/DataTable';
 import ParetoChart from '../components/ParetoChart';
@@ -121,18 +122,30 @@ function KpiPicker({ groups, selectedKey, onSelect }: { groups: KpiGroupOption[]
 // Excel-style data table + CSV export/import
 // ---------------------------------------------------------------------------
 
-const TABLE_COLUMNS: DataTableColumn<RawEntryRow>[] = [
-  { key: 'date', label: 'Date', accessor: (r) => r.entry_date },
-  { key: 'shift', label: 'Shift', accessor: (r) => r.shift ?? '—' },
-  { key: 'actual', label: 'Actual', accessor: (r) => round2(r.actual), align: 'right' },
-  { key: 'target', label: 'Target', accessor: (r) => round2(r.target), align: 'right' },
-  { key: 'reason', label: 'Reason', accessor: (r) => r.reason },
-  { key: 'remarks', label: 'Remarks', accessor: (r) => r.remarks },
-  { key: 'category', label: 'Category', accessor: (r) => r.ai_category ?? '' },
-];
+function tableColumns(tagsByEntry: Map<string, Record<string, string[]>>): DataTableColumn<RawEntryRow>[] {
+  return [
+    { key: 'date', label: 'Date', accessor: (r) => r.entry_date },
+    { key: 'shift', label: 'Shift', accessor: (r) => r.shift ?? '—' },
+    { key: 'actual', label: 'Actual', accessor: (r) => round2(r.actual), align: 'right' },
+    { key: 'target', label: 'Target', accessor: (r) => round2(r.target), align: 'right' },
+    { key: 'reason', label: 'Reason', accessor: (r) => r.reason },
+    { key: 'remarks', label: 'Remarks', accessor: (r) => r.remarks },
+    {
+      key: 'tags',
+      label: 'Pareto tags',
+      accessor: (r) =>
+        Object.entries(tagsByEntry.get(r.id) ?? {})
+          .map(([angle, tags]) => `${angle}: ${tags.join(', ')}`)
+          .join(' · '),
+    },
+    { key: 'category', label: 'Category (CSV)', accessor: (r) => r.ai_category ?? '' },
+  ];
+}
 
 function ExportTableSection({ kpiGroup, refreshKey }: { kpiGroup: KpiGroupOption | null; refreshKey: number }) {
   const [rows, setRows] = useState<RawEntryRow[]>([]);
+  const [tagsByEntry, setTagsByEntry] = useState<Map<string, Record<string, string[]>>>(new Map());
+  const columns = useMemo(() => tableColumns(tagsByEntry), [tagsByEntry]);
   const [visibleRows, setVisibleRows] = useState<RawEntryRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -147,7 +160,11 @@ function ExportTableSection({ kpiGroup, refreshKey }: { kpiGroup: KpiGroupOption
     setLoading(true);
     setError(null);
     fetchMissedEntriesForKpiIds(kpiGroup.ids, format(subDays(new Date(), LOOKBACK_DAYS), 'yyyy-MM-dd'))
-      .then(setRows)
+      .then(async (r) => {
+        const t = await fetchTagsByEntry(r.map((x) => x.id));
+        setRows(r);
+        setTagsByEntry(t);
+      })
       .catch((e) => setError(errorMessage(e, 'Failed to load')))
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -177,7 +194,7 @@ function ExportTableSection({ kpiGroup, refreshKey }: { kpiGroup: KpiGroupOption
         <div className="empty-state">Pick a pillar and KPI above.</div>
       ) : (
         <DataTable
-          columns={TABLE_COLUMNS}
+          columns={columns}
           rows={rows}
           rowKey={(r) => r.id}
           emptyMessage="No missed-target entries in the last 180 days."
@@ -278,7 +295,8 @@ function PivotSection({ pillarId, kpiGroup, refreshKey }: { pillarId: string | n
   const [entries, setEntries] = useState<CategorizedEntryRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [assignment, setAssignment] = useState<Partial<Record<PivotZone, string>>>({ rows: 'category' });
+  // Empty Rows = use the first field with data (an angle, when there are any).
+  const [assignment, setAssignment] = useState<Partial<Record<PivotZone, string>>>({});
   const [filterIncluded, setFilterIncluded] = useState<Set<string> | null>(null);
   const [existing, setExisting] = useState<CustomPareto | null>(null);
   const [title, setTitle] = useState('');
@@ -323,7 +341,7 @@ function PivotSection({ pillarId, kpiGroup, refreshKey }: { pillarId: string | n
           setFilterIncluded(match.filter_values ? new Set(match.filter_values) : null);
           setTitle(match.title);
         } else {
-          setAssignment({ rows: 'category' });
+          setAssignment({});
           setFilterIncluded(null);
           setTitle('');
         }
@@ -343,18 +361,30 @@ function PivotSection({ pillarId, kpiGroup, refreshKey }: { pillarId: string | n
     }
   }, [assignment.filters]);
 
-  const filterValues = useMemo(() => {
-    if (!assignment.filters) return [];
-    return Array.from(new Set(entries.map((e) => pivotDimValue(e, assignment.filters!)))).sort();
-  }, [entries, assignment.filters]);
+  // Fields with data for this KPI: one per angle (Cause, Equipment…), the
+  // CSV category if used, Shift and Week. A Rows field that no longer has
+  // data (e.g. the default "category" on a KPI tagged only by angle) falls
+  // back to the first angle, so the chart isn't empty for no visible reason.
+  const fields = useMemo(() => pivotFieldsFor(entries), [entries]);
+  const effective = useMemo(() => {
+    const has = (k?: string) => !k || fields.some((f) => f.key === k);
+    const next = { ...assignment };
+    if (!next.rows || !has(next.rows)) next.rows = fields[0]?.key;
+    if (!has(next.columns)) delete next.columns;
+    if (!has(next.filters)) delete next.filters;
+    return next;
+  }, [assignment, fields]);
+
+  const filterValues = useMemo(() => (effective.filters ? pivotFilterOptions(entries, effective.filters) : []), [entries, effective.filters]);
 
   const filteredEntries = useMemo(
-    () => applyPivotFilter(entries, assignment.filters, filterIncluded ? Array.from(filterIncluded) : null),
-    [entries, assignment.filters, filterIncluded]
+    () => applyPivotFilter(entries, effective.filters, filterIncluded ? Array.from(filterIncluded) : null),
+    [entries, effective.filters, filterIncluded]
   );
 
-  const rowField = assignment.rows;
-  const colField = assignment.columns;
+  const rowField = effective.rows;
+  const colField = effective.columns;
+  const coverage = useMemo(() => (rowField ? pivotCoverage(filteredEntries, rowField) : { entries: 0, multi: false }), [filteredEntries, rowField]);
 
   const chartData = useMemo(() => (rowField ? computeChartData(filteredEntries, rowField) : []), [filteredEntries, rowField]);
   const crossTab = useMemo(() => (rowField && colField ? computeCrossTab(filteredEntries, rowField, colField) : null), [filteredEntries, rowField, colField]);
@@ -377,8 +407,8 @@ function PivotSection({ pillarId, kpiGroup, refreshKey }: { pillarId: string | n
         title: title.trim() || defaultTitle(),
         row_field: rowField,
         column_field: colField ?? null,
-        filter_field: assignment.filters ?? null,
-        filter_values: assignment.filters && filterIncluded ? Array.from(filterIncluded) : null,
+        filter_field: effective.filters ?? null,
+        filter_values: effective.filters && filterIncluded ? Array.from(filterIncluded) : null,
         created_by: employee?.id ?? null,
       });
       setExisting(saved);
@@ -402,24 +432,26 @@ function PivotSection({ pillarId, kpiGroup, refreshKey }: { pillarId: string | n
 
   return (
     <div className="card">
-      <h3>Pivot builder {kpiGroup ? `— ${kpiGroup.label}` : ''} <InfoTip>Drag fields into Filters / Rows / Columns to slice the categorized entries for this KPI — same idea as an
-        Excel PivotChart. Only entries that have been categorized (via the export/re-import cycle above) show up here.
+      <h3>Pivot builder {kpiGroup ? `— ${kpiGroup.label}` : ''} <InfoTip>Drag fields into Filters / Rows / Columns to slice the categorised entries for this KPI — same idea as an
+        Excel PivotChart. Each angle (Cause, Equipment, Location…) is a field of its own, filled from the Pareto tags — AI review, Enter Remarks
+        or the Pareto workbook import; "Category (CSV)" is the export/re-import cycle. Put two angles in Rows and Columns to see how they
+        combine (e.g. which equipment comes up with which cause). A remark with several tags counts once under each.
         Save it to also show this breakdown as an extra Pareto card on the SQDC Board for this KPI — it stays live,
-        recomputed from whatever's categorized whenever the board loads, not a frozen snapshot.</InfoTip></h3>
+        recomputed from whatever's categorised whenever the board loads, not a frozen snapshot.</InfoTip></h3>
       {error && <div className="alert alert-error">{error}</div>}
       {!kpiGroup ? (
         <div className="empty-state">Pick a pillar and KPI above.</div>
       ) : loading ? (
         <InlineLoader />
       ) : entries.length === 0 ? (
-        <div className="empty-state">No categorized entries for this KPI yet — export, categorize, and re-import above first.</div>
+        <div className="empty-state">No categorised entries for this KPI yet — tag remarks with the AI above, in Enter Remarks, or with the CSV cycle.</div>
       ) : (
         <>
           <div className="pivot-layout">
             <div className="pivot-chart-side">
-              {assignment.filters && (
+              {effective.filters && (
                 <div className="pivot-filter-checklist">
-                  <span className="pivot-filter-checklist-label">{pivotFieldLabel(assignment.filters)}:</span>
+                  <span className="pivot-filter-checklist-label">{pivotFieldLabel(effective.filters)}:</span>
                   {filterValues.map((v) => {
                     const checked = filterIncluded ? filterIncluded.has(v) : true;
                     return (
@@ -472,11 +504,19 @@ function PivotSection({ pillarId, kpiGroup, refreshKey }: { pillarId: string | n
                   </table>
                 </div>
               ) : (
-                <ParetoChart data={chartData} />
+                <>
+                  <ParetoChart data={chartData} shareOf={coverage.multi ? coverage.entries : undefined} />
+                  {coverage.multi && (
+                    <div className="muted pivot-multi-note">
+                      {coverage.entries} remarks · some carry more than one {pivotFieldLabel(rowField)} tag, so the bars add up to more than {coverage.entries}.
+                      Bar % = share of remarks mentioning it.
+                    </div>
+                  )}
+                </>
               )}
             </div>
             <div className="pivot-panel-side">
-              <PivotFieldPanel fields={PIVOT_FIELDS} assignment={assignment} onAssignmentChange={setAssignment} />
+              <PivotFieldPanel fields={fields} assignment={effective} onAssignmentChange={setAssignment} />
             </div>
           </div>
 
@@ -560,7 +600,7 @@ export default function Insights() {
   return (
     <div className="page">
       <div className="page-header">
-        <h1>Insights <InfoTip>Pick a pillar and KPI, then categorise its missed-target remarks — with the built-in Gemini suggestions you review
+        <h1>Insights <InfoTip>Pick a pillar and KPI, then tag its missed-target remarks from one or more angles — with the built-in Gemini suggestions you review
           before saving, or by exporting the CSV to any AI tool and re-importing — and build a pivot breakdown.</InfoTip></h1>
       </div>
 

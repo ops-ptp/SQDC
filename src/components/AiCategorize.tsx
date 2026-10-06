@@ -1,41 +1,98 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { format, parseISO, subDays } from 'date-fns';
 import { AutoComplete } from '@progress/kendo-react-dropdowns';
+import { Chip } from '@progress/kendo-react-buttons';
 import { useDepartment } from '../context/DepartmentContext';
 import { useEmployee } from '../context/EmployeeContext';
-import { bulkUpdateAiCategories, fetchMissedEntriesForKpiIds, type RawEntryRow } from '../lib/data';
-import { bulkAddEntryCategories, bulkAddKpiCategories, cleanLabel, DEFAULT_DIMENSION, fetchEntryCategories, fetchKpiCategories, orderedDimensions, type EntryCategory, type KpiCategory } from '../lib/categories';
-import { AiNotConfiguredError, remarkText, suggestCategories, type AiSuggestion } from '../lib/aiCategorize';
+import { fetchMissedEntriesForKpiIds, type RawEntryRow } from '../lib/data';
+import {
+  bulkAddEntryCategories,
+  bulkAddKpiCategories,
+  cleanLabel,
+  fetchEntryCategories,
+  fetchKpiAngles,
+  fetchKpiCategories,
+  orderedDimensions,
+  upsertKpiAngles,
+  type EntryCategory,
+  type KpiAngle,
+  type KpiCategory,
+} from '../lib/categories';
+import { AiNotConfiguredError, MAX_AI_ANGLES, MAX_AI_TAGS, remarkText, suggestCategories, type AiConfidence } from '../lib/aiCategorize';
 import { errorMessage, round2 } from '../types';
 import ParetoChart from './ParetoChart';
-import { Button, CheckField, DateField, InfoTip, InlineLoader, Select, TextAreaField } from './ui';
+import { Button, CheckField, DateField, InfoTip, InlineLoader, Select, TextAreaField, TextField } from './ui';
 
 // ===========================================================================
 // AI categorisation (Gemini) for one KPI's missed-target remarks.
 //
-//   1. The admin picks a date range, the category list (pre-filled from the
-//      KPI's own pick-list) and an instruction in plain words.
-//   2. Gemini SUGGESTS one category per remark, with a confidence and the
-//      words that led to it.
-//   3. The admin reviews every row — change the category, untick what's
-//      wrong — and sees the resulting Pareto before saving.
-//   4. Save writes BOTH the Weekly Pareto tag (entry_categories, the same
-//      tags Enter Remarks shows) and the Insights category (ai_category),
-//      and adds any new category to the KPI's pick-list.
+//   1. The admin picks a date range and one or more ANGLES — ways of looking
+//      at the remarks (Cause, Equipment, Location…). Each angle has its own
+//      category list (pre-filled from the KPI's pick-list for that angle)
+//      and allows either one tag per remark or up to three. New angles can
+//      be added right here.
+//   2. Gemini SUGGESTS tags for every remark from every picked angle, each
+//      with a confidence and the words that led to it.
+//   3. The admin reviews every row — remove or add tags, untick what's
+//      wrong — and sees each angle's resulting Pareto before saving.
+//   4. Save writes the tags (entry_categories — the same tags Enter Remarks,
+//      the Weekly Pareto and the Insights pivot use), adds new categories to
+//      each angle's pick-list and remembers the angle settings.
 // Nothing is written before step 4.
 // ===========================================================================
 
 const MAX_PER_RUN = 300;
-const DEFAULT_INSTRUCTION = 'Categorise each remark by the main root cause of the missed target.';
+const MAX_ANGLE_NAME = 40;
+const DEFAULT_INSTRUCTION = '';
+
+interface AngleSetup {
+  name: string;
+  categoriesText: string;
+  allowNew: boolean;
+  multi: boolean;
+  selected: boolean;
+  /** Created in this session and not saved yet. */
+  isNew: boolean;
+}
+
+interface ReviewTag {
+  category: string;
+  confidence: AiConfidence | 'manual';
+}
 
 interface ReviewRow {
   entry: RawEntryRow;
-  suggestion: AiSuggestion;
-  category: string;
   accepted: boolean;
+  tags: Record<string, ReviewTag[]>;
+  reasons: Record<string, string>;
 }
 
-const CONFIDENCE_LABEL: Record<AiSuggestion['confidence'], string> = { high: 'High', medium: 'Medium', low: 'Low' };
+const CONFIDENCE_LABEL: Record<ReviewTag['confidence'], string> = { high: 'High', medium: 'Medium', low: 'Low', manual: 'Added by you' };
+
+const categoriesOf = (text: string) => Array.from(new Set(text.split('\n').map(cleanLabel).filter(Boolean)));
+const rowHasTags = (r: ReviewRow) => Object.values(r.tags).some((t) => t.length > 0);
+
+function buildAngleSetups(pickList: KpiCategory[], saved: KpiAngle[], prev: AngleSetup[]): AngleSetup[] {
+  const names = orderedDimensions([...pickList, ...saved.map((a) => ({ dimension: a.dimension }))]);
+  const prevByName = new Map(prev.map((a) => [a.name, a]));
+  const setups = names.map((name, i) => {
+    const p = prevByName.get(name);
+    return {
+      name,
+      categoriesText: pickList
+        .filter((c) => c.dimension === name)
+        .map((c) => c.label)
+        .join('\n'),
+      allowNew: p?.allowNew ?? false,
+      multi: saved.find((a) => a.dimension === name)?.multi_tag ?? p?.multi ?? false,
+      selected: p ? p.selected : i === 0,
+      isNew: false,
+    };
+  });
+  // Keep unsaved new angles across a reload (e.g. a date change).
+  for (const p of prev) if (p.isNew && !names.includes(p.name)) setups.push(p);
+  return setups;
+}
 
 export default function AiCategorize({
   pillarId,
@@ -58,10 +115,11 @@ export default function AiCategorize({
   const [entries, setEntries] = useState<RawEntryRow[]>([]);
   const [tags, setTags] = useState<EntryCategory[]>([]);
   const [pickList, setPickList] = useState<KpiCategory[]>([]);
-  const [dimension, setDimension] = useState(DEFAULT_DIMENSION);
+  const [angles, setAngles] = useState<AngleSetup[]>([]);
+  const [newAngleName, setNewAngleName] = useState('');
+  const [newAngleOpen, setNewAngleOpen] = useState(false);
+  const [angleError, setAngleError] = useState<string | null>(null);
   const [onlyUntagged, setOnlyUntagged] = useState(true);
-  const [categoriesText, setCategoriesText] = useState('');
-  const [allowNew, setAllowNew] = useState(false);
   const [instruction, setInstruction] = useState(DEFAULT_INSTRUCTION);
   const [loading, setLoading] = useState(false);
   const [running, setRunning] = useState(false);
@@ -70,23 +128,31 @@ export default function AiCategorize({
   const [notConfigured, setNotConfigured] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [review, setReview] = useState<ReviewRow[] | null>(null);
+  const [reviewAngles, setReviewAngles] = useState<AngleSetup[]>([]);
+  const [previewAngle, setPreviewAngle] = useState('');
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [model, setModel] = useState('');
   const idsKey = kpiIds.join(',');
 
-  // Load the KPI's remarks, existing tags and category pick-list.
+  // Load the KPI's remarks, existing tags, category pick-lists and angles.
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setReview(null);
     setError(null);
-    Promise.all([fetchMissedEntriesForKpiIds(kpiIds, from), fetchKpiCategories(department.id, pillarId, kpiLabel)])
-      .then(async ([rows, list]) => {
+    Promise.all([
+      fetchMissedEntriesForKpiIds(kpiIds, from),
+      fetchKpiCategories(department.id, pillarId, kpiLabel),
+      fetchKpiAngles(department.id, pillarId, kpiLabel).catch(() => [] as KpiAngle[]),
+    ])
+      .then(async ([rows, list, saved]) => {
         const inRange = rows.filter((r) => r.entry_date <= to);
         const t = await fetchEntryCategories(inRange.map((r) => r.id));
         if (cancelled) return;
         setEntries(inRange);
         setTags(t);
         setPickList(list);
+        setAngles((prev) => buildAngleSetups(list, saved, prev));
       })
       .catch((e) => !cancelled && setError(errorMessage(e, 'Failed to load remarks')))
       .finally(() => !cancelled && setLoading(false));
@@ -96,55 +162,101 @@ export default function AiCategorize({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idsKey, from, to, department.id, pillarId, kpiLabel]);
 
-  const dimensions = useMemo(() => orderedDimensions(pickList), [pickList]);
-  useEffect(() => {
-    if (!dimensions.includes(dimension)) setDimension(dimensions[0]);
-  }, [dimensions, dimension]);
+  const selectedAngles = angles.filter((a) => a.selected);
 
-  // Pre-fill the category list from the KPI's pick-list for this dimension.
-  useEffect(() => {
-    setCategoriesText(
-      pickList
-        .filter((c) => c.dimension === dimension)
-        .map((c) => c.label)
-        .join('\n')
-    );
-  }, [pickList, dimension]);
-
-  const tagsByEntry = useMemo(() => {
-    const m = new Map<string, string[]>();
-    for (const t of tags) if (t.dimension === dimension) m.set(t.entry_id, [...(m.get(t.entry_id) ?? []), t.category]);
+  // entry id → angle → existing tags
+  const existingTags = useMemo(() => {
+    const m = new Map<string, Map<string, string[]>>();
+    for (const t of tags) {
+      const byAngle = m.get(t.entry_id) ?? new Map<string, string[]>();
+      byAngle.set(t.dimension, [...(byAngle.get(t.dimension) ?? []), t.category]);
+      m.set(t.entry_id, byAngle);
+    }
     return m;
-  }, [tags, dimension]);
+  }, [tags]);
 
-  const candidates = entries.filter((e) => remarkText(e.reason, e.remarks) && (!onlyUntagged || !tagsByEntry.has(e.id)));
+  // "Only untagged": a remark is still worth sending while ANY picked angle
+  // has no tag on it yet.
+  const candidates = entries.filter(
+    (e) => remarkText(e.reason, e.remarks) && (!onlyUntagged || selectedAngles.some((a) => !existingTags.get(e.id)?.has(a.name)))
+  );
   const noText = entries.filter((e) => !remarkText(e.reason, e.remarks)).length;
-  const categories = Array.from(new Set(categoriesText.split('\n').map(cleanLabel).filter(Boolean)));
+
+  function patchAngle(name: string, patch: Partial<AngleSetup>) {
+    setAngles((prev) => prev.map((a) => (a.name === name ? { ...a, ...patch } : a)));
+  }
+
+  function toggleAngle(name: string) {
+    const a = angles.find((x) => x.name === name);
+    if (!a) return;
+    if (!a.selected && selectedAngles.length >= MAX_AI_ANGLES) {
+      setAngleError(`Up to ${MAX_AI_ANGLES} angles per run.`);
+      return;
+    }
+    setAngleError(null);
+    patchAngle(name, { selected: !a.selected });
+  }
+
+  function addAngle() {
+    const name = cleanLabel(newAngleName);
+    if (!name) return;
+    if (name.length > MAX_ANGLE_NAME) {
+      setAngleError(`Keep the angle name under ${MAX_ANGLE_NAME} characters.`);
+      return;
+    }
+    if (angles.some((a) => a.name.toLowerCase() === name.toLowerCase())) {
+      setAngleError(`"${name}" already exists — tick it above.`);
+      return;
+    }
+    if (selectedAngles.length >= MAX_AI_ANGLES) {
+      setAngleError(`Up to ${MAX_AI_ANGLES} angles per run — untick one first.`);
+      return;
+    }
+    setAngles((prev) => [...prev, { name, categoriesText: '', allowNew: false, multi: false, selected: true, isNew: true }]);
+    setNewAngleName('');
+    setNewAngleOpen(false);
+    setAngleError(null);
+  }
 
   async function run() {
-    if (!employee) return;
+    if (!employee || selectedAngles.length === 0) return;
     setRunning(true);
     setError(null);
     setMessage(null);
     setNotConfigured(null);
     try {
       const batch = candidates.slice(0, MAX_PER_RUN);
+      const runAngles = selectedAngles.map((a) => ({ ...a }));
       const res = await suggestCategories({
         employeeCode: employee.employee_code,
         departmentId: department.id,
         instruction,
-        categories,
-        allowNew,
+        angles: runAngles.map((a) => {
+          const categories = categoriesOf(a.categoriesText);
+          return { name: a.name, categories, allowNew: a.allowNew && categories.length > 0, multi: a.multi };
+        }),
         items: batch.map((e) => ({ id: e.id, text: remarkText(e.reason, e.remarks) })),
       });
       const byId = new Map(res.results.map((r) => [r.id, r]));
       setModel(res.model);
+      setReviewAngles(runAngles);
+      setPreviewAngle(runAngles[0].name);
+      setDrafts({});
       setReview(
         batch.map((entry) => {
-          const suggestion = byId.get(entry.id) ?? { id: entry.id, category: null, confidence: 'low' as const, reason: 'No suggestion returned' };
-          const category = suggestion.category ? cleanLabel(suggestion.category) : '';
-          // "Other" and empty suggestions start unticked — they need a human call.
-          return { entry, suggestion, category, accepted: Boolean(category) && category.toLowerCase() !== 'other' };
+          const s = byId.get(entry.id);
+          const rowTags: Record<string, ReviewTag[]> = {};
+          const reasons: Record<string, string> = {};
+          for (const a of runAngles) {
+            const r = s?.angles[a.name];
+            // "Other" means the AI found nothing that fits — that's a human call, so it starts off.
+            rowTags[a.name] = (r?.tags ?? []).filter((t) => cleanLabel(t.category).toLowerCase() !== 'other').map((t) => ({ ...t, category: cleanLabel(t.category) }));
+            reasons[a.name] = r?.reason ?? 'No suggestion returned';
+            if (r && r.tags.length > 0 && rowTags[a.name].length === 0) reasons[a.name] = `No category fits (AI said "Other") — ${r.reason}`;
+          }
+          const row: ReviewRow = { entry, accepted: false, tags: rowTags, reasons };
+          row.accepted = rowHasTags(row);
+          return row;
         })
       );
     } catch (e) {
@@ -155,51 +267,105 @@ export default function AiCategorize({
     }
   }
 
-  function patchRow(id: string, patch: Partial<ReviewRow>) {
-    setReview((prev) => prev?.map((r) => (r.entry.id === id ? { ...r, ...patch } : r)) ?? null);
+  function patchRow(id: string, fn: (r: ReviewRow) => ReviewRow) {
+    setReview((prev) => prev?.map((r) => (r.entry.id === id ? fn(r) : r)) ?? null);
   }
 
-  const accepted = useMemo(() => review?.filter((r) => r.accepted && cleanLabel(r.category)) ?? [], [review]);
-  const previewData = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const r of accepted) {
-      const c = cleanLabel(r.category);
-      counts.set(c, (counts.get(c) ?? 0) + 1);
+  function removeTag(id: string, angle: string, category: string) {
+    patchRow(id, (r) => {
+      const next = { ...r, tags: { ...r.tags, [angle]: r.tags[angle].filter((t) => t.category !== category) } };
+      return { ...next, accepted: next.accepted && rowHasTags(next) };
+    });
+  }
+
+  function addTag(id: string, angle: AngleSetup) {
+    const key = `${id}|${angle.name}`;
+    const category = cleanLabel(drafts[key] ?? '');
+    if (!category) return;
+    patchRow(id, (r) => {
+      const current = r.tags[angle.name] ?? [];
+      if (current.some((t) => t.category.toLowerCase() === category.toLowerCase())) return r;
+      const added: ReviewTag = { category, confidence: 'manual' };
+      // Single-tag angles: a typed tag replaces the AI's.
+      const nextTags = angle.multi ? [...current, added].slice(-MAX_AI_TAGS) : [added];
+      return { ...r, accepted: true, tags: { ...r.tags, [angle.name]: nextTags } };
+    });
+    setDrafts((d) => ({ ...d, [key]: '' }));
+  }
+
+  const accepted = useMemo(() => review?.filter((r) => r.accepted && rowHasTags(r)) ?? [], [review]);
+  const acceptedTagCount = accepted.reduce((n, r) => n + Object.values(r.tags).reduce((m, t) => m + t.length, 0), 0);
+
+  // Options for each angle's "add tag" box: its list + anything in the review.
+  const optionsByAngle = useMemo(() => {
+    const m = new Map<string, string[]>();
+    for (const a of reviewAngles) {
+      const set = new Set(categoriesOf(a.categoriesText));
+      for (const c of pickList) if (c.dimension === a.name) set.add(c.label);
+      for (const r of review ?? []) for (const t of r.tags[a.name] ?? []) set.add(t.category);
+      m.set(a.name, Array.from(set).sort((x, y) => x.localeCompare(y)));
     }
-    return Array.from(counts.entries()).map(([label, count]) => ({ label, count }));
-  }, [accepted]);
-  const options = useMemo(
-    () => Array.from(new Set([...categories, ...(review ?? []).map((r) => cleanLabel(r.category)).filter(Boolean)])).sort((a, b) => a.localeCompare(b)),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [categoriesText, review]
-  );
+    return m;
+  }, [reviewAngles, pickList, review]);
+
+  const preview = useMemo(() => {
+    const counts = new Map<string, number>();
+    let shifts = 0;
+    let tagCount = 0;
+    for (const r of accepted) {
+      const t = r.tags[previewAngle] ?? [];
+      if (t.length) shifts++;
+      for (const x of t) {
+        tagCount++;
+        counts.set(x.category, (counts.get(x.category) ?? 0) + 1);
+      }
+    }
+    return { data: Array.from(counts.entries()).map(([label, count]) => ({ label, count })), shifts, tagCount };
+  }, [accepted, previewAngle]);
 
   async function save() {
     if (accepted.length === 0) return;
     setSaving(true);
     setError(null);
     try {
-      const existing = new Set(pickList.filter((c) => c.dimension === dimension).map((c) => c.label.toLowerCase()));
-      // Reuse an existing pick-list spelling when only the case differs.
-      const canonical = new Map(pickList.filter((c) => c.dimension === dimension).map((c) => [c.label.toLowerCase(), c.label]));
-      const rows = accepted.map((r) => {
-        const c = cleanLabel(r.category);
-        return { id: r.entry.id, category: canonical.get(c.toLowerCase()) ?? c };
-      });
-      const newLabels = Array.from(new Set(rows.map((r) => r.category).filter((c) => !existing.has(c.toLowerCase()))));
-      await bulkAddKpiCategories(
-        newLabels.map((label) => ({ department_id: department.id, pillar_id: pillarId, kpi_base_name: kpiLabel, dimension, label, sort_order: 999 }))
+      const listRows: Parameters<typeof bulkAddKpiCategories>[0] = [];
+      const tagRows: Parameters<typeof bulkAddEntryCategories>[0] = [];
+      const newByAngle: string[] = [];
+      for (const a of reviewAngles) {
+        // Reuse an existing pick-list spelling when only the case differs.
+        const canonical = new Map(pickList.filter((c) => c.dimension === a.name).map((c) => [c.label.toLowerCase(), c.label]));
+        const added: string[] = [];
+        for (const r of accepted) {
+          for (const t of r.tags[a.name] ?? []) {
+            const label = canonical.get(t.category.toLowerCase()) ?? t.category;
+            if (!canonical.has(label.toLowerCase())) {
+              canonical.set(label.toLowerCase(), label);
+              added.push(label);
+              listRows.push({ department_id: department.id, pillar_id: pillarId, kpi_base_name: kpiLabel, dimension: a.name, label, sort_order: 999 });
+            }
+            tagRows.push({ entry_id: r.entry.id, dimension: a.name, category: label, created_by: employee?.id ?? null });
+          }
+        }
+        if (added.length) newByAngle.push(`${a.name}: ${added.join(', ')}`);
+      }
+      await upsertKpiAngles(
+        reviewAngles.map((a) => ({ department_id: department.id, pillar_id: pillarId, kpi_base_name: kpiLabel, dimension: a.name, multi_tag: a.multi }))
       );
-      await bulkAddEntryCategories(rows.map((r) => ({ entry_id: r.id, dimension, category: r.category, created_by: employee?.id ?? null })));
-      await bulkUpdateAiCategories(rows);
-      const savedIds = new Set(rows.map((r) => r.id));
+      await bulkAddKpiCategories(listRows);
+      await bulkAddEntryCategories(tagRows);
+
       setMessage(
-        `Saved ${rows.length} categor${rows.length === 1 ? 'y' : 'ies'} — they now count in the Weekly Pareto and the Insights pivot below.` +
-          (newLabels.length ? ` Added ${newLabels.length} new categor${newLabels.length === 1 ? 'y' : 'ies'} to ${kpiLabel}'s list: ${newLabels.join(', ')}.` : '')
+        `Saved ${tagRows.length} tag${tagRows.length === 1 ? '' : 's'} on ${accepted.length} remark${accepted.length === 1 ? '' : 's'} (${reviewAngles
+          .map((a) => a.name)
+          .join(', ')}) — they now count in the Weekly Pareto, Enter Remarks and the pivot below.` +
+          (newByAngle.length ? ` New categories added — ${newByAngle.join('; ')}.` : '')
       );
+      const savedIds = new Set(accepted.map((r) => r.entry.id));
       setReview((prev) => prev?.filter((r) => !savedIds.has(r.entry.id)) ?? null);
-      setTags((prev) => [...prev, ...rows.map((r) => ({ id: `new-${r.id}`, entry_id: r.id, dimension, category: r.category }))]);
-      setPickList((prev) => [...prev, ...newLabels.map((label) => ({ id: `new-${label}`, pillar_id: pillarId, kpi_base_name: kpiLabel, dimension, label, sort_order: 999 }))]);
+      setTags((prev) => [...prev, ...tagRows.map((t, i) => ({ id: `new-${i}-${t.entry_id}`, entry_id: t.entry_id, dimension: t.dimension, category: t.category }))]);
+      const nextPickList = [...pickList, ...listRows.map((l) => ({ ...l, id: `new-${l.dimension}-${l.label}` }))];
+      setPickList(nextPickList);
+      setAngles((prev) => prev.map((a) => (reviewAngles.some((r) => r.name === a.name) ? { ...a, isNew: false } : a)));
       onSaved();
     } catch (e) {
       setError(errorMessage(e, 'Failed to save'));
@@ -213,8 +379,8 @@ export default function AiCategorize({
       <h3>
         AI categorisation — {kpiLabel}{' '}
         <InfoTip>
-          Google Gemini suggests a Pareto category for each missed-target remark. You review every suggestion before anything is saved. Saved
-          categories become the remark's Weekly Pareto tag and its Insights category.
+          Google Gemini suggests Pareto tags for each missed-target remark, from one or more angles at once (e.g. Cause, Equipment, Location). You
+          review every suggestion before anything is saved. Saved tags are the same ones Enter Remarks, the Weekly Pareto and the pivot below use.
         </InfoTip>
       </h3>
       <div className="alert alert-warning" style={{ marginBottom: 16 }}>
@@ -237,34 +403,109 @@ export default function AiCategorize({
               To
               <DateField value={to} max={today} onChange={(v) => v && setTo(v)} ariaLabel="To date" />
             </label>
-            {dimensions.length > 1 && (
-              <label className="field-label">
-                Pareto
-                <Select value={dimension} onChange={setDimension} options={dimensions.map((d) => ({ value: d, label: d }))} ariaLabel="Category dimension" />
-              </label>
-            )}
           </div>
           <label className="field-label ai-cat-check">
             <CheckField checked={onlyUntagged} onChange={setOnlyUntagged} />
-            Only remarks without a {dimension.toLowerCase()} category yet
+            Skip remarks already tagged in every picked angle
           </label>
-          <label className="field-label">
-            Instruction to the AI
-            <TextAreaField value={instruction} onChange={setInstruction} rows={3} placeholder={DEFAULT_INSTRUCTION} />
-          </label>
-        </div>
-        <div className="ai-cat-col">
           <label className="field-label">
             <span className="field-title">
-              Categories — one per line{' '}
-              <InfoTip>Pre-filled from this KPI's own category list. Edit freely. Leave it empty to let the AI propose categories.</InfoTip>
+              Extra instruction to the AI (optional){' '}
+              <InfoTip>Anything that helps it read your remarks — abbreviations, what counts as what. The angles and their categories are sent automatically.</InfoTip>
             </span>
-            <TextAreaField value={categoriesText} onChange={setCategoriesText} rows={7} placeholder={'QC breakdown\nHeavy rehandle\nBad weather'} />
+            <TextAreaField
+              value={instruction}
+              onChange={setInstruction}
+              rows={3}
+              placeholder={'e.g. "RTG" and "RTGC" are the same crane. Weather includes haze and lightning stoppages.'}
+            />
           </label>
-          <label className="field-label ai-cat-check">
-            <CheckField checked={allowNew} onChange={setAllowNew} disabled={categories.length === 0} />
-            Let the AI propose a new category when none fits
-          </label>
+        </div>
+
+        <div className="ai-cat-col">
+          <div>
+            <div className="field-title ai-cat-angles-title">
+              Angles to tag{' '}
+              <InfoTip>
+                An angle is one way of looking at the remarks, with its own categories and its own Pareto — e.g. Cause, Equipment, Location, Crew. Pick
+                up to {MAX_AI_ANGLES}; the AI tags every remark from each one in a single run.
+              </InfoTip>
+            </div>
+            <div className="ai-cat-angles">
+              {angles.map((a) => (
+                <Chip
+                  key={a.name}
+                  text={a.isNew ? `${a.name} (new)` : a.name}
+                  rounded="full"
+                  selected={a.selected}
+                  className={`ai-cat-angle-chip${a.selected ? ' is-selected' : ''}`}
+                  onClick={() => toggleAngle(a.name)}
+                  ariaLabel={`${a.selected ? 'Untick' : 'Tick'} angle ${a.name}`}
+                />
+              ))}
+              {!newAngleOpen && (
+                <Button size="small" fillMode="flat" onClick={() => setNewAngleOpen(true)}>
+                  + New angle
+                </Button>
+              )}
+            </div>
+            {newAngleOpen && (
+              <div className="ai-cat-new-angle">
+                <TextField value={newAngleName} onChange={setNewAngleName} placeholder="e.g. Equipment involved" ariaLabel="New angle name" autoFocus />
+                <Button size="small" themeColor="primary" onClick={addAngle} disabled={!cleanLabel(newAngleName)}>
+                  Add
+                </Button>
+                <Button
+                  size="small"
+                  fillMode="flat"
+                  onClick={() => {
+                    setNewAngleOpen(false);
+                    setNewAngleName('');
+                    setAngleError(null);
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+            )}
+            {angleError && <div className="field-error">{angleError}</div>}
+          </div>
+
+          {selectedAngles.length === 0 && <div className="muted">Tick at least one angle.</div>}
+          {selectedAngles.map((a) => {
+            const categories = categoriesOf(a.categoriesText);
+            return (
+              <div key={a.name} className="ai-cat-angle-card">
+                <div className="ai-cat-angle-card-title">{a.name}</div>
+                <label className="field-label">
+                  <span className="field-title">
+                    Categories — one per line{' '}
+                    <InfoTip>Pre-filled from this angle's category list. Edit freely. Leave it empty to let the AI propose categories.</InfoTip>
+                  </span>
+                  <TextAreaField
+                    value={a.categoriesText}
+                    onChange={(v) => patchAngle(a.name, { categoriesText: v })}
+                    rows={4}
+                    placeholder={'Leave empty to let the AI propose,\nor list them: QC breakdown\nHeavy rehandle'}
+                  />
+                </label>
+                <label className="field-label ai-cat-check">
+                  <CheckField checked={a.multi} onChange={(v) => patchAngle(a.name, { multi: v })} />
+                  <span className="field-title">
+                    Up to {MAX_AI_TAGS} tags per remark{' '}
+                    <InfoTip>
+                      For angles where one shift can have several answers — e.g. a delay caused by both a breakdown and a manpower shortage. Leave off
+                      for angles with one answer per shift (e.g. Location). The setting is remembered when you save.
+                    </InfoTip>
+                  </span>
+                </label>
+                <label className="field-label ai-cat-check">
+                  <CheckField checked={a.allowNew && categories.length > 0} onChange={(v) => patchAngle(a.name, { allowNew: v })} disabled={categories.length === 0} />
+                  Let the AI propose a new category when none fits
+                </label>
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -273,8 +514,12 @@ export default function AiCategorize({
           <InlineLoader label="Loading remarks…" />
         ) : (
           <>
-            <Button themeColor="primary" onClick={run} disabled={running || candidates.length === 0 || !employee}>
-              {running ? 'Asking Gemini…' : `Suggest categories for ${Math.min(candidates.length, MAX_PER_RUN)} remark${candidates.length === 1 ? '' : 's'}`}
+            <Button themeColor="primary" onClick={run} disabled={running || candidates.length === 0 || !employee || selectedAngles.length === 0}>
+              {running
+                ? 'Asking Gemini…'
+                : `Suggest tags for ${Math.min(candidates.length, MAX_PER_RUN)} remark${candidates.length === 1 ? '' : 's'}${
+                    selectedAngles.length > 1 ? ` × ${selectedAngles.length} angles` : ''
+                  }`}
             </Button>
             <span className="muted">
               {entries.length} missed-target entr{entries.length === 1 ? 'y' : 'ies'} in range
@@ -290,14 +535,26 @@ export default function AiCategorize({
         <div className="ai-cat-review">
           <div className="ai-cat-review-head">
             <h3>
-              Review {review.length} suggestion{review.length === 1 ? '' : 's'} <span className="muted ai-cat-model">· {model}</span>
+              Review {review.length} remark{review.length === 1 ? '' : 's'} <span className="muted ai-cat-model">· {model}</span>
             </h3>
             <div className="ai-cat-bulk">
-              <Button size="small" fillMode="flat" onClick={() => setReview((p) => p?.map((r) => ({ ...r, accepted: Boolean(cleanLabel(r.category)) })) ?? null)}>
+              <Button size="small" fillMode="flat" onClick={() => setReview((p) => p?.map((r) => ({ ...r, accepted: rowHasTags(r) })) ?? null)}>
                 Tick all
               </Button>
-              <Button size="small" fillMode="flat" onClick={() => setReview((p) => p?.map((r) => (r.suggestion.confidence === 'low' ? { ...r, accepted: false } : r)) ?? null)}>
-                Untick low confidence
+              <Button
+                size="small"
+                fillMode="flat"
+                onClick={() =>
+                  setReview(
+                    (p) =>
+                      p?.map((r) => {
+                        const next = { ...r, tags: Object.fromEntries(Object.entries(r.tags).map(([k, t]) => [k, t.filter((x) => x.confidence !== 'low')])) };
+                        return { ...next, accepted: next.accepted && rowHasTags(next) };
+                      }) ?? null
+                  )
+                }
+              >
+                Remove low-confidence tags
               </Button>
               <Button size="small" fillMode="flat" onClick={() => setReview((p) => p?.map((r) => ({ ...r, accepted: false })) ?? null)}>
                 Untick all
@@ -312,17 +569,21 @@ export default function AiCategorize({
                   <th>Date</th>
                   <th>Actual / target</th>
                   <th>Remark</th>
-                  <th>Category</th>
-                  <th>Confidence</th>
+                  {reviewAngles.map((a) => (
+                    <th key={a.name}>
+                      {a.name}
+                      <span className="muted ai-cat-th-note">{a.multi ? ` · up to ${MAX_AI_TAGS}` : ' · 1 tag'}</span>
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
                 {review.map((r) => {
-                  const existing = tagsByEntry.get(r.entry.id);
+                  const existing = existingTags.get(r.entry.id);
                   return (
                     <tr key={r.entry.id} className={r.accepted ? '' : 'row-dropped'}>
                       <td>
-                        <CheckField checked={r.accepted} onChange={(v) => patchRow(r.entry.id, { accepted: v })} />
+                        <CheckField checked={r.accepted} disabled={!rowHasTags(r)} onChange={(v) => patchRow(r.entry.id, (x) => ({ ...x, accepted: v }))} />
                       </td>
                       <td className="ai-cat-nowrap">
                         {format(parseISO(r.entry.entry_date), 'd MMM')}
@@ -334,21 +595,47 @@ export default function AiCategorize({
                       <td className="ai-cat-remark">
                         {r.entry.reason && <div className="muted">{r.entry.reason}</div>}
                         <div>{r.entry.remarks}</div>
-                        {existing && <div className="muted">Already tagged: {existing.join(', ')}</div>}
+                        {existing &&
+                          reviewAngles
+                            .filter((a) => existing.has(a.name))
+                            .map((a) => (
+                              <div key={a.name} className="muted">
+                                Already tagged {a.name}: {existing.get(a.name)!.join(', ')}
+                              </div>
+                            ))}
                       </td>
-                      <td className="ai-cat-category">
-                        <AutoComplete
-                          data={options}
-                          value={r.category}
-                          size="small"
-                          placeholder="Type a category"
-                          onChange={(e) => patchRow(r.entry.id, { category: String(e.value ?? ''), accepted: Boolean(cleanLabel(String(e.value ?? ''))) })}
-                        />
-                        <div className="muted ai-cat-why">Why: {r.suggestion.reason}</div>
-                      </td>
-                      <td>
-                        <span className={`pill ai-cat-conf ai-cat-conf-${r.suggestion.confidence}`}>{CONFIDENCE_LABEL[r.suggestion.confidence]}</span>
-                      </td>
+                      {reviewAngles.map((a) => {
+                        const key = `${r.entry.id}|${a.name}`;
+                        const rowTags = r.tags[a.name] ?? [];
+                        return (
+                          <td key={a.name} className="ai-cat-category">
+                            <div className="ai-cat-tags">
+                              {rowTags.map((t) => (
+                                <span key={t.category} className={`ai-tag ai-cat-conf-${t.confidence}`} title={`Confidence: ${CONFIDENCE_LABEL[t.confidence]}`}>
+                                  {t.category}
+                                  <button type="button" className="ai-tag-remove" aria-label={`Remove ${t.category}`} onClick={() => removeTag(r.entry.id, a.name, t.category)}>
+                                    ×
+                                  </button>
+                                </span>
+                              ))}
+                              {rowTags.length === 0 && <span className="muted">No tag</span>}
+                            </div>
+                            <div className="ai-tag-add">
+                              <AutoComplete
+                                data={optionsByAngle.get(a.name) ?? []}
+                                value={drafts[key] ?? ''}
+                                size="small"
+                                placeholder={a.multi || rowTags.length === 0 ? 'Add a tag' : 'Replace tag'}
+                                onChange={(e) => setDrafts((d) => ({ ...d, [key]: String(e.value ?? '') }))}
+                              />
+                              <Button size="small" onClick={() => addTag(r.entry.id, a)} disabled={!cleanLabel(drafts[key] ?? '')} aria-label={`Add tag to ${a.name}`}>
+                                +
+                              </Button>
+                            </div>
+                            <div className="muted ai-cat-why">Why: {r.reasons[a.name]}</div>
+                          </td>
+                        );
+                      })}
                     </tr>
                   );
                 })}
@@ -357,16 +644,39 @@ export default function AiCategorize({
           </div>
           <div className="ai-cat-preview">
             <div>
-              <div className="quadrant-block-title" style={{ padding: '0 0 6px' }}>
-                Pareto of what will be saved
+              <div className="ai-cat-preview-head">
+                <div className="quadrant-block-title" style={{ padding: 0 }}>
+                  Pareto of what will be saved
+                </div>
+                {reviewAngles.length > 1 && (
+                  <Select
+                    value={previewAngle}
+                    onChange={setPreviewAngle}
+                    options={reviewAngles.map((a) => ({ value: a.name, label: a.name }))}
+                    ariaLabel="Angle to preview"
+                    size="small"
+                  />
+                )}
               </div>
-              {previewData.length > 0 ? <ParetoChart data={previewData} barColor={color} maxBars={8} cumulativeOfAll /> : <div className="empty-state">Nothing ticked.</div>}
+              {preview.data.length > 0 ? (
+                <>
+                  <ParetoChart data={preview.data} barColor={color} maxBars={8} cumulativeOfAll shareOf={preview.shifts} />
+                  <div className="muted ai-cat-preview-note">
+                    {preview.shifts} remark{preview.shifts === 1 ? '' : 's'}
+                    {preview.tagCount > preview.shifts
+                      ? ` · ${preview.tagCount} tags — some remarks carry more than one, so the bars add up to more than ${preview.shifts}. Bar % = share of remarks mentioning it.`
+                      : ''}
+                  </div>
+                </>
+              ) : (
+                <div className="empty-state">Nothing ticked for this angle.</div>
+              )}
             </div>
             <div className="ai-cat-save">
               <Button themeColor="primary" size="large" onClick={save} disabled={saving || accepted.length === 0}>
-                {saving ? 'Saving…' : `Save ${accepted.length} categor${accepted.length === 1 ? 'y' : 'ies'}`}
+                {saving ? 'Saving…' : `Save ${accepted.length} remark${accepted.length === 1 ? '' : 's'} · ${acceptedTagCount} tag${acceptedTagCount === 1 ? '' : 's'}`}
               </Button>
-              <span className="muted">Unticked rows are left as they are.</span>
+              <span className="muted">Unticked rows are left as they are. Saving adds tags — it never removes ones already on a remark.</span>
             </div>
           </div>
         </div>
