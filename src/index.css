@@ -2397,3 +2397,18 @@ textarea {
   background: #fdebd8;
   color: var(--primary-dark);
 }
+
+.field-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.field-title .info-tip {
+  margin-left: 0;
+}
+
+.site-admin-search {
+  width: 220px !important;
+}

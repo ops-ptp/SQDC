@@ -94,8 +94,10 @@ function NewDepartmentModal({ employees, existingSlugs, onCancel, onCreated }: {
             </span>
           </label>
           <label className="span-2">
-            How data gets in{' '}
+            <span className="field-title">
+              How data gets in{' '}
             <InfoTip>The department admin can change this later in their Settings tab.</InfoTip>
+            </span>
             <Select value={entryMode} onChange={(v) => setEntryMode(v as EntryMode)} options={ENTRY_MODE_OPTIONS} />
           </label>
           <label>
@@ -105,7 +107,9 @@ function NewDepartmentModal({ employees, existingSlugs, onCancel, onCreated }: {
           </label>
           {validCode && !existingAdmin && (
             <label>
+              <span className="field-title">
               Their name <span className="muted">(new ID)</span>
+            </span>
               <TextField value={adminName} onChange={setAdminName} />
             </label>
           )}
@@ -345,7 +349,7 @@ function EmployeesCard({ employees, memberships, onChanged }: { employees: Emplo
           </InfoTip>
         </h3>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <TextField value={filter} onChange={setFilter} placeholder="Search name or ID" ariaLabel="Search employees" />
+          <TextField className="site-admin-search" value={filter} onChange={setFilter} placeholder="Search name or ID" ariaLabel="Search employees" />
           <Button svgIcon={plusIcon} onClick={() => setAdding(true)}>
             Add employee
           </Button>

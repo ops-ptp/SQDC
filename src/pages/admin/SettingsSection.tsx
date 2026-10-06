@@ -73,28 +73,34 @@ export default function SettingsSection() {
           <TextField value={name} onChange={setName} />
         </label>
         <label>
-          Board web address{' '}
+          <span className="field-title">
+            Board web address{' '}
           <InfoTip>
             The board's link: {window.location.origin}/d/{slug || '…'}. Changing it breaks bookmarks and TV screens using the old link, so
             only site admins can.
           </InfoTip>
+          </span>
           <TextField value={slug} onChange={(v) => setSlug(v.toLowerCase())} disabled={!isSiteAdmin} />
         </label>
         <label>
-          How data gets in{' '}
+          <span className="field-title">
+            How data gets in{' '}
           <InfoTip>
             Typed in the app: members enter each KPI's value on the Enter Data page. Excel upload: an admin uploads a spreadsheet (Admin →
             Uploads) and members add remarks. Both: either way — a value typed in the app is never overwritten by an upload.
           </InfoTip>
+          </span>
           <Select value={entryMode} onChange={(v) => setEntryMode(v as EntryMode)} options={ENTRY_MODE_OPTIONS} />
         </label>
         {entryMode !== 'manual' && (
           <label>
-            Upload file{' '}
+            <span className="field-title">
+              Upload file{' '}
             <InfoTip>
               Template: download it from Admin → Uploads — it has a column for each of your KPIs. The OPS workbooks are the original
               Operations files (their own fixed layout, plus a separate Weekly workbook).
             </InfoTip>
+            </span>
             <Select value={uploadFormat} onChange={(v) => setUploadFormat(v as UploadFormat)} options={UPLOAD_FORMAT_OPTIONS} />
           </label>
         )}

@@ -197,11 +197,13 @@ function KpiFormModal({ mode, row, pillars, existingNames, onCancel, onSaved }: 
             <TextField value={unit} onChange={setUnit} placeholder="%, Count, Hours, RM…" />
           </label>
           <label>
-            Standard target{' '}
+            <span className="field-title">
+              Standard target{' '}
             <InfoTip>
               The target each day is judged against unless an upload's Targets sheet gives that day its own. Changing it
               affects new entries only — past days keep the target they were judged against.
             </InfoTip>
+            </span>
             <NumberField value={target} onChange={setTarget} placeholder="0" />
           </label>
           {mode === 'add' && (
@@ -224,8 +226,10 @@ function KpiFormModal({ mode, row, pillars, existingNames, onCancel, onSaved }: 
           )}
           {isBoard && weeklyRolledUp && (
             <label>
-              Weekly figure{' '}
+              <span className="field-title">
+                Weekly figure{' '}
               <InfoTip>How a week's daily values become one weekly figure on the Weekly view — average for rates and percentages, total for counts.</InfoTip>
+              </span>
               <Select value={weeklyAgg} onChange={(v) => setWeeklyAgg(v as 'avg' | 'sum')} options={WEEKLY_AGG_OPTIONS} />
             </label>
           )}
