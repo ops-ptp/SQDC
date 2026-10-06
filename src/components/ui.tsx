@@ -96,6 +96,7 @@ export function TextField({
   autoFocus,
   inputMode,
   ariaLabel,
+  disabled,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -104,6 +105,7 @@ export function TextField({
   autoFocus?: boolean;
   inputMode?: 'numeric' | 'text';
   ariaLabel?: string;
+  disabled?: boolean;
 }) {
   return (
     <Input
@@ -114,6 +116,7 @@ export function TextField({
       autoFocus={autoFocus}
       inputMode={inputMode}
       aria-label={ariaLabel}
+      disabled={disabled}
     />
   );
 }

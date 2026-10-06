@@ -67,7 +67,7 @@ const CATEGORY_TO_PILLAR_CODE: Record<string, 'S' | 'Q' | 'D' | 'C'> = {
  * break), formula cells, and hyperlinks — String()-ing those gave
  * "[object Object]", so a newly added column with a formatted header was
  * auto-created under that junk name and never matched its own data. */
-function cellText(v: unknown): string {
+export function cellText(v: unknown): string {
   if (v === null || v === undefined) return '';
   if (v instanceof Date) return v.toISOString();
   if (typeof v !== 'object') return String(v);
@@ -78,11 +78,11 @@ function cellText(v: unknown): string {
   return '';
 }
 
-function norm(s: unknown): string {
+export function norm(s: unknown): string {
   return cellText(s).replace(/\s+/g, ' ').trim();
 }
 
-function cellNumber(v: ExcelJS.CellValue): number | null {
+export function cellNumber(v: ExcelJS.CellValue): number | null {
   if (v === null || v === undefined) return null;
   if (typeof v === 'number') return Number.isFinite(v) ? v : null;
   if (typeof v === 'string') {
@@ -123,7 +123,7 @@ function cellNumberOrThreshold(v: ExcelJS.CellValue): number | null {
   return null;
 }
 
-function cellDate(v: ExcelJS.CellValue): Date | null {
+export function cellDate(v: ExcelJS.CellValue): Date | null {
   if (v instanceof Date) return v;
   if (typeof v === 'number') {
     // Excel serial date fallback (exceljs usually gives a Date directly for
@@ -633,6 +633,7 @@ export async function parseWeeklyWorkbook(buffer: ArrayBuffer, kpis: Kpi[], uplo
       }
       const actual = convertValue(raw, kpi);
       rows.push({
+        department_id: kpi.department_id,
         pillar_id: kpi.pillar_id,
         kpi_base_name: base,
         iso_year: isoYear,

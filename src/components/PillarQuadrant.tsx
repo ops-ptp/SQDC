@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { addDays, format, parseISO, startOfMonth, getDaysInMonth, startOfWeek, subWeeks, subDays, getISOWeek, getISOWeekYear } from 'date-fns';
-import { fetchActions, fetchCategorizedEntriesForKpiIds, fetchCustomParetosForPillar, fetchEntriesForKpi, fetchEntriesForKpisOnDate, fetchKpiDailyTargetsForDate, fetchReasonsForKpi, fetchWeeklyEntriesForKpiBase, fetchWeeklyEntriesForPillar, type CategorizedEntryRow, type CustomPareto } from '../lib/data';
+import { fetchActions, fetchCategorizedEntriesForKpiIds, fetchCustomParetosForPillar, fetchEntriesForKpi, fetchEntriesForKpis, fetchEntriesForKpisOnDate, fetchKpiDailyTargetsForDate, fetchReasonsForKpi, fetchWeeklyEntriesForKpiBase, fetchWeeklyEntriesForPillar, type CategorizedEntryRow, type CustomPareto } from '../lib/data';
 import { applyPivotFilter, computeChartData, computeCrossTab, pivotFieldLabel } from '../lib/pivot';
-import { WEEKLY_HEADER_TO_BASE } from '../lib/weeklyKpis';
-
-const WEEKLY_TRACKED_BASE_NAMES = new Set(Object.values(WEEKLY_HEADER_TO_BASE));
+import { rollUpWeekly } from '../lib/weeklyRollup';
 import { useEmployee } from '../context/EmployeeContext';
-import { baseNameOf, metTarget, PILLAR_COLORS, round2, type ActionItem, type DailyEntry, type Kpi, type Pillar, type PerformanceStatus, type WeeklyEntry } from '../types';
+import { useDepartment, useDeptPath } from '../context/DepartmentContext';
+import { baseNameOf, metTarget, PILLAR_COLORS, round2, weeklyFromUpload, type ActionItem, type DailyEntry, type Kpi, type Pillar, type PerformanceStatus, type WeeklyEntry } from '../types';
 import KpiRunChart, { type RunPoint } from './KpiRunChart';
 import ParetoChart, { type ParetoDatum } from './ParetoChart';
 import CategoryPareto from './CategoryPareto';
@@ -150,14 +149,21 @@ export default function PillarQuadrant({
 }: Props) {
   const navigate = useNavigate();
   const { employee } = useEmployee();
+  const department = useDepartment();
+  const deptPath = useDeptPath();
+  // Operations' weekly figures come from its Weekly workbook upload; every
+  // other department's are rolled up from its own daily values.
+  const weeklyUploaded = weeklyFromUpload(department);
   const colors = PILLAR_COLORS[pillar.code] ?? PILLAR_COLORS.S;
   // Daily view respects "Visible" (kpis.active) from KPI Management, same
-  // as always. Weekly view deliberately does NOT — it always shows exactly
-  // the 7 KPIs the Weekly workbook tracks, regardless of whether any of
-  // them happen to be hidden on the Daily board; "Visible" is a Daily-only
-  // concept, not something that should also hide a KPI's weekly rollup.
+  // as always. Weekly view deliberately does NOT — it shows the KPIs ticked
+  // "Weekly view" in KPI Management (for Operations, the 7 its Weekly
+  // workbook tracks) regardless of whether any of them happen to be hidden
+  // on the Daily board; "Visible" is a Daily-only concept, not something
+  // that should also hide a KPI's weekly rollup.
   const groups = useMemo(() => {
-    const relevant = granularity === 'weekly' ? kpis.filter((k) => WEEKLY_TRACKED_BASE_NAMES.has(baseNameOf(k.name))) : kpis.filter((k) => k.active);
+    const weeklyBases = new Set(kpis.filter((k) => k.track_weekly).map((k) => baseNameOf(k.name)));
+    const relevant = granularity === 'weekly' ? kpis.filter((k) => weeklyBases.has(baseNameOf(k.name))) : kpis.filter((k) => k.active);
     return buildGroups(relevant);
   }, [kpis, granularity]);
   const [selectedKey, setSelectedKey] = useState<string>(groups[0]?.key ?? '');
@@ -234,17 +240,17 @@ export default function PillarQuadrant({
 
   // Actions for this pillar — independent of which KPI pill is selected.
   useEffect(() => {
-    fetchActions({ pillarId: pillar.id }).then(setActions);
-  }, [pillar.id]);
+    fetchActions(department.id, { pillarId: pillar.id }).then(setActions);
+  }, [department.id, pillar.id]);
 
   // Custom Paretos saved from Insights — fetched once per pillar. Whether
   // one applies to the currently-selected KPI is worked out below
   // (customPareto), not here.
   useEffect(() => {
-    fetchCustomParetosForPillar(pillar.id)
+    fetchCustomParetosForPillar(department.id, pillar.id)
       .then(setCustomParetos)
       .catch(() => setCustomParetos([]));
-  }, [pillar.id]);
+  }, [department.id, pillar.id]);
 
   const customPareto = customParetos.find((p) => p.kpi_base_name === selectedGroup?.key) ?? null;
 
@@ -307,31 +313,42 @@ export default function PillarQuadrant({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedGroup?.key, granularity, referenceDateStr, paretoPeriod.from]);
 
-  // Weekly view's headline + Trend chart source, for the 7 KPIs the Weekly
-  // upload actually tracks — read directly from weekly_entries, not
-  // aggregated from daily_entries. This is a deliberate change from the
-  // original design (which aggregated daily data first and only fell back
-  // to weekly_entries for a week with zero daily rows): since the Weekly
-  // toggle now shows ONLY these 7 KPIs (see WEEKLY_HEADER_TO_BASE-driven
-  // filtering in Dashboard.tsx), their weekly figures should always come
-  // from the authoritative weekly workbook, not a daily average that may
-  // not even cover the same date range the weekly file does.
+  // Weekly view's headline + Trend chart source. For Operations (OPS
+  // workbook format) this reads directly from weekly_entries, not
+  // aggregated from daily_entries: the Weekly toggle shows only the KPIs its
+  // Weekly workbook tracks, so their weekly figures should always come from
+  // that authoritative workbook, not a daily average that may not even
+  // cover the same date range the weekly file does.
+  //
+  // Departments without a Weekly workbook get the same shape rolled up from
+  // their daily values instead (lib/weeklyRollup.ts) — fetched far enough
+  // back to cover the 8-week trend.
+  const trendSince = format(subWeeks(startOfWeek(parseISO(paretoPeriod.to), { weekStartsOn: 1 }), 7), 'yyyy-MM-dd');
   useEffect(() => {
     if (granularity !== 'weekly' || !selectedGroup) {
       setWeeklySource([]);
       return;
     }
-    fetchWeeklyEntriesForKpiBase(pillar.id, selectedGroup.label)
-      .then(setWeeklySource)
-      .catch(() => setWeeklySource([]));
-  }, [granularity, selectedGroup?.key, pillar.id, selectedGroup?.label]);
+    const source = weeklyUploaded
+      ? fetchWeeklyEntriesForKpiBase(department.id, pillar.id, selectedGroup.label)
+      : fetchEntriesForKpis(primaryKpiIds(selectedGroup), trendSince).then((entries) =>
+          rollUpWeekly(kpis, entries).filter((w) => w.kpi_base_name === selectedGroup.label)
+        );
+    source.then(setWeeklySource).catch(() => setWeeklySource([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [granularity, selectedGroup?.key, pillar.id, selectedGroup?.label, weeklyUploaded, trendSince]);
 
   useEffect(() => {
     if (granularity !== 'weekly') return;
-    fetchWeeklyEntriesForPillar(pillar.id)
-      .then(setPillarWeekly)
-      .catch(() => setPillarWeekly([]));
-  }, [granularity, pillar.id]);
+    const source = weeklyUploaded
+      ? fetchWeeklyEntriesForPillar(department.id, pillar.id)
+      : fetchEntriesForKpis(
+          kpis.filter((k) => !k.is_secondary).map((k) => k.id),
+          paretoPeriod.from
+        ).then((entries) => rollUpWeekly(kpis, entries));
+    source.then(setPillarWeekly).catch(() => setPillarWeekly([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [granularity, pillar.id, weeklyUploaded, kpis, paretoPeriod.from]);
 
   // The ISO weeks in the period picked by the board's 1 week / 2 weeks
   // selector — the WHOLE Weekly view (pills, headline, trend, Pareto)
@@ -622,7 +639,7 @@ export default function PillarQuadrant({
         disabled={!clickable}
         onClick={() =>
           clickable &&
-          navigate('/entry', {
+          navigate(deptPath('entry'), {
             state: { pillarId: pillar.id, label: selectedGroup!.label, date: referenceDateStr },
           })
         }

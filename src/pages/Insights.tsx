@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { format, subDays } from 'date-fns';
+import { useDepartment } from '../context/DepartmentContext';
 import { useEmployee } from '../context/EmployeeContext';
 import {
   bulkUpdateAiCategories,
@@ -272,6 +273,7 @@ function ImportSection({ onImported }: { onImported: () => void }) {
 
 function PivotSection({ pillarId, kpiGroup, refreshKey }: { pillarId: string | null; kpiGroup: KpiGroupOption | null; refreshKey: number }) {
   const { employee } = useEmployee();
+  const department = useDepartment();
   const [entries, setEntries] = useState<CategorizedEntryRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -307,7 +309,7 @@ function PivotSection({ pillarId, kpiGroup, refreshKey }: { pillarId: string | n
       setExisting(null);
       return;
     }
-    fetchCustomParetosForPillar(pillarId)
+    fetchCustomParetosForPillar(department.id, pillarId)
       .then((all) => {
         const match = all.find((p) => p.kpi_base_name === kpiGroup.key) ?? null;
         setExisting(match);
@@ -368,6 +370,7 @@ function PivotSection({ pillarId, kpiGroup, refreshKey }: { pillarId: string | n
     setSaveState({ busy: true, message: null, error: null });
     try {
       const saved = await saveCustomPareto({
+        department_id: department.id,
         pillar_id: pillarId,
         kpi_base_name: kpiGroup.key,
         title: title.trim() || defaultTitle(),
@@ -509,6 +512,7 @@ function PivotSection({ pillarId, kpiGroup, refreshKey }: { pillarId: string | n
 // ---------------------------------------------------------------------------
 
 export default function Insights() {
+  const department = useDepartment();
   const [pillars, setPillars] = useState<Pillar[]>([]);
   const [kpis, setKpis] = useState<Kpi[]>([]);
   const [loading, setLoading] = useState(true);
@@ -518,7 +522,7 @@ export default function Insights() {
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
-    Promise.all([fetchPillars(), fetchKpis()])
+    Promise.all([fetchPillars(), fetchKpis(department.id)])
       .then(([p, k]) => {
         setPillars(p);
         setKpis(k);
@@ -526,7 +530,7 @@ export default function Insights() {
       })
       .catch((e) => setError(errorMessage(e, 'Failed to load')))
       .finally(() => setLoading(false));
-  }, []);
+  }, [department.id]);
 
   // Excludes secondary/"(Old)"-calculation KPIs (e.g. Mainliner Load GMPH's
   // old formula) the same way DataEntry's buildGroups does — otherwise

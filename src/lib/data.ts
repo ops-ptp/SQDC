@@ -1,6 +1,21 @@
 import { supabase } from './supabaseClient';
-import { metTarget } from '../types';
-import type { ActionItem, DailyEntry, Employee, Kpi, KpiWithPillar, LeadingEntry, Pillar, Reason, WeeklyEntry } from '../types';
+import { baseNameOf, metTarget } from '../types';
+import type {
+  ActionItem,
+  DailyEntry,
+  Department,
+  DepartmentMember,
+  DepartmentRole,
+  Employee,
+  EntryMode,
+  Kpi,
+  KpiWithPillar,
+  LeadingEntry,
+  Pillar,
+  Reason,
+  UploadFormat,
+  WeeklyEntry,
+} from '../types';
 
 export async function fetchPillars(): Promise<Pillar[]> {
   const { data, error } = await supabase.from('pillars').select('*').order('sort_order');
@@ -9,10 +24,11 @@ export async function fetchPillars(): Promise<Pillar[]> {
 }
 
 /** Lagging KPIs only — the ones tracked daily with target/actual on the main Board. */
-export async function fetchKpis(): Promise<Kpi[]> {
+export async function fetchKpis(departmentId: string): Promise<Kpi[]> {
   const { data, error } = await supabase
     .from('kpis')
     .select('*')
+    .eq('department_id', departmentId)
     .eq('active', true)
     .eq('is_leading', false)
     .order('sort_order');
@@ -21,10 +37,11 @@ export async function fetchKpis(): Promise<Kpi[]> {
 }
 
 /** Leading (process) KPIs only — these are the ones forecastable on the Forward Looking board. */
-export async function fetchLeadingKpis(): Promise<KpiWithPillar[]> {
+export async function fetchLeadingKpis(departmentId: string): Promise<KpiWithPillar[]> {
   const { data, error } = await supabase
     .from('kpis')
     .select('*, pillar:pillars(code, name)')
+    .eq('department_id', departmentId)
     .eq('active', true)
     .eq('is_leading', true)
     .order('sort_order');
@@ -60,6 +77,16 @@ export async function fetchEntriesForKpi(kpiId: string, sinceDate: string): Prom
     .eq('kpi_id', kpiId)
     .gte('entry_date', sinceDate)
     .order('entry_date');
+  if (error) throw error;
+  return data as DailyEntry[];
+}
+
+/** Every entry for a set of KPIs from `sinceDate` on — the Weekly view's
+ * source for departments whose weekly figures are rolled up from daily
+ * values (see lib/weeklyRollup.ts). */
+export async function fetchEntriesForKpis(kpiIds: string[], sinceDate: string): Promise<DailyEntry[]> {
+  if (kpiIds.length === 0) return [];
+  const { data, error } = await supabase.from('daily_entries').select('*').in('kpi_id', kpiIds).gte('entry_date', sinceDate).order('entry_date');
   if (error) throw error;
   return data as DailyEntry[];
 }
@@ -121,8 +148,8 @@ export async function upsertDailyEntry(input: UpsertEntryInput): Promise<DailyEn
  * only — the Weekly board always shows its 7 tracked KPIs regardless — so
  * filtering to active KPIs here silently dropped hidden ones' weekly figures
  * (e.g. Delay – Waiting for CHE, QC Preventive Maintenance & Service). */
-export async function fetchKpisForUpload(): Promise<Kpi[]> {
-  const { data, error } = await supabase.from('kpis').select('*').eq('is_leading', false).order('sort_order');
+export async function fetchKpisForUpload(departmentId: string): Promise<Kpi[]> {
+  const { data, error } = await supabase.from('kpis').select('*').eq('department_id', departmentId).eq('is_leading', false).order('sort_order');
   if (error) throw error;
   return data as Kpi[];
 }
@@ -231,10 +258,11 @@ export async function fetchKpiDailyTargetsForDate(kpiIds: string[], date: string
 /** Every KPI regardless of active/leading status — the full catalog for the
  * Admin KPI Management screen (unlike fetchKpis/fetchLeadingKpis, which
  * only return active ones for the live board). */
-export async function fetchAllKpisAdmin(): Promise<KpiWithPillar[]> {
+export async function fetchAllKpisAdmin(departmentId: string): Promise<KpiWithPillar[]> {
   const { data, error } = await supabase
     .from('kpis')
     .select('*, pillar:pillars(code, name)')
+    .eq('department_id', departmentId)
     .order('is_leading')
     .order('sort_order');
   if (error) throw error;
@@ -272,6 +300,7 @@ export async function deleteKpis(ids: string[]): Promise<void> {
 }
 
 export interface NewKpiInput {
+  department_id: string;
   pillar_id: string;
   name: string;
   unit: string;
@@ -279,6 +308,9 @@ export interface NewKpiInput {
   target: number;
   is_leading: boolean;
   sort_order: number;
+  manual_entry?: boolean;
+  track_weekly?: boolean;
+  weekly_agg?: 'avg' | 'sum';
 }
 
 /** Auto-creates a catalog row for a brand-new spreadsheet column detected
@@ -294,6 +326,7 @@ export async function createKpi(input: NewKpiInput): Promise<Kpi> {
 }
 
 export interface UploadWeeklyRow {
+  department_id: string;
   pillar_id: string;
   kpi_base_name: string;
   iso_year: number;
@@ -311,7 +344,7 @@ export async function bulkUpsertWeeklyEntriesFromUpload(rows: UploadWeeklyRow[])
     const chunk = rows.slice(i, i + CHUNK);
     const { error } = await supabase
       .from('weekly_entries')
-      .upsert(chunk, { onConflict: 'pillar_id,kpi_base_name,iso_year,iso_week' });
+      .upsert(chunk, { onConflict: 'department_id,pillar_id,kpi_base_name,iso_year,iso_week' });
     if (error) throw error;
     written += chunk.length;
   }
@@ -322,10 +355,11 @@ export async function bulkUpsertWeeklyEntriesFromUpload(rows: UploadWeeklyRow[])
  * board's fallback source for ISO weeks with no live daily_entries. */
 /** Every uploaded weekly figure for one pillar (all its KPIs) — lets the
  * Weekly board colour every KPI pill from its weekly result in one query. */
-export async function fetchWeeklyEntriesForPillar(pillarId: string): Promise<WeeklyEntry[]> {
+export async function fetchWeeklyEntriesForPillar(departmentId: string, pillarId: string): Promise<WeeklyEntry[]> {
   const { data, error } = await supabase
     .from('weekly_entries')
     .select('*')
+    .eq('department_id', departmentId)
     .eq('pillar_id', pillarId)
     .order('iso_year')
     .order('iso_week');
@@ -333,10 +367,11 @@ export async function fetchWeeklyEntriesForPillar(pillarId: string): Promise<Wee
   return data as WeeklyEntry[];
 }
 
-export async function fetchWeeklyEntriesForKpiBase(pillarId: string, kpiBaseName: string): Promise<WeeklyEntry[]> {
+export async function fetchWeeklyEntriesForKpiBase(departmentId: string, pillarId: string, kpiBaseName: string): Promise<WeeklyEntry[]> {
   const { data, error } = await supabase
     .from('weekly_entries')
     .select('*')
+    .eq('department_id', departmentId)
     .eq('pillar_id', pillarId)
     .eq('kpi_base_name', kpiBaseName)
     .order('iso_year')
@@ -345,8 +380,8 @@ export async function fetchWeeklyEntriesForKpiBase(pillarId: string, kpiBaseName
   return data as WeeklyEntry[];
 }
 
-export async function fetchActions(filters?: { pillarId?: string; kpiId?: string }): Promise<ActionItem[]> {
-  let query = supabase.from('actions').select('*').order('deadline', { ascending: true, nullsFirst: false });
+export async function fetchActions(departmentId: string, filters?: { pillarId?: string; kpiId?: string }): Promise<ActionItem[]> {
+  let query = supabase.from('actions').select('*').eq('department_id', departmentId).order('deadline', { ascending: true, nullsFirst: false });
   if (filters?.pillarId) query = query.eq('pillar_id', filters.pillarId);
   if (filters?.kpiId) query = query.eq('kpi_id', filters.kpiId);
   const { data, error } = await query;
@@ -355,6 +390,7 @@ export async function fetchActions(filters?: { pillarId?: string; kpiId?: string
 }
 
 export interface NewActionInput {
+  department_id: string;
   pillar_id: string;
   kpi_id: string | null;
   related_issue: string;
@@ -395,42 +431,29 @@ export async function setActionStatus(id: string, status: ActionItem['status']):
   if (error) throw error;
 }
 
-export async function fetchEmployees(): Promise<Employee[]> {
-  const { data, error } = await supabase.from('employees').select('*').eq('active', true).order('name');
-  if (error) throw error;
-  return data as Employee[];
-}
+// ---------------------------------------------------------------------------
+// Employees — one global roster (an Employee ID is a person, whichever
+// departments they belong to). Department membership and roles live in
+// department_members; site admin is a flag on the employee.
+// ---------------------------------------------------------------------------
 
-/** Admin's Employee Management screen needs inactive employees too (to
- * reactivate someone, or just see who's been deactivated) — everywhere else
- * in the app (login, KPI assignment) only ever wants active ones, hence the
- * separate `fetchEmployees()` above staying active-only. */
+/** Everyone, active or not, for Site Admin's employee directory and the
+ * department member pickers. */
 export async function fetchAllEmployeesAdmin(): Promise<Employee[]> {
   const { data, error } = await supabase.from('employees').select('*').order('name');
   if (error) throw error;
   return data as Employee[];
 }
 
-export interface EmployeeAdminUpdate {
-  id: string;
-  active: boolean;
-  is_admin: boolean;
-}
-
-/** Saves Employee Management's pending Active/Admin toggle changes — same
- * one-row-at-a-time update loop as saveKpiAdminUpdates, for the same reason
- * (a handful of rows at most, no batch endpoint needed). */
-export async function saveEmployeeAdminUpdates(updates: EmployeeAdminUpdate[]): Promise<void> {
-  for (const u of updates) {
-    const { error } = await supabase.from('employees').update({ active: u.active, is_admin: u.is_admin }).eq('id', u.id);
-    if (error) throw error;
-  }
+export async function findEmployeeByCode(code: string): Promise<Employee | null> {
+  const { data, error } = await supabase.from('employees').select('*').eq('employee_code', code).maybeSingle();
+  if (error) throw error;
+  return (data as Employee) ?? null;
 }
 
 export interface NewEmployeeInput {
   employee_code: string;
   name: string;
-  is_admin: boolean;
 }
 
 export async function createEmployee(input: NewEmployeeInput): Promise<Employee> {
@@ -445,14 +468,193 @@ export interface EmployeeIdentityUpdate {
   name: string;
 }
 
-/** Employee ID and name are edited separately from the Active/Admin toggle
- * table above (a dedicated popup, not an inline cell) — both feed straight
- * into someone's login credential, so they get their own explicit save
- * rather than sitting in the same "unsaved changes" batch as everything
- * else and being easy to change by accident. */
+/** Employee ID and name double as the login credential, so they're edited
+ * through their own explicit popup rather than inline. */
 export async function updateEmployeeIdentity(input: EmployeeIdentityUpdate): Promise<void> {
   const { error } = await supabase.from('employees').update({ employee_code: input.employee_code, name: input.name }).eq('id', input.id);
   if (error) throw error;
+}
+
+export interface EmployeeSiteUpdate {
+  id: string;
+  active: boolean;
+  is_site_admin: boolean;
+}
+
+export async function saveEmployeeSiteUpdates(updates: EmployeeSiteUpdate[]): Promise<void> {
+  for (const u of updates) {
+    const { error } = await supabase.from('employees').update({ active: u.active, is_site_admin: u.is_site_admin }).eq('id', u.id);
+    if (error) throw error;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Departments + membership
+// ---------------------------------------------------------------------------
+
+/** Every department, archived ones included (callers filter on `active`). */
+export async function fetchDepartments(): Promise<Department[]> {
+  const { data, error } = await supabase.from('departments').select('*').order('sort_order').order('name');
+  if (error) throw error;
+  return data as Department[];
+}
+
+export interface NewDepartmentInput {
+  slug: string;
+  name: string;
+  entry_mode: EntryMode;
+  upload_format: UploadFormat;
+  sort_order: number;
+}
+
+export async function createDepartment(input: NewDepartmentInput): Promise<Department> {
+  const { data, error } = await supabase.from('departments').insert(input).select('*').single();
+  if (error) {
+    if (error.code === '23505') throw new Error(`The web address "${input.slug}" is already used by another department.`);
+    throw error;
+  }
+  return data as Department;
+}
+
+export type DepartmentUpdate = Partial<Pick<Department, 'slug' | 'name' | 'active' | 'entry_mode' | 'upload_format' | 'sort_order'>>;
+
+export async function updateDepartment(id: string, patch: DepartmentUpdate): Promise<Department> {
+  const { data, error } = await supabase.from('departments').update(patch).eq('id', id).select('*').single();
+  if (error) {
+    if (error.code === '23505') throw new Error(`The web address "${patch.slug}" is already used by another department.`);
+    throw error;
+  }
+  return data as Department;
+}
+
+/** Every membership row — small (people x departments), used for the
+ * logged-in person's own roles and for Site Admin's overview. */
+export async function fetchMemberships(filter?: { employeeId?: string; departmentId?: string }): Promise<DepartmentMember[]> {
+  let q = supabase.from('department_members').select('id, department_id, employee_id, role');
+  if (filter?.employeeId) q = q.eq('employee_id', filter.employeeId);
+  if (filter?.departmentId) q = q.eq('department_id', filter.departmentId);
+  const { data, error } = await q;
+  if (error) throw error;
+  return data as DepartmentMember[];
+}
+
+/** Adds someone to a department, or changes their role if they're already
+ * in it. */
+export async function upsertDepartmentMember(departmentId: string, employeeId: string, role: DepartmentRole): Promise<void> {
+  const { error } = await supabase
+    .from('department_members')
+    .upsert({ department_id: departmentId, employee_id: employeeId, role }, { onConflict: 'department_id,employee_id' });
+  if (error) throw error;
+}
+
+export async function removeDepartmentMember(id: string): Promise<void> {
+  const { error } = await supabase.from('department_members').delete().eq('id', id);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// KPI catalog editing (department admin)
+// ---------------------------------------------------------------------------
+
+export type KpiSettingsPatch = Partial<
+  Pick<Kpi, 'unit' | 'target' | 'is_higher_better' | 'active' | 'manual_entry' | 'track_weekly' | 'weekly_agg' | 'info'>
+>;
+
+/** Applies the same settings to every row of one logical KPI (its Day,
+ * Night and Old variants). */
+export async function updateKpis(ids: string[], patch: KpiSettingsPatch): Promise<void> {
+  if (ids.length === 0) return;
+  const { error } = await supabase.from('kpis').update(patch).in('id', ids);
+  if (error) throw error;
+}
+
+/** Renames and/or re-pillars one logical KPI in a single transaction (the
+ * update_kpi_group database function), carrying along everything keyed by
+ * pillar + KPI name: weekly figures, saved Paretos, category pick-lists. */
+export async function renameKpiGroup(departmentId: string, pillarId: string, baseName: string, newPillarId: string, newBaseName: string): Promise<void> {
+  const { error } = await supabase.rpc('update_kpi_group', {
+    p_department_id: departmentId,
+    p_pillar_id: pillarId,
+    p_base: baseName,
+    p_new_pillar_id: newPillarId,
+    p_new_base: newBaseName,
+  });
+  if (error) throw error;
+}
+
+/** Logical KPIs (Day/Night folded) per department, visible or not. */
+export async function fetchKpiCountsByDepartment(): Promise<Map<string, number>> {
+  const { data, error } = await supabase.from('kpis').select('department_id, name, is_secondary');
+  if (error) throw error;
+  const seen = new Set<string>();
+  const out = new Map<string, number>();
+  for (const k of data as { department_id: string; name: string; is_secondary: boolean }[]) {
+    if (k.is_secondary) continue;
+    const key = `${k.department_id}|${baseNameOf(k.name)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.set(k.department_id, (out.get(k.department_id) ?? 0) + 1);
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// All-boards rollup — one line of pass/fail counts per department for a day
+// ---------------------------------------------------------------------------
+
+export interface BoardRollup {
+  kpiCount: number;
+  met: number;
+  missed: number;
+  noData: number;
+}
+
+/** Per department: how many of its visible Board KPIs (Day/Night folded
+ * into one, like the board's own pills) met, missed, or have no figure for
+ * `date`. A KPI counts as missed if any shift missed — same rule as the
+ * board's pill colours. Pass/fail is recomputed live from the KPI's current
+ * direction, never the stored met_target snapshot. */
+export async function fetchBoardRollups(date: string): Promise<Map<string, BoardRollup>> {
+  const { data: kpiData, error: kErr } = await supabase
+    .from('kpis')
+    .select('id, department_id, name, is_higher_better')
+    .eq('active', true)
+    .eq('is_leading', false)
+    .eq('is_secondary', false);
+  if (kErr) throw kErr;
+  const kpis = kpiData as Pick<Kpi, 'id' | 'department_id' | 'name' | 'is_higher_better'>[];
+  const entries: Pick<DailyEntry, 'kpi_id' | 'actual' | 'target'>[] = [];
+  const ids = kpis.map((k) => k.id);
+  for (let i = 0; i < ids.length; i += 150) {
+    const { data, error } = await supabase.from('daily_entries').select('kpi_id, actual, target').in('kpi_id', ids.slice(i, i + 150)).eq('entry_date', date);
+    if (error) throw error;
+    entries.push(...(data as Pick<DailyEntry, 'kpi_id' | 'actual' | 'target'>[]));
+  }
+  const entriesByKpi = new Map<string, Pick<DailyEntry, 'kpi_id' | 'actual' | 'target'>[]>();
+  for (const e of entries) entriesByKpi.set(e.kpi_id, [...(entriesByKpi.get(e.kpi_id) ?? []), e]);
+
+  // Fold Day/Night rows into one logical KPI per department.
+  const groups = new Map<string, { departmentId: string; status: 'met' | 'missed' | 'nodata' }>();
+  for (const k of kpis) {
+    const key = `${k.department_id}|${baseNameOf(k.name)}`;
+    const g = groups.get(key) ?? { departmentId: k.department_id, status: 'nodata' as const };
+    for (const e of entriesByKpi.get(k.id) ?? []) {
+      const ok = metTarget(k, e.target, e.actual);
+      if (!ok) g.status = 'missed';
+      else if (g.status === 'nodata') g.status = 'met';
+    }
+    groups.set(key, g);
+  }
+  const out = new Map<string, BoardRollup>();
+  for (const g of groups.values()) {
+    const r = out.get(g.departmentId) ?? { kpiCount: 0, met: 0, missed: 0, noData: 0 };
+    r.kpiCount++;
+    if (g.status === 'met') r.met++;
+    else if (g.status === 'missed') r.missed++;
+    else r.noData++;
+    out.set(g.departmentId, r);
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -643,6 +845,7 @@ export interface CustomPareto {
 }
 
 export interface CustomParetoInput {
+  department_id: string;
   pillar_id: string;
   kpi_base_name: string;
   title: string;
@@ -656,8 +859,8 @@ export interface CustomParetoInput {
 /** Every saved custom Pareto for a pillar, in one call — used by the Board,
  * which needs to check "does the currently-selected KPI have one of these"
  * without a fresh query on every KPI-pill click. */
-export async function fetchCustomParetosForPillar(pillarId: string): Promise<CustomPareto[]> {
-  const { data, error } = await supabase.from('custom_paretos').select('*').eq('pillar_id', pillarId);
+export async function fetchCustomParetosForPillar(departmentId: string, pillarId: string): Promise<CustomPareto[]> {
+  const { data, error } = await supabase.from('custom_paretos').select('*').eq('department_id', departmentId).eq('pillar_id', pillarId);
   if (error) throw error;
   return data as CustomPareto[];
 }
@@ -669,7 +872,7 @@ export async function fetchCustomParetosForPillar(pillarId: string): Promise<Cus
 export async function saveCustomPareto(input: CustomParetoInput): Promise<CustomPareto> {
   const { data, error } = await supabase
     .from('custom_paretos')
-    .upsert(input, { onConflict: 'pillar_id,kpi_base_name' })
+    .upsert(input, { onConflict: 'department_id,pillar_id,kpi_base_name' })
     .select('*')
     .single();
   if (error) throw error;

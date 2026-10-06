@@ -18,6 +18,7 @@ export { DEFAULT_DIMENSION, cleanLabel, computeParetoRows, orderedDimensions, ty
 
 export interface KpiCategory {
   id: string;
+  department_id?: string;
   pillar_id: string;
   kpi_base_name: string;
   dimension: string;
@@ -41,10 +42,11 @@ export interface TaggedEntryRow {
   entry: Pick<DailyEntry, 'id' | 'kpi_id' | 'entry_date' | 'actual' | 'target' | 'remarks'>;
 }
 
-export async function fetchKpiCategories(pillarId: string, kpiBaseName: string): Promise<KpiCategory[]> {
+export async function fetchKpiCategories(departmentId: string, pillarId: string, kpiBaseName: string): Promise<KpiCategory[]> {
   const { data, error } = await supabase
     .from('kpi_categories')
     .select('*')
+    .eq('department_id', departmentId)
     .eq('pillar_id', pillarId)
     .eq('kpi_base_name', kpiBaseName)
     .order('sort_order')
@@ -57,6 +59,7 @@ export async function fetchKpiCategories(pillarId: string, kpiBaseName: string):
  * exists (ignoring case), that existing label is returned instead, so a
  * new tag can never introduce another casing variant going forward. */
 export async function addKpiCategory(
+  departmentId: string,
   pillarId: string,
   kpiBaseName: string,
   dimension: string,
@@ -69,8 +72,8 @@ export async function addKpiCategory(
   const { error } = await supabase
     .from('kpi_categories')
     .upsert(
-      { pillar_id: pillarId, kpi_base_name: kpiBaseName, dimension, label, sort_order: 999 },
-      { onConflict: 'pillar_id,kpi_base_name,dimension,label', ignoreDuplicates: true }
+      { department_id: departmentId, pillar_id: pillarId, kpi_base_name: kpiBaseName, dimension, label, sort_order: 999 },
+      { onConflict: 'department_id,pillar_id,kpi_base_name,dimension,label', ignoreDuplicates: true }
     );
   if (error) throw error;
   return label;
@@ -154,12 +157,12 @@ export async function fetchEntriesLite(kpiIds: string[], from: string, to: strin
 const CHUNK = 400;
 
 export async function bulkAddKpiCategories(
-  rows: { pillar_id: string; kpi_base_name: string; dimension: string; label: string; sort_order: number }[]
+  rows: { department_id: string; pillar_id: string; kpi_base_name: string; dimension: string; label: string; sort_order: number }[]
 ): Promise<void> {
   for (let i = 0; i < rows.length; i += CHUNK) {
     const { error } = await supabase
       .from('kpi_categories')
-      .upsert(rows.slice(i, i + CHUNK), { onConflict: 'pillar_id,kpi_base_name,dimension,label', ignoreDuplicates: true });
+      .upsert(rows.slice(i, i + CHUNK), { onConflict: 'department_id,pillar_id,kpi_base_name,dimension,label', ignoreDuplicates: true });
     if (error) throw error;
   }
 }

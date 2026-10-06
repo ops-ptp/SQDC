@@ -9,6 +9,7 @@ import {
   type EntryCategory,
   type KpiCategory,
 } from '../lib/categories';
+import { useDepartment } from '../context/DepartmentContext';
 import { errorMessage } from '../types';
 import { Chip } from '@progress/kendo-react-buttons';
 import { AutoComplete } from '@progress/kendo-react-dropdowns';
@@ -38,6 +39,7 @@ interface Props {
  * board's Pareto drill-down. Typing a new category reuses an existing one
  * when it only differs by case, so the list can't grow new casing variants. */
 export default function CategoryPicker({ pillarId, kpiBaseName, entryId, employeeId, editable, onChange, color = '#2A544F' }: Props) {
+  const department = useDepartment();
   const [list, setList] = useState<KpiCategory[]>([]);
   const [tags, setTags] = useState<EntryCategory[]>([]);
   const [loading, setLoading] = useState(true);
@@ -49,7 +51,7 @@ export default function CategoryPicker({ pillarId, kpiBaseName, entryId, employe
     // Starts in the loading state; callers key this component by entry, so
     // a different shift always mounts a fresh instance.
     let cancelled = false;
-    Promise.all([fetchKpiCategories(pillarId, kpiBaseName), fetchEntryCategories([entryId])])
+    Promise.all([fetchKpiCategories(department.id, pillarId, kpiBaseName), fetchEntryCategories([entryId])])
       .then(([l, t]) => {
         if (cancelled) return;
         setList(l);
@@ -60,7 +62,7 @@ export default function CategoryPicker({ pillarId, kpiBaseName, entryId, employe
     return () => {
       cancelled = true;
     };
-  }, [pillarId, kpiBaseName, entryId]);
+  }, [department.id, pillarId, kpiBaseName, entryId]);
 
   // Dimensions come from the KPI's list AND from any tags already on this
   // entry, so a tag whose list item was removed still shows (and can be
@@ -98,7 +100,7 @@ export default function CategoryPicker({ pillarId, kpiBaseName, entryId, employe
     setBusy(`new|${dimension}`);
     setError(null);
     try {
-      const label = await addKpiCategory(pillarId, kpiBaseName, dimension, raw, list);
+      const label = await addKpiCategory(department.id, pillarId, kpiBaseName, dimension, raw, list);
       if (!list.some((c) => c.dimension === dimension && c.label === label)) {
         setList((prev) => [...prev, { id: `${dimension}|${label}`, pillar_id: pillarId, kpi_base_name: kpiBaseName, dimension, label, sort_order: 999 }]);
       }

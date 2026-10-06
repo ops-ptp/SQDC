@@ -10,11 +10,70 @@ export interface Employee {
   employee_code: string;
   name: string;
   active: boolean;
-  is_admin: boolean;
+  /** Superseded by department_members.role — kept in the DB for the old
+   * single-department app, never read by this one. */
+  is_admin?: boolean;
+  /** Site admins create/archive departments and appoint department admins,
+   * and can do everything a department admin can in every department. */
+  is_site_admin: boolean;
+}
+
+/** How a department's performance values get into the app:
+ *   upload — Excel upload; Enter page is remarks-only (except KPIs flagged
+ *            manual_entry)
+ *   manual — typed in the app; no upload
+ *   both   — either; a typed value is never overwritten by an upload */
+export type EntryMode = 'upload' | 'manual' | 'both';
+
+/** Which workbook a department's upload expects: the original OPS Daily/
+ * Weekly workbooks, or the per-department template the app generates. */
+export type UploadFormat = 'ops' | 'template';
+
+export interface Department {
+  id: string;
+  slug: string;
+  name: string;
+  active: boolean;
+  entry_mode: EntryMode;
+  upload_format: UploadFormat;
+  sort_order: number;
+  created_at: string;
+}
+
+export type DepartmentRole = 'admin' | 'member';
+
+export interface DepartmentMember {
+  id: string;
+  department_id: string;
+  employee_id: string;
+  role: DepartmentRole;
+}
+
+export const ENTRY_MODE_LABELS: Record<EntryMode, string> = {
+  upload: 'Excel upload',
+  manual: 'Typed in the app',
+  both: 'Excel upload or typed in the app',
+};
+
+/** Whether people type this KPI's Performance value in the Enter page
+ * (rather than it arriving by upload). */
+export function isManualKpi(department: Pick<Department, 'entry_mode'>, kpi: Pick<Kpi, 'manual_entry'>): boolean {
+  return department.entry_mode !== 'upload' || kpi.manual_entry;
+}
+
+export function departmentHasUpload(department: Pick<Department, 'entry_mode'>): boolean {
+  return department.entry_mode !== 'manual';
+}
+
+/** Weekly figures come from the OPS Weekly workbook for Operations; every
+ * other department's Weekly view is rolled up from its daily values. */
+export function weeklyFromUpload(department: Pick<Department, 'upload_format'>): boolean {
+  return department.upload_format === 'ops';
 }
 
 export interface Kpi {
   id: string;
+  department_id: string;
   pillar_id: string;
   name: string;
   unit: string;
@@ -34,6 +93,11 @@ export interface Kpi {
    * current figure) — never itself selectable in Enter Remarks or the
    * Action Log's KPI picker, and never counted in "needs a remark". */
   is_secondary: boolean;
+  /** Shown on the Board's Weekly view. */
+  track_weekly: boolean;
+  /** How daily values roll up into a weekly figure when the department has
+   * no weekly workbook: average (rates, %, productivity) or sum (counts). */
+  weekly_agg: 'avg' | 'sum';
 }
 
 export interface KpiWithPillar extends Kpi {
@@ -80,6 +144,7 @@ export interface DailyEntry {
  * daily_entries to aggregate from. */
 export interface WeeklyEntry {
   id: string;
+  department_id?: string;
   pillar_id: string;
   kpi_base_name: string;
   iso_year: number;
@@ -94,6 +159,7 @@ export interface WeeklyEntry {
 
 export interface ActionItem {
   id: string;
+  department_id: string;
   pillar_id: string;
   kpi_id: string | null;
   related_issue: string;

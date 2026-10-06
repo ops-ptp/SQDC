@@ -16,6 +16,29 @@ optionally pin a live-updating breakdown of it as an extra chart on the Board it
 
 Stack: React + TypeScript + Vite, Supabase (Postgres + REST), deployed on Vercel.
 
+**Multi-department.** Every department has its own board at `/d/<web address>` (e.g.
+`/d/ops` for Operations), with its own KPIs, team, uploads, actions and Insights. The
+navbar title is a department switcher; **All boards** (`/boards`) lists every department
+with yesterday's met/missed count. Three roles, all managed in the app:
+
+| Role | Can do |
+|---|---|
+| **Site admin** | Site Admin page: create/archive departments and name each one's first department admin; company-wide employee roster; make other site admins. Can also act as admin in every department. |
+| **Department admin** | Their department's Admin page: KPIs (add, rename, re-pillar, target, direction, Day/Night, Weekly view, hide, delete), Members (add/remove, roles), Uploads, Settings (how data gets in). Also Insights and Action Log status. |
+| **Member** | Enter Data / Enter Remarks for their department. |
+| Anyone (no login) | View any board, Next 24 Hours and Action Log. |
+
+Each department picks how data gets in (Admin → Settings): **typed in the app**, **Excel
+upload**, or **both** (a value typed in the app is never overwritten by an upload). Excel
+upload uses either a **template the app generates from the department's own KPI list**
+(Admin → Uploads → Download template) or — for Operations — the original OPS SQDC
+Daily/Weekly workbooks. Operations' Weekly view reads its Weekly workbook; every other
+department's Weekly view rolls up its daily values (average or total, set per KPI).
+
+The old single-board links (`/`, `/actions`, `/entry`, …) still work: they open the same
+page of the last department that screen viewed, else Operations — so existing bookmarks
+and TV screens keep showing the Operations board.
+
 ---
 
 ## Start here if you're new to this project
@@ -42,21 +65,28 @@ Owner or Admin access. This matters more than anything else in this document.
 Everything in the app's own UI (Admin tab, Enter Remarks, Action Log, Insights) is meant
 to be operated with no code or SQL involved. Day to day, that covers:
 
+- Creating a new department and naming its admin (Site Admin)
+- Setting up a department's KPIs from scratch — name, pillar, unit, target, direction,
+  Day/Night split, Weekly view — and renaming or moving one to another pillar later
+  (Admin → KPIs)
+- Adding people to a department and choosing who's admin (Admin → Members)
+- Choosing how a department's data gets in, and downloading its upload template
+  (Admin → Settings / Uploads)
 - Uploading the Daily/Weekly Excel files
 - Reviewing a newly auto-created KPI's pillar guess and pass/fail direction (see below)
-- Hiding/showing a KPI, or deleting one entirely, in KPI Management
-- Adding a new employee, editing an ID/name, toggling Admin, or deactivating someone, in
-  Employee Management
-- Entering remarks, managing the Action Log
+- Hiding/showing a KPI, or deleting one entirely
+- Adding a new employee, editing an ID/name, making someone a site admin, or
+  deactivating a leaver (Site Admin → Employees)
+- Entering data and remarks, managing the Action Log
 - Running an Insights export, AI categorize, re-import, pivot cycle, and pinning a chart
   to the Board
 
 ### What still needs someone comfortable with SQL or code
 
 - Adding/editing pillars or reasons
-- Bootstrapping the very first Admin (nobody can open Admin's Employee Management to grant
-  it via checkbox until at least one account already has is_admin - see below)
-- Correcting a KPI's pillar or unit if an upload's auto-guess got it wrong
+- Bootstrapping the very first site admin (nobody can open Site Admin to grant it until
+  at least one account already is one): `update employees set is_site_admin = true where
+  employee_code = '0000XX';`
 - Anything that's a genuine bug, or a new feature
 
 If this comes up with no one in-house available: this is a standard React + Supabase +
@@ -107,10 +137,10 @@ new KPI before you confirm, which is the best moment to catch a pillar mistake.
    re-run in full at any time (every statement is guarded).
 3. Project Settings, API - copy the Project URL and anon public key.
 
-To bootstrap the very first Admin (before anyone can log into the not-yet-deployed app to
-use Employee Management): update employees set is_admin = true where employee_code =
-'0000XX'; — once the app is deployed and that person can log in, every further hire, ID/
-name edit, or admin promotion goes through Admin > Employee Management instead.
+To bootstrap the very first site admin (before anyone can log into the not-yet-deployed
+app to use Site Admin): update employees set is_site_admin = true where employee_code =
+'0000XX'; — once the app is deployed and that person can log in, every further
+department, hire, ID/name edit, or admin promotion goes through the app instead.
 
 ## 2. Configure the app
 
@@ -171,7 +201,12 @@ actions: the action list. action_no is a friendly number. Overdue is derived, no
 stored.
 leading_entries: Next 24 Hours values, one row per KPI per day.
 kpi_daily_targets: per-day/shift target from the Target sheet, falls back to kpis.target.
-employees: is_admin gates Admin/Insights. employee_no is a friendly number.
+departments: one row per department board (slug = its /d/<slug> address, entry_mode,
+upload_format). department_members: employee x department x role (admin/member).
+employees: one company-wide roster; is_site_admin marks site admins (employees.is_admin
+is the pre-department flag, no longer read). kpis, actions, weekly_entries,
+custom_paretos and kpi_categories carry department_id; everything keyed by kpi_id
+inherits its KPI's department.
 custom_paretos: a saved Insights pivot chart pinned to the Board - stores the
 configuration, not a snapshot, so it stays live as more entries get categorized.
 employees_role_backup: backup of the deprecated employees.role column's data.
@@ -215,7 +250,9 @@ by default, or whichever day you click in the letter grid.
 
 ## Admin Excel upload
 
-The Admin tab (is_admin only) has two upload widgets. Parsing logic lives in
+For departments using the OPS workbook format (Operations), the Admin → Uploads tab has
+these upload widgets. Other departments get the generated template instead
+(src/lib/templateUpload.ts). Parsing logic lives in
 src/lib/excelUpload.ts.
 
 The Daily upload reads the file first and shows a preview of exactly what would change -
@@ -302,33 +339,42 @@ on the Board than in Insights, check there first.
 
 ## App structure
 
+- Every department page lives under /d/:slug (DepartmentLayout in
+  src/context/DepartmentContext.tsx provides the current department via useDepartment()).
+  Below, paths are relative to it.
+- /boards All boards, /site-admin Site Admin (site admins only).
 - / Board: 4-quadrant view, no login required. Reviews yesterday by default, or a past
   month/specific date via the controls above. Quadrant sections align row by row across
   all 4 pillars via CSS subgrid - the section count per quadrant must match the
   subgrid's row count in index.css or sections overlap. The custom-Pareto slot is always
   rendered, even empty, for exactly this reason.
-- /forward-looking Next 24 Hours: read-only, no login required.
-- /admin: gated by is_admin. Excel upload, KPI Management, Employee Management.
-- /insights: also gated by is_admin.
-- /entry Enter Remarks: requires an Employee ID, any logged-in employee can update any
-  KPI. Pass/fail and "needs a remark" are computed live from current direction, not read
+- /next-24-hours Next 24 Hours: no login required to view; in departments that type
+  their data in the app, members update today's figure on each card.
+- /admin: department admins (and site admins). Uploads, KPIs, Members, Settings
+  (src/pages/admin/).
+- /insights: department admins.
+- /entry Enter Data / Enter Remarks: requires an Employee ID that's a member of the
+  department. Pass/fail and "needs a remark" are computed live from current direction, not read
   from a stored snapshot.
-- /actions Action Log: no login required to view or add; status changes are admin-only.
+- /actions Action Log: no login required to view or add; status changes are department-admin only.
 
 ---
 
 ## Administering things that still require SQL/Table Editor
 
 - Pillars, reasons - Table Editor or SQL following seed.sql's shape.
-- A KPI's pillar or unit, if auto-detected wrong - Table Editor.
-- Bootstrapping the very first Admin: update employees set is_admin = true where
-  employee_code = '...'; (only needed once, before anyone can log into Admin at all).
+- Bootstrapping the very first site admin: update employees set is_site_admin = true
+  where employee_code = '...'; (only needed once, before anyone can open Site Admin).
 
-Everything else about a KPI - direction, visibility, deletion - is in KPI Management.
-Employees - adding, ID/name edits, Admin toggle, deactivating - are in Admin > Employee
-Management; there's no hard delete there by design (daily_entries.entered_by has no
-cascade-delete, so it stays attributed to whoever really entered it - "Active" is how you
-retire someone).
+Everything about a KPI is in its department's Admin → KPIs. Employees - adding, ID/name
+edits, site admin, deactivating - are in Site Admin → Employees (department admins add
+people to their own team in Admin → Members); there's no hard delete by design
+(daily_entries.entered_by has no cascade-delete, so it stays attributed to whoever really
+entered it - "Active" is how you retire someone).
+
+Database changes for departments are in supabase/migrations_multi_department.sql
+(also appended to schema.sql). It's backward compatible with the pre-department app
+apart from three upserts, so run it right before deploying the department code.
 
 ---
 
@@ -340,7 +386,10 @@ and RLS policies allow that key to read everything and write to most tables. Thi
 intentional for a trusted shop-floor terminal/network, but it means anyone with the app
 URL can log an entry as any employee for any KPI, anyone with the anon key (visible in
 browser dev tools, meant to be public) can read/write those tables directly via the API,
-and the is_admin gates are client-side convenience, not a security boundary.
+and the site admin / department admin / member gates are client-side convenience, not
+a security boundary — one department can't see another's admin pages in the app, but
+nothing in the database stops a determined person with the anon key from writing to
+another department's rows.
 
 Before relying on this beyond an internal pilot, consider real Supabase Auth with RLS
 policies checking auth.uid() against employees/kpi_assignments.
@@ -349,5 +398,4 @@ policies checking auth.uid() against employees/kpi_assignments.
 
 - Real per-user auth/RLS scoping
 - Editing/deleting past daily entries beyond today's, outside KPI Management's delete
-- Multi-site / multi-board support
 - Push notifications, email digests, scheduled exports

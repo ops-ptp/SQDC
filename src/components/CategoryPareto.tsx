@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { format, parseISO } from 'date-fns';
 import { fetchKpiCategories, fetchTaggedEntries, type KpiCategory, type TaggedEntryRow } from '../lib/categories';
 import { computeParetoRows, orderedDimensions, type ParetoPeriod } from '../lib/categoryCore';
+import { useDepartment } from '../context/DepartmentContext';
 import { errorMessage, round2 } from '../types';
 import CategoryPicker from './CategoryPicker';
 import ParetoChart from './ParetoChart';
@@ -34,6 +35,7 @@ const VITAL_FEW_PCT = 80;
  * Equipment / Symptom tabs). Bars or table rows drill down to the shifts
  * behind a category, where tags can be corrected by any logged-in user. */
 export default function CategoryPareto({ pillarId, kpiBaseName, kpiIds, dayKpiId, nightKpiId, unit, period, color, employeeId, fallback }: Props) {
+  const department = useDepartment();
   const [list, setList] = useState<KpiCategory[]>([]);
   const [tags, setTags] = useState<TaggedEntryRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -52,7 +54,7 @@ export default function CategoryPareto({ pillarId, kpiBaseName, kpiIds, dayKpiId
     let cancelled = false;
     setLoading(true);
     setError(null);
-    Promise.all([fetchKpiCategories(pillarId, kpiBaseName), fetchTaggedEntries(kpiIds, period.from, period.to)])
+    Promise.all([fetchKpiCategories(department.id, pillarId, kpiBaseName), fetchTaggedEntries(kpiIds, period.from, period.to)])
       .then(([l, t]) => {
         if (cancelled) return;
         setList(l);
@@ -65,7 +67,7 @@ export default function CategoryPareto({ pillarId, kpiBaseName, kpiIds, dayKpiId
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pillarId, kpiBaseName, idsKey, period.from, period.to, refreshKey]);
+  }, [department.id, pillarId, kpiBaseName, idsKey, period.from, period.to, refreshKey]);
 
   // Close any open drill-down when the KPI or period changes underneath it.
   useEffect(() => {

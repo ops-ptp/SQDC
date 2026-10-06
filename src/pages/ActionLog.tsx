@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useEmployee } from '../context/EmployeeContext';
+import { useDepartment } from '../context/DepartmentContext';
 import { createAction, fetchActions, fetchKpis, fetchPillars, setActionStatus, updateAction } from '../lib/data';
 import { PILLAR_COLORS, errorMessage, type ActionItem, type ActionStatus, type Kpi, type Pillar } from '../types';
 import ActionTable from '../components/ActionTable';
@@ -143,7 +144,9 @@ function ActionEditModal({
 }
 
 export default function ActionLog() {
-  const { employee } = useEmployee();
+  const { employee, isDeptAdmin } = useEmployee();
+  const department = useDepartment();
+  const canManage = isDeptAdmin(department.id);
   const [pillars, setPillars] = useState<Pillar[]>([]);
   const [kpis, setKpis] = useState<Kpi[]>([]);
   const [actions, setActions] = useState<ActionItem[]>([]);
@@ -166,7 +169,7 @@ export default function ActionLog() {
   async function loadAll() {
     setLoading(true);
     try {
-      const [p, k, a] = await Promise.all([fetchPillars(), fetchKpis(), fetchActions()]);
+      const [p, k, a] = await Promise.all([fetchPillars(), fetchKpis(department.id), fetchActions(department.id)]);
       setPillars(p);
       setKpis(k);
       setActions(a);
@@ -212,6 +215,7 @@ export default function ActionLog() {
     setSubmitting(true);
     try {
       const created = await createAction({
+        department_id: department.id,
         pillar_id: form.pillar_id,
         kpi_id: form.kpi_id || null,
         related_issue: form.related_issue.trim(),
@@ -277,8 +281,8 @@ export default function ActionLog() {
         <ActionTable
           actions={filteredActions}
           pillars={pillars}
-          onStatusChange={employee?.is_admin ? handleStatusChange : undefined}
-          onEdit={employee?.is_admin ? (a) => setEditingAction(a) : undefined}
+          onStatusChange={canManage ? handleStatusChange : undefined}
+          onEdit={canManage ? (a) => setEditingAction(a) : undefined}
         />
       </section>
 

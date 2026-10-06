@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { endOfMonth, format, subDays, subMonths } from 'date-fns';
+import { Link } from 'react-router-dom';
 import { fetchAllKpisAdmin, fetchPillars } from '../lib/data';
+import { useDepartment, useDeptPath } from '../context/DepartmentContext';
+import { useEmployee } from '../context/EmployeeContext';
 import type { Kpi, Pillar } from '../types';
 import { errorMessage } from '../types';
 import PillarQuadrant, { type Granularity } from '../components/PillarQuadrant';
@@ -12,6 +15,9 @@ import { Button, PageLoader, Select } from '../components/ui';
 const MONTH_OPTIONS_COUNT = 12;
 
 export default function Dashboard() {
+  const department = useDepartment();
+  const deptPath = useDeptPath();
+  const { isDeptAdmin } = useEmployee();
   const [pillars, setPillars] = useState<Pillar[]>([]);
   const [kpis, setKpis] = useState<Kpi[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,14 +49,14 @@ export default function Dashboard() {
     // computation): "Visible" in KPI Management is a Daily-board concept
     // only, since the Weekly view's KPI set is fixed by what the Weekly
     // workbook actually tracks, not by an admin's show/hide choice.
-    Promise.all([fetchPillars(), fetchAllKpisAdmin()])
+    Promise.all([fetchPillars(), fetchAllKpisAdmin(department.id)])
       .then(([p, k]) => {
         setPillars(p);
         setKpis(k.filter((kpi) => !kpi.is_leading));
       })
       .catch((e) => setError(errorMessage(e, 'Failed to load board')))
       .finally(() => setLoading(false));
-  }, []);
+  }, [department.id]);
 
   const today = new Date();
   const isCurrentMonth = monthOffset === 0;
@@ -178,6 +184,18 @@ export default function Dashboard() {
           )}
         </div>
       </div>
+      {kpis.length === 0 && (
+        <div className="alert alert-info board-setup-hint">
+          {department.name} has no KPIs yet.{' '}
+          {isDeptAdmin(department.id) ? (
+            <>
+              <Link to={deptPath('admin')}>Set up its KPIs in Admin → KPIs</Link> — the board fills in as data comes in.
+            </>
+          ) : (
+            'A department admin sets them up under Admin → KPIs.'
+          )}
+        </div>
+      )}
       <div className={`board-grid ${granularity === 'weekly' ? 'board-grid-weekly' : ''}`}>
         {pillars.map((p) => (
           <PillarQuadrant

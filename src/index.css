@@ -2171,3 +2171,229 @@ textarea {
 .scroll-fade.fade-left.fade-right {
   mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent);
 }
+
+/* ---------------- Department switcher (navbar title) ---------------- */
+.dept-switcher {
+  position: relative;
+}
+
+.dept-switcher-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border-top: none;
+  border-right: none;
+  border-bottom: none;
+  cursor: pointer;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  border-radius: 0 6px 6px 0;
+  max-width: 280px;
+}
+
+.dept-switcher-btn:hover {
+  color: white;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.dept-switcher-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dept-switcher-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  min-width: 240px;
+  max-height: 60vh;
+  overflow-y: auto;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 32px rgba(19, 49, 45, 0.18);
+  padding: 6px;
+  z-index: 40;
+}
+
+.dept-switcher-menu a {
+  display: block;
+  padding: 8px 10px;
+  border-radius: 6px;
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.dept-switcher-menu a:hover {
+  background: var(--surface-sunk);
+}
+
+.dept-switcher-menu a.is-current {
+  box-shadow: inset 3px 0 0 var(--primary);
+  font-weight: 700;
+}
+
+.dept-switcher-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 6px 4px;
+}
+
+.navbar-link-site {
+  margin-left: auto;
+}
+
+@media (max-width: 780px) {
+  .navbar-link-site {
+    margin-left: 0;
+  }
+}
+
+.board-setup-hint {
+  margin: 0 0 16px;
+}
+
+.fl-card-edit {
+  margin-top: 6px;
+  align-self: flex-start;
+}
+
+.fl-card-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.fl-card-editor-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.admin-kpi-tag {
+  margin-left: 6px;
+  background: var(--surface-sunk);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.admin-row-actions {
+  white-space: nowrap;
+}
+
+.kpi-form-check {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px;
+  align-self: end;
+  padding-bottom: 6px;
+}
+
+.admin-dept-name {
+  font-weight: 600;
+  font-size: 0.7em;
+}
+
+.upload-preview-list {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+/* ---------------- All boards ---------------- */
+.boards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.board-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  color: inherit;
+  text-decoration: none;
+  border-top: 4px solid var(--teal);
+  transition: box-shadow 0.12s ease, transform 0.12s ease;
+}
+
+.board-card:hover {
+  box-shadow: 0 8px 24px rgba(19, 49, 45, 0.12);
+  transform: translateY(-1px);
+}
+
+.board-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.board-card-head h2 {
+  font-size: 22px;
+  margin: 0;
+}
+
+.board-card-bar {
+  display: flex;
+  height: 10px;
+  border-radius: 5px;
+  overflow: hidden;
+  gap: 2px;
+  background: var(--surface-sunk);
+}
+
+.board-card-bar .seg-met {
+  background: var(--good);
+}
+
+.board-card-bar .seg-missed {
+  background: var(--bad);
+}
+
+.board-card-bar .seg-nodata {
+  background: #cbd5d3;
+}
+
+.board-card-counts {
+  display: flex;
+  gap: 14px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.board-card-link {
+  margin-top: auto;
+  color: var(--primary-dark);
+  font-weight: 600;
+  font-size: 14px;
+}
+
+/* ---------------- Site Admin ---------------- */
+.field-hint {
+  display: block;
+  margin-top: 4px;
+  font-weight: 400;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.site-admin-depts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.site-admin-depts .admin-kpi-tag {
+  margin-left: 0;
+}
+
+.tag-admin {
+  background: #fdebd8;
+  color: var(--primary-dark);
+}

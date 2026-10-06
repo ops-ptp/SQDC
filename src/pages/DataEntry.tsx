@@ -2,6 +2,7 @@ import { format, subDays } from 'date-fns';
 import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useEmployee } from '../context/EmployeeContext';
+import { useDepartment } from '../context/DepartmentContext';
 import {
   fetchEntriesForKpisOnDate,
   fetchEntryForKpiAndDate,
@@ -12,7 +13,7 @@ import {
   upsertDailyEntry,
 } from '../lib/data';
 import CategoryPicker from '../components/CategoryPicker';
-import { PILLAR_COLORS, errorMessage, metTarget, round2, type DailyEntry, type Kpi, type Pillar, type Reason } from '../types';
+import { PILLAR_COLORS, errorMessage, isManualKpi, metTarget, round2, type DailyEntry, type Department, type Kpi, type Pillar, type Reason } from '../types';
 import { Chip, SegmentedControl } from '@progress/kendo-react-buttons';
 import { Button, DateField, NumberField, PageLoader, Select, TextAreaField, TextField, InlineLoader, InfoTip } from '../components/ui';
 
@@ -80,7 +81,7 @@ function baseNameOf(name: string): string {
   return name.replace(/\s*\((Day|Night)\)\s*$/i, '').trim();
 }
 
-function buildGroups(kpis: Kpi[]): KpiGroup[] {
+function buildGroups(kpis: Kpi[], department: Department): KpiGroup[] {
   const map = new Map<string, KpiGroup>();
   // Secondary/comparison KPIs (e.g. "Mainliner Load GMPH (Old)") are shown
   // on the Board as a dimmed reference line/number, but never themselves a
@@ -101,12 +102,12 @@ function buildGroups(kpis: Kpi[]): KpiGroup[] {
         unit: k.unit,
         isHigherBetter: k.is_higher_better,
         sortOrder: k.sort_order,
-        manualEntry: k.manual_entry,
+        manualEntry: isManualKpi(department, k),
       };
       map.set(mapKey, g);
     }
     g.sortOrder = Math.min(g.sortOrder, k.sort_order);
-    g.manualEntry = g.manualEntry || k.manual_entry;
+    g.manualEntry = g.manualEntry || isManualKpi(department, k);
     if (isDay) g.day = k;
     else if (isNight) g.night = k;
     else g.single = k;
@@ -164,6 +165,8 @@ interface DeepLinkState {
 
 export default function DataEntry() {
   const { employee } = useEmployee();
+  const department = useDepartment();
+  const remarksOnly = department.entry_mode === 'upload';
   const location = useLocation();
   const deepLinkApplied = useRef(false);
   const [pillars, setPillars] = useState<Pillar[]>([]);
@@ -180,10 +183,10 @@ export default function DataEntry() {
   useEffect(() => {
     setLoading(true);
     setLoadError(null);
-    Promise.all([fetchPillars(), fetchKpis()])
+    Promise.all([fetchPillars(), fetchKpis(department.id)])
       .then(([p, kpis]) => {
         setPillars(p);
-        const built = buildGroups(kpis);
+        const built = buildGroups(kpis, department);
         setGroups(built);
         if (p.length > 0) setSelectedPillarId(p[0].id);
         const first = built.find((g) => g.pillarId === p[0]?.id) ?? built[0];
@@ -191,7 +194,7 @@ export default function DataEntry() {
       })
       .catch((e) => setLoadError(errorMessage(e, 'Failed to load the KPI catalog')))
       .finally(() => setLoading(false));
-  }, []);
+  }, [department]);
 
   // Deep link from the Board's "no remarks logged" highlight — pre-select
   // the pillar/KPI/date it was clicked from. Applied once, the first time
@@ -437,8 +440,17 @@ export default function DataEntry() {
     <div className="page">
       <div className="page-header page-header-row">
         <div>
-          <h1>Enter Remarks <InfoTip>Logged in as {employee?.name}. Performance values come from the daily Admin upload — pick a KPI below to add
-            the remark or reason for it.</InfoTip></h1>
+          <h1>
+            {remarksOnly ? 'Enter Remarks' : 'Enter Data'}{' '}
+            <InfoTip>
+              Logged in as {employee?.name}.{' '}
+              {remarksOnly
+                ? 'Performance values come from the daily Admin upload — pick a KPI below to add the remark or reason for it.'
+                : department.entry_mode === 'both'
+                  ? 'Type a KPI’s value here, or let the Admin upload fill it in — a value typed here is never overwritten by an upload. Add a remark whenever a target is missed.'
+                  : 'Pick a KPI, type the day’s value, and add a remark whenever the target is missed.'}
+            </InfoTip>
+          </h1>
         </div>
         <label className="date-picker">
           <span className="field-label">Date</span>
