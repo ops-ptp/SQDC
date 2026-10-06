@@ -2412,3 +2412,145 @@ textarea {
 .site-admin-search {
   width: 220px !important;
 }
+
+/* ---------------- Insights: AI categorisation ---------------- */
+.ai-cat-setup {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+
+@media (max-width: 900px) {
+  .ai-cat-setup {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ai-cat-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ai-cat-col > label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ai-cat-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.ai-cat-row > label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 170px;
+}
+
+.ai-cat-col > label.ai-cat-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.ai-cat-run {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.ai-cat-review {
+  margin-top: 24px;
+  border-top: 1px solid var(--border);
+  padding-top: 18px;
+}
+
+.ai-cat-review-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.ai-cat-model {
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.ai-cat-bulk {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.ai-cat-table-scroll {
+  max-height: 560px;
+  overflow-y: auto;
+}
+
+.ai-cat-table td {
+  vertical-align: top;
+}
+
+.ai-cat-nowrap {
+  white-space: nowrap;
+}
+
+.ai-cat-remark {
+  min-width: 280px;
+  max-width: 520px;
+}
+
+.ai-cat-category {
+  min-width: 220px;
+}
+
+.ai-cat-why {
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.ai-cat-conf-high {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.ai-cat-conf-medium {
+  background: #e0e7ff;
+  color: #3730a3;
+}
+
+.ai-cat-conf-low {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.ai-cat-preview {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(220px, 1fr);
+  gap: 24px;
+  align-items: end;
+  margin-top: 18px;
+}
+
+@media (max-width: 900px) {
+  .ai-cat-preview {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ai-cat-save {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}

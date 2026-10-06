@@ -315,6 +315,26 @@ fix. Since Admin uploads are trusted-user-only, exceljs was used instead.
 
 ## Insights - AI-assisted categorization and pivot builder
 
+### Built-in AI categorisation (Google Gemini)
+
+Insights → "AI categorisation" sends one KPI's missed-target remarks (a date range,
+up to 300 at a time) to Google Gemini with the admin's instruction and category list
+(pre-filled from the KPI's own Pareto pick-list). Gemini only SUGGESTS a category per
+remark, with a confidence and the words behind it. The department admin reviews every
+row, edits or unticks, sees a preview Pareto, and only "Save" writes anything: the
+remark's Weekly Pareto tag (entry_categories), its Insights category (ai_category), and
+any new category into the KPI's pick-list.
+
+The Gemini key never reaches the browser. It lives in the Supabase Edge Function
+supabase/functions/categorize-remarks as a secret: Supabase dashboard → Edge Functions →
+Secrets → GEMINI_API_KEY (and optionally GEMINI_MODEL, default gemini-2.5-flash). With no
+key set, the section says the feature is switched off. The function only serves
+department admins of that department (and site admins), checked server-side by Employee
+ID. Use a paid (billing-enabled) Google AI Studio key for live data: on the free tier
+Google may use prompts and responses to improve its products. Deploy changes to the
+function with the Supabase CLI (supabase functions deploy categorize-remarks) or the
+dashboard.
+
 Slices missed-target remarks by any angle using an AI tool the admin already has access
 to. No AI/API integration lives in this app, and it never sends data anywhere on its
 own.

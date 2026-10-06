@@ -21,6 +21,7 @@ import { baseNameOf, errorMessage, PILLAR_COLORS, round2, type Kpi, type Pillar 
 import DataTable, { type DataTableColumn } from '../components/DataTable';
 import ParetoChart from '../components/ParetoChart';
 import PivotFieldPanel, { type PivotZone } from '../components/PivotFieldPanel';
+import AiCategorize from '../components/AiCategorize';
 import { Chip } from '@progress/kendo-react-buttons';
 import { Button, CheckField, InlineLoader, PageLoader, TextAreaField, TextField, InfoTip } from '../components/ui';
 
@@ -559,8 +560,8 @@ export default function Insights() {
   return (
     <div className="page">
       <div className="page-header">
-        <h1>Insights <InfoTip>Pick a pillar and KPI, export its missed-target remarks, run them through whatever AI tool you already have,
-          re-import, and build a pivot breakdown — no AI plugged into this app itself.</InfoTip></h1>
+        <h1>Insights <InfoTip>Pick a pillar and KPI, then categorise its missed-target remarks — with the built-in Gemini suggestions you review
+          before saving, or by exporting the CSV to any AI tool and re-importing — and build a pivot breakdown.</InfoTip></h1>
       </div>
 
       <div className="card" style={{ marginBottom: 16 }}>
@@ -576,6 +577,16 @@ export default function Insights() {
 
       <div className="insights-stack">
         <ExportTableSection kpiGroup={selectedKpiGroup} refreshKey={refreshKey} />
+        {selectedPillarId && selectedKpiGroup && (
+          <AiCategorize
+            key={`${selectedPillarId}|${selectedKpiGroup.key}`}
+            pillarId={selectedPillarId}
+            kpiLabel={selectedKpiGroup.label}
+            kpiIds={selectedKpiGroup.ids}
+            color={(PILLAR_COLORS[pillars.find((p) => p.id === selectedPillarId)?.code ?? 'Q'] ?? PILLAR_COLORS.Q).base}
+            onSaved={() => setRefreshKey((k) => k + 1)}
+          />
+        )}
         <ImportSection onImported={() => setRefreshKey((k) => k + 1)} />
         <PivotSection pillarId={selectedPillarId} kpiGroup={selectedKpiGroup} refreshKey={refreshKey} />
       </div>

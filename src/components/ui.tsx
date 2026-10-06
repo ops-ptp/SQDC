@@ -174,13 +174,15 @@ export function CheckField({
   onChange,
   label,
   ariaLabel,
+  disabled,
 }: {
   checked: boolean;
   onChange: (checked: boolean) => void;
   label?: string;
   ariaLabel?: string;
+  disabled?: boolean;
 }) {
-  return <Checkbox checked={checked} onChange={(e) => onChange(Boolean(e.value))} label={label} aria-label={ariaLabel} />;
+  return <Checkbox checked={checked} onChange={(e) => onChange(Boolean(e.value))} label={label} aria-label={ariaLabel} disabled={disabled} />;
 }
 
 /** Centered page-level spinner — replaces the old "Loading …" text blocks. */
