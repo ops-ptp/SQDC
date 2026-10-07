@@ -2619,12 +2619,6 @@ textarea {
   font-size: 12.5px;
 }
 
-.ai-cat-privacy {
-  margin: 10px 0 0;
-  font-size: 12.5px;
-  color: var(--muted);
-}
-
 .ai-cat-savebar {
   position: sticky;
   bottom: 0;

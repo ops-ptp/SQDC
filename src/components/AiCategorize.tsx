@@ -628,10 +628,6 @@ export default function AiCategorize({
           </>
         )}
       </div>
-      <p className="ai-cat-privacy">
-        Remarks are sent to Google Gemini. Use a <b>paid</b> Google AI Studio key for live data — on the free tier Google may use what's sent to
-        improve its products.
-      </p>
 
       {progress && <SkeletonRows rows={Math.min(6, Math.max(1, progress.total - progress.done))} angles={progress.angles} />}
       {!progress && review && review.length === 0 && <div className="empty-state">Nothing left to review.</div>}
