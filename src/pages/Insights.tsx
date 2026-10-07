@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { format, subDays } from 'date-fns';
+import { Chip } from '@progress/kendo-react-buttons';
+import { TabStrip, TabStripTab } from '@progress/kendo-react-layout';
 import { useDepartment } from '../context/DepartmentContext';
 import { useEmployee } from '../context/EmployeeContext';
 import {
-  bulkUpdateAiCategories,
   deleteCustomPareto,
   fetchCategorizedEntriesForKpiIds,
   fetchCustomParetosForPillar,
@@ -16,37 +17,24 @@ import {
   type CustomPareto,
   type RawEntryRow,
 } from '../lib/data';
-import { buildExportCsv, parseCategoryCsv } from '../lib/csv';
 import { applyPivotFilter, computeChartData, computeCrossTab, pivotCoverage, pivotFieldLabel, pivotFieldsFor, pivotFilterOptions } from '../lib/pivot';
 import { baseNameOf, errorMessage, PILLAR_COLORS, round2, type Kpi, type Pillar } from '../types';
 import DataTable, { type DataTableColumn } from '../components/DataTable';
 import ParetoChart from '../components/ParetoChart';
-import PivotFieldPanel, { type PivotZone } from '../components/PivotFieldPanel';
 import AiCategorize from '../components/AiCategorize';
-import { Chip } from '@progress/kendo-react-buttons';
-import { Button, CheckField, InlineLoader, PageLoader, TextAreaField, TextField, InfoTip } from '../components/ui';
+import { Button, InfoTip, InlineLoader, PageLoader, Select, TextField } from '../components/ui';
+
+// ===========================================================================
+// Insights — for one KPI at a time:
+//   1. Tag remarks   — AI-suggested Pareto tags from one or more angles,
+//                      reviewed by the admin before saving
+//   2. Analyse       — Pareto / cross-tab of the tags, optionally pinned to
+//                      the SQDC Board
+//   3. Remarks       — every missed-target remark with its tags
+// A summary strip above the tabs shows how much of the KPI is tagged.
+// ===========================================================================
 
 const LOOKBACK_DAYS = 180;
-
-const DEFAULT_PROMPT = `I've attached a CSV of missed-target operational remarks from an SQDC performance board, all for one KPI.
-
-For EACH row, read the "remarks" and "reason" columns and assign it to ONE category based on: [pick your angle here — e.g. "which piece of equipment was involved", "root cause type", "which shift-related factor" — edit this line before you paste the prompt].
-
-Suggested starting categories: Equipment, Staffing, Process/Planning, External (weather, customs, etc.), Other — but use your judgement; merge, split, or rename categories if the data clearly suggests better ones.
-
-Add your answer as a new column called "category" containing ONLY the category name — no explanation, no extra text.
-
-Keep every existing column and row exactly as they are, in the same order. Do NOT modify the "id" column. Return the completed file as a CSV I can download.`;
-
-function downloadTextFile(filename: string, content: string) {
-  const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
 
 interface KpiGroupOption {
   key: string;
@@ -58,9 +46,7 @@ function groupKpisByBase(kpis: Kpi[]): KpiGroupOption[] {
   const map = new Map<string, string[]>();
   for (const k of kpis) {
     const base = baseNameOf(k.name);
-    const arr = map.get(base) ?? [];
-    arr.push(k.id);
-    map.set(base, arr);
+    map.set(base, [...(map.get(base) ?? []), k.id]);
   }
   return Array.from(map.entries())
     .map(([base, ids]) => ({ key: base, label: base, ids }))
@@ -68,61 +54,131 @@ function groupKpisByBase(kpis: Kpi[]): KpiGroupOption[] {
 }
 
 // ---------------------------------------------------------------------------
-// Pillar + KPI pickers — cascading pill rows, matching the board's own
-// pillar/KPI pill styling so this page feels like part of the same app.
+// KPI picker — pillar pills, then that pillar's KPI pills (the board's own
+// pill styling, so this page reads as part of the same app).
 // ---------------------------------------------------------------------------
 
-function PillarPicker({ pillars, selectedId, onSelect }: { pillars: Pillar[]; selectedId: string | null; onSelect: (id: string) => void }) {
+function KpiPicker({
+  pillars,
+  pillarId,
+  onPillar,
+  groups,
+  kpiKey,
+  onKpi,
+}: {
+  pillars: Pillar[];
+  pillarId: string | null;
+  onPillar: (id: string) => void;
+  groups: KpiGroupOption[];
+  kpiKey: string | null;
+  onKpi: (key: string) => void;
+}) {
   return (
-    <div className="kpi-pills" style={{ padding: '0 0 4px' }}>
-      {pillars.map((p) => {
-        const colors = PILLAR_COLORS[p.code] ?? PILLAR_COLORS.Q;
-        const isSelected = p.id === selectedId;
-        return (
-          <Chip
-            key={p.id}
-            text={p.name}
-            rounded="full"
-            className="kpi-pill"
-            selected={isSelected}
-            style={isSelected ? { background: colors.base, borderColor: colors.base, color: 'white' } : { background: 'white', borderColor: colors.base, color: colors.base }}
-            onClick={() => onSelect(p.id)}
-          />
-        );
-      })}
+    <div className="insights-picker">
+      <div className="insights-picker-row">
+        <span className="insights-picker-label">Pillar</span>
+        <div className="kpi-pills">
+          {pillars.map((p) => {
+            const colors = PILLAR_COLORS[p.code] ?? PILLAR_COLORS.Q;
+            const on = p.id === pillarId;
+            return (
+              <Chip
+                key={p.id}
+                text={p.name}
+                rounded="full"
+                className="kpi-pill"
+                selected={on}
+                style={on ? { background: colors.base, borderColor: colors.base, color: 'white' } : { background: 'white', borderColor: colors.base, color: colors.base }}
+                onClick={() => onPillar(p.id)}
+              />
+            );
+          })}
+        </div>
+      </div>
+      <div className="insights-picker-row">
+        <span className="insights-picker-label">KPI</span>
+        {groups.length === 0 ? (
+          <span className="muted">No KPIs in this pillar.</span>
+        ) : (
+          <div className="kpi-pills">
+            {groups.map((g) => {
+              const on = g.key === kpiKey;
+              return (
+                <Chip
+                  key={g.key}
+                  text={g.label}
+                  rounded="full"
+                  className="kpi-pill"
+                  selected={on}
+                  style={on ? { background: 'var(--text)', borderColor: 'var(--text)', color: 'white' } : { background: 'white', borderColor: 'var(--border)', color: 'var(--text)' }}
+                  onClick={() => onKpi(g.key)}
+                />
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
-function KpiPicker({ groups, selectedKey, onSelect }: { groups: KpiGroupOption[]; selectedKey: string | null; onSelect: (key: string) => void }) {
-  if (groups.length === 0) {
-    return <div className="empty-state">No KPIs in this pillar.</div>;
+// ---------------------------------------------------------------------------
+// Summary strip — how much of this KPI's missed-target history is tagged.
+// ---------------------------------------------------------------------------
+
+function TagSummary({ remarks, tagsByEntry, loading }: { remarks: RawEntryRow[]; tagsByEntry: Map<string, Record<string, string[]>>; loading: boolean }) {
+  const stats = useMemo(() => {
+    const perAngle = new Map<string, number>();
+    let tagged = 0;
+    for (const r of remarks) {
+      const t = tagsByEntry.get(r.id);
+      if (!t || Object.values(t).every((v) => v.length === 0)) continue;
+      tagged++;
+      for (const [angle, v] of Object.entries(t)) if (v.length) perAngle.set(angle, (perAngle.get(angle) ?? 0) + 1);
+    }
+    const angles = Array.from(perAngle.entries()).sort((a, b) => (a[0] === 'Cause' ? -1 : b[0] === 'Cause' ? 1 : a[0].localeCompare(b[0])));
+    return { total: remarks.length, tagged, untagged: remarks.length - tagged, angles };
+  }, [remarks, tagsByEntry]);
+
+  if (loading) {
+    return (
+      <div className="insights-summary">
+        <InlineLoader />
+      </div>
+    );
   }
   return (
-    <div className="kpi-pills" style={{ padding: '0 0 4px' }}>
-      {groups.map((g) => {
-        const isSelected = g.key === selectedKey;
-        return (
-          <Chip
-            key={g.key}
-            text={g.label}
-            rounded="full"
-            className="kpi-pill"
-            selected={isSelected}
-            style={isSelected ? { background: 'var(--text)', borderColor: 'var(--text)', color: 'white' } : { background: 'white', borderColor: 'var(--border)', color: 'var(--text)' }}
-            onClick={() => onSelect(g.key)}
-          />
-        );
-      })}
+    <div className="insights-summary">
+      <div className="insights-stat">
+        <span className="insights-stat-value">{stats.total}</span>
+        <span className="insights-stat-label">missed-target remarks · last {LOOKBACK_DAYS} days</span>
+      </div>
+      <div className="insights-stat">
+        <span className="insights-stat-value">{stats.tagged}</span>
+        <span className="insights-stat-label">tagged</span>
+      </div>
+      <div className={`insights-stat${stats.untagged > 0 ? ' is-attention' : ''}`}>
+        <span className="insights-stat-value">{stats.untagged}</span>
+        <span className="insights-stat-label">not tagged yet</span>
+      </div>
+      {stats.angles.length > 0 && (
+        <div className="insights-angle-coverage" aria-label="Remarks tagged per angle">
+          {stats.angles.map(([angle, n]) => (
+            <span key={angle} className="insights-angle-pill">
+              {angle} <b>{n}</b>
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Excel-style data table + CSV export/import
+// Remarks tab — every missed-target remark with its Pareto tags.
 // ---------------------------------------------------------------------------
 
-function tableColumns(tagsByEntry: Map<string, Record<string, string[]>>): DataTableColumn<RawEntryRow>[] {
+function remarkColumns(tagsByEntry: Map<string, Record<string, string[]>>): DataTableColumn<RawEntryRow>[] {
   return [
     { key: 'date', label: 'Date', accessor: (r) => r.entry_date },
     { key: 'shift', label: 'Shift', accessor: (r) => r.shift ?? '—' },
@@ -136,289 +192,119 @@ function tableColumns(tagsByEntry: Map<string, Record<string, string[]>>): DataT
       accessor: (r) =>
         Object.entries(tagsByEntry.get(r.id) ?? {})
           .map(([angle, tags]) => `${angle}: ${tags.join(', ')}`)
-          .join(' · '),
+          .join(' · ') || '—',
     },
-    { key: 'category', label: 'Category (CSV)', accessor: (r) => r.ai_category ?? '' },
   ];
 }
 
-function ExportTableSection({ kpiGroup, refreshKey }: { kpiGroup: KpiGroupOption | null; refreshKey: number }) {
-  const [rows, setRows] = useState<RawEntryRow[]>([]);
-  const [tagsByEntry, setTagsByEntry] = useState<Map<string, Record<string, string[]>>>(new Map());
-  const columns = useMemo(() => tableColumns(tagsByEntry), [tagsByEntry]);
-  const [visibleRows, setVisibleRows] = useState<RawEntryRow[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-  const [prompt, setPrompt] = useState(DEFAULT_PROMPT);
-
-  useEffect(() => {
-    if (!kpiGroup) {
-      setRows([]);
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    fetchMissedEntriesForKpiIds(kpiGroup.ids, format(subDays(new Date(), LOOKBACK_DAYS), 'yyyy-MM-dd'))
-      .then(async (r) => {
-        const t = await fetchTagsByEntry(r.map((x) => x.id));
-        setRows(r);
-        setTagsByEntry(t);
-      })
-      .catch((e) => setError(errorMessage(e, 'Failed to load')))
-      .finally(() => setLoading(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kpiGroup?.key, refreshKey]);
-
-  function handleDownload() {
-    if (visibleRows.length === 0) return;
-    const csv = buildExportCsv(visibleRows);
-    downloadTextFile(`${(kpiGroup?.label ?? 'kpi').replace(/[^a-z0-9]+/gi, '-')}-remarks.csv`, csv);
-  }
-
-  async function handleCopyPrompt() {
-    await navigator.clipboard.writeText(prompt);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }
-
+function RemarksTab({ remarks, tagsByEntry }: { remarks: RawEntryRow[]; tagsByEntry: Map<string, Record<string, string[]>> }) {
+  const columns = useMemo(() => remarkColumns(tagsByEntry), [tagsByEntry]);
   return (
     <div className="card">
-      <h3>Missed-target remarks {kpiGroup ? `— ${kpiGroup.label}` : ''} <InfoTip>Last {LOOKBACK_DAYS} days. Click a column header to sort, type in the box under a header to filter — same idea
-        as an Excel table. "Download CSV" exports exactly what's showing here (filtered/sorted), ready to run through
-        an AI tool and re-import once it's added a "category" column.</InfoTip></h3>
-      {error && <div className="alert alert-error">{error}</div>}
-      {loading ? (
-        <InlineLoader />
-      ) : !kpiGroup ? (
-        <div className="empty-state">Pick a pillar and KPI above.</div>
-      ) : (
-        <DataTable
-          columns={columns}
-          rows={rows}
-          rowKey={(r) => r.id}
-          emptyMessage="No missed-target entries in the last 180 days."
-          onVisibleRowsChange={setVisibleRows}
-        />
-      )}
-      <div className="insights-download-row">
-        <Button type="button" themeColor="primary" disabled={visibleRows.length === 0} onClick={handleDownload}>
-          Download CSV ({visibleRows.length} row{visibleRows.length === 1 ? '' : 's'})
-        </Button>
-      </div>
-
-      <details className="insights-prompt-details">
-        <summary>Prompt to paste alongside the file</summary>
-        <div className="insights-prompt-block">
-          <div className="insights-prompt-header">
-            <span className="muted">Edit the bracketed part to change the angle each cycle.</span>
-            <Button type="button" onClick={handleCopyPrompt}>
-              {copied ? 'Copied ✓' : 'Copy prompt'}
-            </Button>
-          </div>
-          <TextAreaField className="insights-prompt-textarea" value={prompt} onChange={setPrompt} rows={9} />
-        </div>
-      </details>
-    </div>
-  );
-}
-
-function ImportSection({ onImported }: { onImported: () => void }) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
-  const [warnings, setWarnings] = useState<string[]>([]);
-
-  async function handleFile(file: File) {
-    setBusy(true);
-    setResult(null);
-    setWarnings([]);
-    try {
-      const text = await file.text();
-      const { rows, warnings: parseWarnings } = parseCategoryCsv(text);
-      setWarnings(parseWarnings);
-      if (rows.length === 0) {
-        setResult({ ok: false, message: 'No categorized rows found in this file.' });
-        return;
-      }
-      const written = await bulkUpdateAiCategories(rows);
-      setResult({ ok: true, message: `Saved categories for ${written} entr${written === 1 ? 'y' : 'ies'}.` });
-      onImported();
-    } catch (e) {
-      setResult({ ok: false, message: errorMessage(e, 'Failed to import') });
-    } finally {
-      setBusy(false);
-      if (inputRef.current) inputRef.current.value = '';
-    }
-  }
-
-  return (
-    <div className="card">
-      <h3>Re-import the categorized file <InfoTip>Upload the CSV back once your AI tool has added the "category" column — matched by the hidden id column, only
-        that field is written back.</InfoTip></h3>
-      <input
-        ref={inputRef}
-        type="file"
-        accept=".csv"
-        className="admin-file-input"
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) handleFile(file);
-        }}
-      />
-      <Button type="button" themeColor="primary" disabled={busy} onClick={() => inputRef.current?.click()}>
-        {busy ? 'Importing…' : 'Choose categorized CSV'}
-      </Button>
-      {result && <div className={`alert ${result.ok ? 'alert-success' : 'alert-error'}`} style={{ marginTop: 10 }}>{result.message}</div>}
-      {warnings.length > 0 && (
-        <details className="admin-warnings">
-          <summary>{warnings.length} warning{warnings.length === 1 ? '' : 's'}</summary>
-          <ul>
-            {warnings.map((w, i) => (
-              <li key={i}>{w}</li>
-            ))}
-          </ul>
-        </details>
-      )}
+      <p className="muted insights-tab-intro">
+        Every missed-target remark for this KPI in the last {LOOKBACK_DAYS} days. Click a column header to sort or filter, like an Excel table.
+      </p>
+      <DataTable columns={columns} rows={remarks} rowKey={(r) => r.id} emptyMessage={`No missed-target entries in the last ${LOOKBACK_DAYS} days.`} />
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// PivotChart-style builder — Pareto chart left, drag-and-drop field panel
-// right. Scoped to the currently selected KPI, same as the table above.
+// Analyse tab — Pareto of the tags by any angle, split by a second field
+// into a shaded cross-tab, filtered by a third; optionally pinned to the
+// SQDC Board (live — recomputed from the tags whenever the board loads).
 // ---------------------------------------------------------------------------
 
-function PivotSection({ pillarId, kpiGroup, refreshKey }: { pillarId: string | null; kpiGroup: KpiGroupOption | null; refreshKey: number }) {
+function AnalyseTab({ pillarId, kpiGroup, refreshKey, color }: { pillarId: string; kpiGroup: KpiGroupOption; refreshKey: number; color: string }) {
   const { employee } = useEmployee();
   const department = useDepartment();
   const [entries, setEntries] = useState<CategorizedEntryRow[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  // Empty Rows = use the first field with data (an angle, when there are any).
-  const [assignment, setAssignment] = useState<Partial<Record<PivotZone, string>>>({});
+  const [groupBy, setGroupBy] = useState('');
+  const [splitBy, setSplitBy] = useState('');
+  const [filterBy, setFilterBy] = useState('');
   const [filterIncluded, setFilterIncluded] = useState<Set<string> | null>(null);
   const [existing, setExisting] = useState<CustomPareto | null>(null);
   const [title, setTitle] = useState('');
-  const [saveState, setSaveState] = useState<{ busy: boolean; message: string | null; error: string | null }>({
-    busy: false,
-    message: null,
-    error: null,
-  });
+  const [saveState, setSaveState] = useState<{ busy: boolean; message: string | null; error: string | null }>({ busy: false, message: null, error: null });
 
   useEffect(() => {
-    if (!kpiGroup) {
-      setEntries([]);
-      return;
-    }
-    setLoading(true);
-    setError(null);
+    let cancelled = false;
     fetchCategorizedEntriesForKpiIds(kpiGroup.ids)
-      .then(setEntries)
-      .catch((e) => setError(errorMessage(e, 'Failed to load')))
-      .finally(() => setLoading(false));
+      .then((e) => {
+        if (cancelled) return;
+        setEntries(e);
+        setError(null);
+      })
+      .catch((e) => !cancelled && setError(errorMessage(e, 'Failed to load')))
+      .finally(() => !cancelled && setLoading(false));
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kpiGroup?.key, refreshKey]);
+  }, [kpiGroup.key, refreshKey]);
 
-  // Load any already-saved Pareto for this KPI so editing continues from
-  // where it left off, rather than the field panel silently resetting to
-  // defaults every time this KPI is revisited.
+  // Continue from the chart already pinned to the Board for this KPI, if any.
   useEffect(() => {
-    if (!pillarId || !kpiGroup) {
-      setExisting(null);
-      return;
-    }
+    let cancelled = false;
     fetchCustomParetosForPillar(department.id, pillarId)
       .then((all) => {
+        if (cancelled) return;
         const match = all.find((p) => p.kpi_base_name === kpiGroup.key) ?? null;
         setExisting(match);
-        if (match) {
-          setAssignment({
-            rows: match.row_field,
-            columns: match.column_field ?? undefined,
-            filters: match.filter_field ?? undefined,
-          });
-          setFilterIncluded(match.filter_values ? new Set(match.filter_values) : null);
-          setTitle(match.title);
-        } else {
-          setAssignment({});
-          setFilterIncluded(null);
-          setTitle('');
-        }
+        setGroupBy(match?.row_field ?? '');
+        setSplitBy(match?.column_field ?? '');
+        setFilterBy(match?.filter_field ?? '');
+        setFilterIncluded(match?.filter_values ? new Set(match.filter_values) : null);
+        setTitle(match?.title ?? '');
       })
-      .catch(() => setExisting(null));
-    setSaveState({ busy: false, message: null, error: null });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pillarId, kpiGroup?.key, refreshKey]);
+      .catch(() => !cancelled && setExisting(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [department.id, pillarId, kpiGroup.key]);
 
-  // Clear any filter-value selection whenever the filter FIELD itself
-  // changes — a saved selection from a different field wouldn't make sense.
-  const prevFilterField = useRef(assignment.filters);
-  useEffect(() => {
-    if (prevFilterField.current !== assignment.filters) {
-      setFilterIncluded(null);
-      prevFilterField.current = assignment.filters;
-    }
-  }, [assignment.filters]);
-
-  // Fields with data for this KPI: one per angle (Cause, Equipment…), the
-  // CSV category if used, Shift and Week. A Rows field that no longer has
-  // data (e.g. the default "category" on a KPI tagged only by angle) falls
-  // back to the first angle, so the chart isn't empty for no visible reason.
+  // Only offer fields that have data; fall back to the first angle when the
+  // chosen one has none (e.g. a pinned chart's angle was emptied).
   const fields = useMemo(() => pivotFieldsFor(entries), [entries]);
-  const effective = useMemo(() => {
-    const has = (k?: string) => !k || fields.some((f) => f.key === k);
-    const next = { ...assignment };
-    if (!next.rows || !has(next.rows)) next.rows = fields[0]?.key;
-    if (!has(next.columns)) delete next.columns;
-    if (!has(next.filters)) delete next.filters;
-    return next;
-  }, [assignment, fields]);
+  const has = (k: string) => fields.some((f) => f.key === k);
+  const rowField = groupBy && has(groupBy) ? groupBy : fields[0]?.key;
+  const colField = splitBy && has(splitBy) && splitBy !== rowField ? splitBy : undefined;
+  const filterField = filterBy && has(filterBy) && filterBy !== rowField && filterBy !== colField ? filterBy : undefined;
 
-  const filterValues = useMemo(() => (effective.filters ? pivotFilterOptions(entries, effective.filters) : []), [entries, effective.filters]);
+  const filterValues = useMemo(() => (filterField ? pivotFilterOptions(entries, filterField) : []), [entries, filterField]);
+  const filtered = useMemo(() => applyPivotFilter(entries, filterField, filterIncluded ? Array.from(filterIncluded) : null), [entries, filterField, filterIncluded]);
+  const chartData = useMemo(() => (rowField ? computeChartData(filtered, rowField) : []), [filtered, rowField]);
+  const crossTab = useMemo(() => (rowField && colField ? computeCrossTab(filtered, rowField, colField) : null), [filtered, rowField, colField]);
+  const coverage = useMemo(() => (rowField ? pivotCoverage(filtered, rowField) : { entries: 0, multi: false }), [filtered, rowField]);
 
-  const filteredEntries = useMemo(
-    () => applyPivotFilter(entries, effective.filters, filterIncluded ? Array.from(filterIncluded) : null),
-    [entries, effective.filters, filterIncluded]
-  );
+  const fieldOptions = fields.map((f) => ({ value: f.key, label: f.label }));
+  const defaultTitle = rowField ? `By ${pivotFieldLabel(rowField)}${colField ? ` × ${pivotFieldLabel(colField)}` : ''}` : 'Pareto';
 
-  const rowField = effective.rows;
-  const colField = effective.columns;
-  const coverage = useMemo(() => (rowField ? pivotCoverage(filteredEntries, rowField) : { entries: 0, multi: false }), [filteredEntries, rowField]);
-
-  const chartData = useMemo(() => (rowField ? computeChartData(filteredEntries, rowField) : []), [filteredEntries, rowField]);
-  const crossTab = useMemo(() => (rowField && colField ? computeCrossTab(filteredEntries, rowField, colField) : null), [filteredEntries, rowField, colField]);
-
-  function defaultTitle(): string {
-    if (!rowField) return 'Pareto';
-    const parts = [pivotFieldLabel(rowField)];
-    if (colField) parts.push(pivotFieldLabel(colField));
-    return `By ${parts.join(' × ')}`;
-  }
-
-  async function handleSave() {
-    if (!pillarId || !kpiGroup || !rowField) return;
+  async function pin() {
+    if (!rowField) return;
     setSaveState({ busy: true, message: null, error: null });
     try {
       const saved = await saveCustomPareto({
         department_id: department.id,
         pillar_id: pillarId,
         kpi_base_name: kpiGroup.key,
-        title: title.trim() || defaultTitle(),
+        title: title.trim() || defaultTitle,
         row_field: rowField,
         column_field: colField ?? null,
-        filter_field: effective.filters ?? null,
-        filter_values: effective.filters && filterIncluded ? Array.from(filterIncluded) : null,
+        filter_field: filterField ?? null,
+        filter_values: filterField && filterIncluded ? Array.from(filterIncluded) : null,
         created_by: employee?.id ?? null,
       });
       setExisting(saved);
-      setSaveState({ busy: false, message: `Saved to the Board as "${saved.title}".`, error: null });
+      setSaveState({ busy: false, message: `Pinned to the Board as "${saved.title}".`, error: null });
     } catch (e) {
       setSaveState({ busy: false, message: null, error: errorMessage(e, 'Failed to save') });
     }
   }
 
-  async function handleDelete() {
+  async function unpin() {
     if (!existing) return;
     setSaveState({ busy: true, message: null, error: null });
     try {
@@ -426,129 +312,161 @@ function PivotSection({ pillarId, kpiGroup, refreshKey }: { pillarId: string | n
       setExisting(null);
       setSaveState({ busy: false, message: 'Removed from the Board.', error: null });
     } catch (e) {
-      setSaveState({ busy: false, message: null, error: errorMessage(e, 'Failed to delete') });
+      setSaveState({ busy: false, message: null, error: errorMessage(e, 'Failed to remove') });
     }
   }
 
+  if (loading) {
+    return (
+      <div className="card">
+        <InlineLoader />
+      </div>
+    );
+  }
+  if (error) return <div className="alert alert-error">{error}</div>;
+  if (entries.length === 0 || !rowField) {
+    return (
+      <div className="card">
+        <div className="empty-state">
+          Nothing tagged for this KPI yet. Tag remarks in <b>1 · Tag remarks</b> (or in Enter Remarks), then come back here.
+        </div>
+      </div>
+    );
+  }
+
+  const maxCell = crossTab ? Math.max(1, ...Array.from(crossTab.grid.values())) : 1;
+
   return (
     <div className="card">
-      <h3>Pivot builder {kpiGroup ? `— ${kpiGroup.label}` : ''} <InfoTip>Drag fields into Filters / Rows / Columns to slice the categorised entries for this KPI — same idea as an
-        Excel PivotChart. Each angle (Cause, Equipment, Location…) is a field of its own, filled from the Pareto tags — AI review, Enter Remarks
-        or the Pareto workbook import; "Category (CSV)" is the export/re-import cycle. Put two angles in Rows and Columns to see how they
-        combine (e.g. which equipment comes up with which cause). A remark with several tags counts once under each.
-        Save it to also show this breakdown as an extra Pareto card on the SQDC Board for this KPI — it stays live,
-        recomputed from whatever's categorised whenever the board loads, not a frozen snapshot.</InfoTip></h3>
-      {error && <div className="alert alert-error">{error}</div>}
-      {!kpiGroup ? (
-        <div className="empty-state">Pick a pillar and KPI above.</div>
-      ) : loading ? (
-        <InlineLoader />
-      ) : entries.length === 0 ? (
-        <div className="empty-state">No categorised entries for this KPI yet — tag remarks with the AI above, in Enter Remarks, or with the CSV cycle.</div>
-      ) : (
-        <>
-          <div className="pivot-layout">
-            <div className="pivot-chart-side">
-              {effective.filters && (
-                <div className="pivot-filter-checklist">
-                  <span className="pivot-filter-checklist-label">{pivotFieldLabel(effective.filters)}:</span>
-                  {filterValues.map((v) => {
-                    const checked = filterIncluded ? filterIncluded.has(v) : true;
-                    return (
-                      <label key={v} className="pivot-filter-checkbox">
-                        <CheckField
-                          checked={checked}
-                          onChange={(on) => {
-                            const next = new Set(filterIncluded ?? filterValues);
-                            if (on) next.add(v);
-                            else next.delete(v);
-                            setFilterIncluded(next);
-                          }}
-                        />
-                        {v}
-                      </label>
-                    );
-                  })}
-                </div>
-              )}
-              {!rowField ? (
-                <div className="empty-state">Drag a field into Rows to see a breakdown.</div>
-              ) : crossTab ? (
-                <div className="table-scroll">
-                  <table className="action-table">
-                    <thead>
-                      <tr>
-                        <th>{pivotFieldLabel(rowField)}</th>
-                        {crossTab.cols.map((c) => (
-                          <th key={c}>{c}</th>
-                        ))}
-                        <th>Total</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {crossTab.rows.map((r) => {
-                        const rowTotal = crossTab.cols.reduce((sum, c) => sum + (crossTab.grid.get(`${r}\u0000${c}`) ?? 0), 0);
+      <div className="analyse-controls">
+        <div className="field-label">
+          Group by
+          <Select value={rowField} onChange={setGroupBy} options={fieldOptions} ariaLabel="Group by" />
+        </div>
+        <div className="field-label">
+          <span className="field-title">
+            Split by <InfoTip>Pick a second field to see how the two combine — e.g. Cause split by Equipment.</InfoTip>
+          </span>
+          <Select
+            value={colField ?? ''}
+            onChange={setSplitBy}
+            options={[{ value: '', label: 'Nothing' }, ...fieldOptions.filter((o) => o.value !== rowField)]}
+            ariaLabel="Split by"
+          />
+        </div>
+        <div className="field-label">
+          Filter by
+          <Select
+            value={filterField ?? ''}
+            onChange={(v) => {
+              setFilterBy(v);
+              setFilterIncluded(null);
+            }}
+            options={[{ value: '', label: 'Nothing' }, ...fieldOptions.filter((o) => o.value !== rowField && o.value !== colField)]}
+            ariaLabel="Filter by"
+          />
+        </div>
+      </div>
+
+      {filterField && (
+        <div className="analyse-filter" role="group" aria-label={`Show only these ${pivotFieldLabel(filterField)} values`}>
+          <span className="muted analyse-filter-hint">Click a {pivotFieldLabel(filterField)} value to hide or show it:</span>
+          {filterValues.map((v) => {
+            const on = filterIncluded ? filterIncluded.has(v) : true;
+            return (
+              <Chip
+                key={v}
+                text={v}
+                rounded="full"
+                size="small"
+                selected={on}
+                className={`analyse-filter-chip${on ? ' is-on' : ''}`}
+                onClick={() => {
+                  const next = new Set(filterIncluded ?? filterValues);
+                  if (on) next.delete(v);
+                  else next.add(v);
+                  setFilterIncluded(next.size === filterValues.length ? null : next);
+                }}
+              />
+            );
+          })}
+        </div>
+      )}
+
+      <div className="analyse-chart">
+        {crossTab ? (
+          <div className="table-scroll">
+            <table className="action-table analyse-heat">
+              <thead>
+                <tr>
+                  <th>
+                    {pivotFieldLabel(rowField)} ↓ · {pivotFieldLabel(colField!)} →
+                  </th>
+                  {crossTab.cols.map((c) => (
+                    <th key={c}>{c}</th>
+                  ))}
+                  <th>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {crossTab.rows.map((r) => {
+                  const rowTotal = crossTab.cols.reduce((sum, c) => sum + (crossTab.grid.get(`${r}\u0000${c}`) ?? 0), 0);
+                  return (
+                    <tr key={r}>
+                      <th scope="row">{r}</th>
+                      {crossTab.cols.map((c) => {
+                        const n = crossTab.grid.get(`${r}\u0000${c}`) ?? 0;
+                        const strength = n / maxCell;
                         return (
-                          <tr key={r}>
-                            <td>{r}</td>
-                            {crossTab.cols.map((c) => (
-                              <td key={c}>{crossTab.grid.get(`${r}\u0000${c}`) ?? 0}</td>
-                            ))}
-                            <td>
-                              <strong>{rowTotal}</strong>
-                            </td>
-                          </tr>
+                          <td
+                            key={c}
+                            className="analyse-heat-cell"
+                            style={n ? { background: `color-mix(in srgb, ${color} ${Math.round(12 + strength * 70)}%, white)`, color: strength > 0.55 ? 'white' : undefined } : undefined}
+                          >
+                            {n || ''}
+                          </td>
                         );
                       })}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <>
-                  <ParetoChart data={chartData} shareOf={coverage.multi ? coverage.entries : undefined} />
-                  {coverage.multi && (
-                    <div className="muted pivot-multi-note">
-                      {coverage.entries} remarks · some carry more than one {pivotFieldLabel(rowField)} tag, so the bars add up to more than {coverage.entries}.
-                      Bar % = share of remarks mentioning it.
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-            <div className="pivot-panel-side">
-              <PivotFieldPanel fields={fields} assignment={effective} onAssignmentChange={setAssignment} />
-            </div>
+                      <td className="analyse-heat-total">{rowTotal}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
+        ) : (
+          <>
+            <ParetoChart data={chartData} barColor={color} maxBars={12} cumulativeOfAll shareOf={coverage.multi ? coverage.entries : undefined} />
+            <div className="muted analyse-note">
+              {coverage.entries} remark{coverage.entries === 1 ? '' : 's'} tagged in {pivotFieldLabel(rowField)}
+              {coverage.multi ? ' · some carry more than one tag, so the bars add up to more. Bar % = share of remarks mentioning it.' : '.'}
+            </div>
+          </>
+        )}
+      </div>
 
-          {rowField && (
-            <div className="pivot-save-row">
-              <TextField className="pivot-title-input" placeholder={defaultTitle()} value={title} onChange={setTitle} ariaLabel="Chart title" />
-              <Button type="button" themeColor="primary" disabled={saveState.busy} onClick={handleSave}>
-                {saveState.busy ? 'Saving…' : existing ? 'Update on Board' : 'Save to Board'}
-              </Button>
-              {existing && (
-                <Button type="button" themeColor="error" disabled={saveState.busy} onClick={handleDelete}>
-                  Delete from Board
-                </Button>
-              )}
-            </div>
+      <div className="analyse-pin">
+        <div className="analyse-pin-text">
+          <b>Show on the SQDC Board</b>
+          <span className="muted">Adds this chart to {kpiGroup.label}'s card on the Board. It stays live — new tags appear automatically.</span>
+        </div>
+        <div className="analyse-pin-actions">
+          <TextField className="pivot-title-input" placeholder={defaultTitle} value={title} onChange={setTitle} ariaLabel="Chart title" />
+          <Button themeColor="primary" disabled={saveState.busy} onClick={pin}>
+            {saveState.busy ? 'Saving…' : existing ? 'Update on Board' : 'Pin to Board'}
+          </Button>
+          {existing && (
+            <Button fillMode="flat" themeColor="error" disabled={saveState.busy} onClick={unpin}>
+              Remove from Board
+            </Button>
           )}
-          {saveState.message && (
-            <div className="alert alert-success" style={{ marginTop: 10 }}>
-              {saveState.message}
-            </div>
-          )}
-          {saveState.error && (
-            <div className="alert alert-error" style={{ marginTop: 10 }}>
-              {saveState.error}
-            </div>
-          )}
-        </>
-      )}
+        </div>
+        {saveState.message && <div className="alert alert-success">{saveState.message}</div>}
+        {saveState.error && <div className="alert alert-error">{saveState.error}</div>}
+      </div>
     </div>
   );
 }
-
 
 // ---------------------------------------------------------------------------
 
@@ -558,41 +476,61 @@ export default function Insights() {
   const [kpis, setKpis] = useState<Kpi[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedPillarId, setSelectedPillarId] = useState<string | null>(null);
-  const [selectedKpiKey, setSelectedKpiKey] = useState<string | null>(null);
+  const [pillarId, setPillarId] = useState<string | null>(null);
+  const [kpiKey, setKpiKey] = useState<string | null>(null);
+  const [tab, setTab] = useState(0);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [remarks, setRemarks] = useState<RawEntryRow[]>([]);
+  const [tagsByEntry, setTagsByEntry] = useState<Map<string, Record<string, string[]>>>(new Map());
+  // Which KPI + refresh the remarks above belong to — while it differs from
+  // the current one, a load is in flight.
+  const [remarksKey, setRemarksKey] = useState('');
+  const [remarksError, setRemarksError] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([fetchPillars(), fetchKpis(department.id)])
       .then(([p, k]) => {
         setPillars(p);
         setKpis(k);
-        setSelectedPillarId((prev) => prev ?? p[0]?.id ?? null);
+        setPillarId((prev) => prev ?? p[0]?.id ?? null);
       })
       .catch((e) => setError(errorMessage(e, 'Failed to load')))
       .finally(() => setLoading(false));
   }, [department.id]);
 
-  // Excludes secondary/"(Old)"-calculation KPIs (e.g. Mainliner Load GMPH's
-  // old formula) the same way DataEntry's buildGroups does — otherwise
-  // baseNameOf collapses them into the same group as their primary KPI and
-  // every export/pivot/Pareto here would silently mix in rows from a
-  // calculation that's kept only for historical comparison, never for
-  // judging performance.
-  const kpiGroups = useMemo(
-    () => groupKpisByBase(kpis.filter((k) => k.pillar_id === selectedPillarId && !k.is_secondary)),
-    [kpis, selectedPillarId]
-  );
+  // Secondary "(Old)"-calculation KPIs are left out, as in Enter Remarks —
+  // otherwise they'd merge into their primary KPI's group here.
+  const kpiGroups = useMemo(() => groupKpisByBase(kpis.filter((k) => k.pillar_id === pillarId && !k.is_secondary)), [kpis, pillarId]);
+  const kpiGroup = kpiGroups.find((g) => g.key === kpiKey) ?? kpiGroups[0] ?? null;
+  const pillar = pillars.find((p) => p.id === pillarId);
+  const color = (PILLAR_COLORS[pillar?.code ?? 'Q'] ?? PILLAR_COLORS.Q).base;
 
-  // Selecting a different pillar should reset which KPI is picked, rather
-  // than silently keeping a same-named group from the previous pillar (base
-  // names aren't guaranteed unique across pillars).
+  // The KPI's missed-target remarks + their tags: the summary strip and the
+  // Remarks tab both read these.
+  const idsKey = kpiGroup?.ids.join(',') ?? '';
+  const wantedKey = `${idsKey}#${refreshKey}`;
+  const remarksLoading = Boolean(idsKey) && remarksKey !== wantedKey;
   useEffect(() => {
-    setSelectedKpiKey(kpiGroups[0]?.key ?? null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedPillarId]);
-
-  const selectedKpiGroup = kpiGroups.find((g) => g.key === selectedKpiKey) ?? null;
+    if (!idsKey) return;
+    let cancelled = false;
+    fetchMissedEntriesForKpiIds(idsKey.split(','), format(subDays(new Date(), LOOKBACK_DAYS), 'yyyy-MM-dd'))
+      .then(async (rows) => {
+        const tags = await fetchTagsByEntry(rows.map((r) => r.id));
+        if (cancelled) return;
+        setRemarks(rows);
+        setTagsByEntry(tags);
+        setRemarksError(null);
+        setRemarksKey(`${idsKey}#${refreshKey}`);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setRemarksError(errorMessage(e, 'Failed to load remarks'));
+        setRemarksKey(`${idsKey}#${refreshKey}`);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [idsKey, refreshKey]);
 
   if (loading) return <PageLoader label="Loading insights…" />;
   if (error) return <div className="alert alert-error page-margin">{error}</div>;
@@ -600,36 +538,51 @@ export default function Insights() {
   return (
     <div className="page">
       <div className="page-header">
-        <h1>Insights <InfoTip>Pick a pillar and KPI, then tag its missed-target remarks from one or more angles — with the built-in Gemini suggestions you review
-          before saving, or by exporting the CSV to any AI tool and re-importing — and build a pivot breakdown.</InfoTip></h1>
+        <h1>
+          Insights <span className="muted admin-dept-name">· {department.name}</span>{' '}
+          <InfoTip>
+            Pick a KPI, tag its missed-target remarks from one or more angles (Cause, Equipment…) with AI suggestions you review, then see what
+            drives the misses and pin the chart to the Board.
+          </InfoTip>
+        </h1>
       </div>
 
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="quadrant-block-title" style={{ padding: '0 0 4px' }}>
-          Pillar
-        </div>
-        <PillarPicker pillars={pillars} selectedId={selectedPillarId} onSelect={setSelectedPillarId} />
-        <div className="quadrant-block-title" style={{ padding: '10px 0 4px' }}>
-          KPI
-        </div>
-        <KpiPicker groups={kpiGroups} selectedKey={selectedKpiKey} onSelect={setSelectedKpiKey} />
+      <div className="card insights-head">
+        <KpiPicker
+          pillars={pillars}
+          pillarId={pillarId}
+          onPillar={(id) => {
+            setPillarId(id);
+            setKpiKey(null);
+          }}
+          groups={kpiGroups}
+          kpiKey={kpiGroup?.key ?? null}
+          onKpi={setKpiKey}
+        />
+        {kpiGroup && <TagSummary remarks={remarks} tagsByEntry={tagsByEntry} loading={remarksLoading} />}
+        {remarksError && <div className="alert alert-error">{remarksError}</div>}
       </div>
 
-      <div className="insights-stack">
-        <ExportTableSection kpiGroup={selectedKpiGroup} refreshKey={refreshKey} />
-        {selectedPillarId && selectedKpiGroup && (
-          <AiCategorize
-            key={`${selectedPillarId}|${selectedKpiGroup.key}`}
-            pillarId={selectedPillarId}
-            kpiLabel={selectedKpiGroup.label}
-            kpiIds={selectedKpiGroup.ids}
-            color={(PILLAR_COLORS[pillars.find((p) => p.id === selectedPillarId)?.code ?? 'Q'] ?? PILLAR_COLORS.Q).base}
-            onSaved={() => setRefreshKey((k) => k + 1)}
-          />
-        )}
-        <ImportSection onImported={() => setRefreshKey((k) => k + 1)} />
-        <PivotSection pillarId={selectedPillarId} kpiGroup={selectedKpiGroup} refreshKey={refreshKey} />
-      </div>
+      {pillarId && kpiGroup && (
+        <TabStrip selected={tab} onSelect={(e) => setTab(e.selected)} className="admin-tabs insights-tabs" keepTabsMounted>
+          <TabStripTab title="1 · Tag remarks">
+            <AiCategorize
+              key={`${pillarId}|${kpiGroup.key}`}
+              pillarId={pillarId}
+              kpiLabel={kpiGroup.label}
+              kpiIds={kpiGroup.ids}
+              color={color}
+              onSaved={() => setRefreshKey((k) => k + 1)}
+            />
+          </TabStripTab>
+          <TabStripTab title="2 · Analyse">
+            <AnalyseTab key={`${pillarId}|${kpiGroup.key}`} pillarId={pillarId} kpiGroup={kpiGroup} refreshKey={refreshKey} color={color} />
+          </TabStripTab>
+          <TabStripTab title={`3 · Remarks${remarksLoading ? '' : ` (${remarks.length})`}`}>
+            <RemarksTab remarks={remarks} tagsByEntry={tagsByEntry} />
+          </TabStripTab>
+        </TabStrip>
+      )}
     </div>
   );
 }

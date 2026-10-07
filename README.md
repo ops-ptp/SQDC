@@ -9,10 +9,10 @@ Average Litres per Vessel Call) still get their Performance value typed in manua
 since they aren't reliably captured by the upload. The dashboard renders each pillar
 with a large S/Q/D/C letter mosaic, a run chart vs. target, a Pareto of reasons, and the
 pillar's action list. A **Next 24 Hours** board shows the day's leading KPI projections —
-also from the Admin Excel upload, no manual entry needed. An **Insights** page lets an
-admin export missed-target remarks, run them through any AI tool of their choice
-(outside this app — no API cost to this project), re-import the categorized result, and
-optionally pin a live-updating breakdown of it as an extra chart on the Board itself.
+also from the Admin Excel upload, no manual entry needed. An **Insights** page lets a
+department admin tag missed-target remarks from several angles with AI suggestions
+(Google Gemini) they review, analyse what drives the misses, and pin a live-updating
+chart of it to the Board.
 
 Stack: React + TypeScript + Vite, Supabase (Postgres + REST), deployed on Vercel.
 
@@ -78,8 +78,8 @@ to be operated with no code or SQL involved. Day to day, that covers:
 - Adding a new employee, editing an ID/name, making someone a site admin, or
   deactivating a leaver (Site Admin → Employees)
 - Entering data and remarks, managing the Action Log
-- Running an Insights export, AI categorize, re-import, pivot cycle, and pinning a chart
-  to the Board
+- Tagging remarks in Insights (AI-assisted), analysing them and pinning a chart to the
+  Board
 
 ### What still needs someone comfortable with SQL or code
 
@@ -190,9 +190,8 @@ A few modeling decisions worth knowing:
 pillars: the 4 pillars.
 kpis: every KPI - pillar, unit, target, direction, leading/lagging, visible. kpi_no is a
 friendly display number, not the real id.
-kpi_assignments: who's responsible for a KPI (currently unused by Enter Remarks).
 daily_entries: one row per KPI per day. is_manual_override protects a person-typed
-value from the upload. ai_category is the Insights categorization tag, if any.
+value from the upload.
 weekly_entries: the Board's Weekly-view source of truth for the 7 KPIs the Weekly
 workbook tracks, keyed by pillar + KPI base name + ISO year + ISO week (not kpi_id,
 since the sheet's figures are already blended, no Day/Night split).
@@ -203,8 +202,7 @@ leading_entries: Next 24 Hours values, one row per KPI per day.
 kpi_daily_targets: per-day/shift target from the Target sheet, falls back to kpis.target.
 departments: one row per department board (slug = its /d/<slug> address, entry_mode,
 upload_format). department_members: employee x department x role (admin/member).
-employees: one company-wide roster; is_site_admin marks site admins (employees.is_admin
-is the pre-department flag, no longer read). kpis, actions, weekly_entries,
+employees: one company-wide roster; is_site_admin marks site admins. kpis, actions, weekly_entries,
 custom_paretos and kpi_categories carry department_id; everything keyed by kpi_id
 inherits its KPI's department.
 custom_paretos: a saved Insights pivot chart pinned to the Board - stores the
@@ -313,32 +311,28 @@ fix. Since Admin uploads are trusted-user-only, exceljs was used instead.
 
 ---
 
-## Insights - AI-assisted categorization and pivot builder
+## Insights - AI-assisted tagging and analysis
 
-### Built-in AI categorisation (Google Gemini)
+Insights works on one KPI at a time (pillar pills, then KPI pills). A summary strip shows
+its missed-target remarks over the last 180 days, how many are tagged, and how many per
+angle. Three tabs, in the order you'd use them:
 
-Insights → "AI categorisation" sends one KPI's missed-target remarks (a date range,
-up to 300 at a time) to Google Gemini and asks it to tag each remark from one or more
-ANGLES at once (up to 5) — e.g. Cause, Equipment, Location, Crew. An angle is a Pareto
-"dimension": it has its own category pick-list (kpi_categories) and its own Pareto tab
-in the Weekly view. Admins can add a new angle right there ("+ New angle"); its settings
-live in kpi_dimensions. Each angle is either single-tag (one answer per remark, e.g.
-Location) or multi-tag ("Up to 3 tags per remark", e.g. a delay caused by both a CHE
-breakdown and a manpower shortage).
+### 1 · Tag remarks (Google Gemini)
+
+Sends the KPI's missed-target remarks (a date range, up to 300 at a time) to Google
+Gemini and asks it to tag each remark from one or more ANGLES at once (up to 5) — e.g.
+Cause, Equipment, Location, Crew. An angle is a Pareto "dimension": it has its own
+category pick-list (kpi_categories) and its own Pareto tab in the Weekly view. Admins can
+add a new angle right there ("+ New angle"); its settings live in kpi_dimensions. Each
+angle is either single-tag (one answer per remark, e.g. Location) or multi-tag ("Up to 3
+tags per remark", e.g. a delay caused by both a CHE breakdown and a manpower shortage).
 
 Gemini only SUGGESTS tags, each with a confidence and the words behind it. The
 department admin reviews every row — removes or adds tags per angle, unticks rows —
 sees each angle's preview Pareto, and only "Save" writes anything: the tags
-(entry_categories — the same tags Enter Remarks, the Weekly Pareto and the pivot use),
-any new category into that angle's pick-list, and the angle settings. Saving only adds
-tags; it never removes ones already on a remark. It no longer writes ai_category — that
-column is now only the "Category (CSV)" of the export → re-import cycle.
-
-In the pivot builder every angle is a field of its own, so two angles can be crossed
-(Rows = Cause, Columns = Equipment). A remark with several tags in one angle counts once
-under each; when that happens the chart labels each bar with its share of remarks
-("2 · 67%") and notes that the bars add up to more than the remarks behind them.
-Saved pivots on the board work the same way.
+(entry_categories — the same tags Enter Remarks and the Weekly Pareto use), any new
+category into that angle's pick-list, and the angle settings. Saving only adds tags; it
+never removes ones already on a remark.
 
 The Gemini key never reaches the browser. It lives in the Supabase Edge Function
 supabase/functions/categorize-remarks as a secret: Supabase dashboard → Edge Functions →
@@ -350,22 +344,23 @@ Google may use prompts and responses to improve its products. Deploy changes to 
 function with the Supabase CLI (supabase functions deploy categorize-remarks) or the
 dashboard.
 
-Slices missed-target remarks by any angle using an AI tool the admin already has access
-to. No AI/API integration lives in this app, and it never sends data anywhere on its
-own.
+### 2 · Analyse
 
-1. Pick a pillar and KPI.
-2. Export table - an Excel-style sortable/filterable table (AutoFilter-style dropdown
-   per column, with search) of missed-target entries over the last 180 days. Download
-   CSV exports exactly what's currently visible. A copyable, editable prompt tells the
-   AI which angle to categorize by.
-3. Re-import the completed CSV - matched by a hidden id column, only the category field
-   is written.
-4. Pivot builder - drag-and-drop field panel (Category / Shift / Week) into Filters /
-   Rows / Columns, next to a live Pareto chart or cross-tab table.
-5. Save to Board (or Update) pins that pivot configuration as an extra chart on the
-   Board for that KPI - it re-runs live against whatever's currently categorized, not a
-   frozen snapshot. Delete only exists in Insights, never on the Board page itself.
+Group by any angle (or Shift / Week) for a Pareto, Split by a second field for a shaded
+cross-tab (e.g. Cause × Equipment), and Filter by a third. A remark with several tags in
+one angle counts once under each; the chart then labels each bar with its share of
+remarks ("2 · 67%"). "Pin to Board" saves that view as an extra chart on the KPI's Board
+card (custom_paretos) — live, recomputed from the tags whenever the Board loads. Remove
+only exists here, never on the Board page itself.
+
+### 3 · Remarks
+
+Every missed-target remark of the last 180 days with its tags — an Excel-style
+sortable/filterable table (AutoFilter-style dropdown per column, with search).
+
+The old CSV export → external AI → re-import cycle was retired on 2026-10-07; the
+categories it had written became tags under a "Category" angle
+(supabase/migrations_cleanup_csv_cycle.sql).
 
 Shared pivot math lives in src/lib/pivot.ts - if a saved chart ever renders differently
 on the Board than in Insights, check there first.
@@ -427,7 +422,7 @@ nothing in the database stops a determined person with the anon key from writing
 another department's rows.
 
 Before relying on this beyond an internal pilot, consider real Supabase Auth with RLS
-policies checking auth.uid() against employees/kpi_assignments.
+policies checking auth.uid() against employees/department_members.
 
 ## What's intentionally out of scope
 

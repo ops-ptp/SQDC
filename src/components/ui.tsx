@@ -206,14 +206,20 @@ export function InlineLoader({ label = 'Loading…' }: { label?: string }) {
 }
 
 /** Small "i" button that reveals explanatory text on hover, focus or tap —
- * keeps help copy available without leaving paragraphs on screen. */
+ * keeps help copy available without leaving paragraphs on screen.
+ *
+ * Rendered as a focusable span with role="button", not a <button>: InfoTips
+ * often sit inside a field's <label>, and a label forwards clicks on its
+ * non-interactive parts (like a Kendo dropdown) to its first <button> or
+ * input — which made clicking the dropdown open this tip instead. */
 export function InfoTip({ children, label = 'More info' }: { children: React.ReactNode; label?: string }) {
-  const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
+  const [anchor, setAnchor] = useState<HTMLSpanElement | null>(null);
   const [open, setOpen] = useState(false);
   return (
     <>
-      <button
-        type="button"
+      <span
+        role="button"
+        tabIndex={0}
         ref={setAnchor}
         className="info-tip"
         aria-label={label}
@@ -222,10 +228,20 @@ export function InfoTip({ children, label = 'More info' }: { children: React.Rea
         onMouseLeave={() => setOpen(false)}
         onFocus={() => setOpen(true)}
         onBlur={() => setOpen(false)}
-        onClick={() => setOpen((o) => !o)}
+        onClick={(e) => {
+          // Don't let a surrounding <label> treat this as a click on its field.
+          e.preventDefault();
+          setOpen((o) => !o);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setOpen((o) => !o);
+          } else if (e.key === 'Escape') setOpen(false);
+        }}
       >
         <SvgIcon icon={infoCircleIcon} size="small" />
-      </button>
+      </span>
       <Popover show={open && Boolean(anchor)} anchor={anchor} position="bottom" callout className="info-tip-popover">
         <div className="info-tip-body">{children}</div>
       </Popover>

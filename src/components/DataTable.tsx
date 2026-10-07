@@ -14,11 +14,6 @@ interface Props<T> {
   rows: T[];
   rowKey: (row: T) => string;
   emptyMessage?: string;
-  /** Called whenever the filtered+sorted result changes — lets the parent
-   * export/act on exactly what's currently visible in the table, matching
-   * the spreadsheet mental model of "download what I'm looking at" rather
-   * than a separately-tracked selection. */
-  onVisibleRowsChange?: (rows: T[]) => void;
 }
 
 type SortState = { key: string; dir: 'asc' | 'desc' } | null;
@@ -118,7 +113,7 @@ function FilterDropdown({
 /** A small Excel-like table: click a header's text to sort (cycles asc ->
  * desc -> unsorted); click the ▾ next to it to open an AutoFilter-style
  * checkbox dropdown for that column. */
-export default function DataTable<T>({ columns, rows, rowKey, emptyMessage = 'No rows.', onVisibleRowsChange }: Props<T>) {
+export default function DataTable<T>({ columns, rows, rowKey, emptyMessage = 'No rows.' }: Props<T>) {
   const [filters, setFilters] = useState<Record<string, Set<string> | null>>({});
   const [openFilterKey, setOpenFilterKey] = useState<string | null>(null);
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
@@ -159,11 +154,6 @@ export default function DataTable<T>({ columns, rows, rowKey, emptyMessage = 'No
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filtered, sort]);
-
-  useEffect(() => {
-    onVisibleRowsChange?.(sorted);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sorted]);
 
   function toggleSort(key: string) {
     setSort((prev) => {

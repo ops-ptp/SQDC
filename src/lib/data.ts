@@ -49,16 +49,6 @@ export async function fetchLeadingKpis(departmentId: string): Promise<KpiWithPil
   return data as unknown as KpiWithPillar[];
 }
 
-export async function fetchKpisForEmployee(employeeId: string): Promise<KpiWithPillar[]> {
-  const { data, error } = await supabase
-    .from('kpi_assignments')
-    .select('kpi:kpis(*, pillar:pillars(code, name))')
-    .eq('employee_id', employeeId);
-  if (error) throw error;
-  const rows = (data ?? []) as unknown as { kpi: KpiWithPillar }[];
-  return rows.map((r) => r.kpi).filter((k) => k && k.active);
-}
-
 export async function fetchReasonsForKpi(kpiId: string): Promise<Reason[]> {
   const { data, error } = await supabase
     .from('reasons')
@@ -445,12 +435,6 @@ export async function fetchAllEmployeesAdmin(): Promise<Employee[]> {
   return data as Employee[];
 }
 
-export async function findEmployeeByCode(code: string): Promise<Employee | null> {
-  const { data, error } = await supabase.from('employees').select('*').eq('employee_code', code).maybeSingle();
-  if (error) throw error;
-  return (data as Employee) ?? null;
-}
-
 export interface NewEmployeeInput {
   employee_code: string;
   name: string;
@@ -704,10 +688,8 @@ export async function bulkUpsertLeadingEntriesFromUpload(rows: UploadLeadingRow[
 }
 
 // ---------------------------------------------------------------------------
-// Insights — CSV export → external AI categorize → re-import → pivot view.
-// No AI/API integration lives in this app; an admin runs the exported CSV
-// through whatever model they already have access to, by hand, outside the
-// app entirely. This layer only ever reads/writes daily_entries.ai_category.
+// Insights — missed-target remarks for one logical KPI, and the Pareto tags
+// (entry_categories) on them, per angle.
 // ---------------------------------------------------------------------------
 
 export interface RawEntryRow {
@@ -719,7 +701,6 @@ export interface RawEntryRow {
   unit: string;
   reason: string;
   remarks: string;
-  ai_category: string | null;
 }
 
 function shiftFromKpiName(name: string): 'Day' | 'Night' | null {
@@ -729,7 +710,7 @@ function shiftFromKpiName(name: string): 'Day' | 'Night' | null {
 }
 
 /** Missed-target entries for one logical KPI (its Day + Night catalog rows
- * combined, if split) — feeds the Insights export table, scoped to
+ * combined, if split) — feeds Insights (AI tagging and the remarks list), scoped to
  * whichever KPI the admin picked via the pillar/KPI pills rather than a
  * date-range-across-everything export.
  *
@@ -737,13 +718,13 @@ function shiftFromKpiName(name: string): 'Day' | 'Night' | null {
  * is_higher_better, not read from the stored met_target column — that
  * column is a snapshot taken when the row was written. If a KPI's
  * direction is corrected later, every entry written before that change
- * would otherwise keep the old, now-wrong verdict, and this export would
+ * would otherwise keep the old, now-wrong verdict, and Insights would
  * silently disagree with the Board (which already recomputes live). */
 export async function fetchMissedEntriesForKpiIds(kpiIds: string[], sinceDate: string): Promise<RawEntryRow[]> {
   if (kpiIds.length === 0) return [];
   const { data, error } = await supabase
     .from('daily_entries')
-    .select('id, entry_date, actual, target, remarks, reason_other, ai_category, reason:reasons(label), kpi:kpis(name, unit, is_higher_better)')
+    .select('id, entry_date, actual, target, remarks, reason_other, reason:reasons(label), kpi:kpis(name, unit, is_higher_better)')
     .in('kpi_id', kpiIds)
     .gte('entry_date', sinceDate)
     .order('entry_date', { ascending: false });
@@ -755,7 +736,6 @@ export async function fetchMissedEntriesForKpiIds(kpiIds: string[], sinceDate: s
     target: number;
     remarks: string | null;
     reason_other: string | null;
-    ai_category: string | null;
     reason: { label: string } | null;
     kpi: { name: string; unit: string; is_higher_better: boolean } | null;
   }[];
@@ -770,37 +750,13 @@ export async function fetchMissedEntriesForKpiIds(kpiIds: string[], sinceDate: s
       unit: r.kpi?.unit ?? '',
       reason: r.reason_other?.trim() || r.reason?.label || '',
       remarks: r.remarks ?? '',
-      ai_category: r.ai_category,
     }));
-}
-
-export interface CategoryImportRow {
-  id: string;
-  category: string;
-}
-
-/** Writes back only `ai_category`, one row at a time by id — deliberately
- * not a bulk upsert, since that would require sending every other column
- * back too (risking accidentally clobbering actual/target/remarks with
- * stale values from the exported CSV if a row got edited in the app in the
- * meantime). Fine at this volume: a biweekly categorization batch is
- * dozens of rows, not thousands. */
-export async function bulkUpdateAiCategories(rows: CategoryImportRow[]): Promise<number> {
-  let written = 0;
-  for (const r of rows) {
-    const { error } = await supabase.from('daily_entries').update({ ai_category: r.category }).eq('id', r.id);
-    if (error) throw error;
-    written++;
-  }
-  return written;
 }
 
 export interface CategorizedEntryRow {
   id: string;
   entry_date: string;
   shift: 'Day' | 'Night' | null;
-  /** The single category from the CSV export → re-import cycle (ai_category). */
-  category: string | null;
   /** Pareto tags per angle (entry_categories), e.g. { Cause: ['QC breakdown', 'Manpower'] }. */
   tags: Record<string, string[]>;
 }
@@ -820,42 +776,29 @@ async function fetchAllPages<T>(page: (from: number, to: number) => PromiseLike<
   }
 }
 
-/** Already-categorised entries for one logical KPI (Day + Night ids
- * combined) — feeds the pivot/Pareto builder in Insights and the board's
- * saved Pareto card. An entry comes back when it has a CSV category or at
- * least one Pareto tag (from Enter Remarks, the AI review or the Pareto
- * workbook import); anything not categorised yet is simply absent rather
- * than showing up as a misleading "Uncategorised" bucket. */
+/** Tagged entries for one logical KPI (Day + Night ids combined) — feeds
+ * the Insights pivot and the board's saved Pareto card. An entry comes back
+ * when it has at least one Pareto tag (Enter Remarks, the AI review or the
+ * Pareto workbook import); anything not tagged yet is simply absent rather
+ * than showing up as a misleading "Untagged" bucket. */
 export async function fetchCategorizedEntriesForKpiIds(kpiIds: string[]): Promise<CategorizedEntryRow[]> {
   if (kpiIds.length === 0) return [];
-  type EntryRow = { id: string; entry_date: string; ai_category: string | null; kpi: { name: string } | null };
-  type TagRow = { dimension: string; category: string; entry: EntryRow };
-  const [withCategory, tagRows] = await Promise.all([
-    fetchAllPages<EntryRow>((a, b) =>
-      supabase.from('daily_entries').select('id, entry_date, ai_category, kpi:kpis(name)').in('kpi_id', kpiIds).not('ai_category', 'is', null).order('id').range(a, b)
-    ),
-    fetchAllPages<TagRow>((a, b) =>
-      supabase
-        .from('entry_categories')
-        .select('dimension, category, entry:daily_entries!inner(id, entry_date, ai_category, kpi_id, kpi:kpis(name))')
-        .in('entry.kpi_id', kpiIds)
-        .order('id')
-        .range(a, b)
-    ),
-  ]);
-
+  type TagRow = { dimension: string; category: string; entry: { id: string; entry_date: string; kpi: { name: string } | null } };
+  const tagRows = await fetchAllPages<TagRow>((a, b) =>
+    supabase
+      .from('entry_categories')
+      .select('dimension, category, entry:daily_entries!inner(id, entry_date, kpi_id, kpi:kpis(name))')
+      .in('entry.kpi_id', kpiIds)
+      .order('id')
+      .range(a, b)
+  );
   const byId = new Map<string, CategorizedEntryRow>();
-  const ensure = (r: EntryRow) => {
-    let row = byId.get(r.id);
-    if (!row) {
-      row = { id: r.id, entry_date: r.entry_date, shift: r.kpi ? shiftFromKpiName(r.kpi.name) : null, category: r.ai_category, tags: {} };
-      byId.set(r.id, row);
-    }
-    return row;
-  };
-  for (const r of withCategory) ensure(r);
   for (const t of tagRows) {
-    const row = ensure(t.entry);
+    let row = byId.get(t.entry.id);
+    if (!row) {
+      row = { id: t.entry.id, entry_date: t.entry.entry_date, shift: t.entry.kpi ? shiftFromKpiName(t.entry.kpi.name) : null, tags: {} };
+      byId.set(t.entry.id, row);
+    }
     const list = (row.tags[t.dimension] ??= []);
     if (!list.includes(t.category)) list.push(t.category);
   }

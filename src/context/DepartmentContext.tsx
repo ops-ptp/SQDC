@@ -71,7 +71,7 @@ export function useDeptPath(): (sub?: string) => string {
   return (sub = '') => departmentPath(dept, sub);
 }
 
-export function rememberDepartment(slug: string) {
+function rememberDepartment(slug: string) {
   try {
     localStorage.setItem(LAST_SLUG_KEY, slug);
   } catch {
@@ -91,7 +91,7 @@ function lastDepartmentSlug(): string | null {
  * should open: the last one this screen viewed, else the first department
  * (Operations — the original board, so existing bookmarks and TV screens
  * keep showing the same thing). */
-export function useHomeDepartment(): { department: Department | undefined; loading: boolean } {
+function useHomeDepartment(): { department: Department | undefined; loading: boolean } {
   const { departments, loading } = useDepartments();
   const active = departments.filter((d) => d.active);
   const last = lastDepartmentSlug();

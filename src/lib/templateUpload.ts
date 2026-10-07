@@ -24,9 +24,9 @@ import type { UploadDailyRow, UploadLeadingRow, UploadTargetRow } from './data';
 // cell's number format and converted, so both work.)
 // ============================================================================
 
-export const SHEET_DAILY = 'Daily';
-export const SHEET_TARGETS = 'Targets';
-export const SHEET_NEXT24 = 'Next 24hrs';
+const SHEET_DAILY = 'Daily';
+const SHEET_TARGETS = 'Targets';
+const SHEET_NEXT24 = 'Next 24hrs';
 
 interface TemplateKpi {
   base: string;

@@ -2,7 +2,7 @@ import { supabase } from './supabaseClient';
 import type { DailyEntry } from '../types';
 import { cleanLabel } from './categoryCore';
 
-export { DEFAULT_DIMENSION, cleanLabel, computeParetoRows, orderedDimensions, type ParetoRow } from './categoryCore';
+export { cleanLabel, orderedDimensions } from './categoryCore';
 
 // ---------------------------------------------------------------------------
 // Category tagging for the Weekly / Bi-weekly Pareto.

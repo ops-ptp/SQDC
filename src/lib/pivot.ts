@@ -7,16 +7,14 @@ import type { ParetoDatum } from '../components/ParetoChart';
 // Pareto card, so the two can never disagree.
 //
 // Fields:
-//   category      — the single "Category" written by the CSV export →
-//                   re-import cycle (daily_entries.ai_category)
 //   angle:<name>  — the Pareto tags in one angle (entry_categories with that
 //                   dimension: Cause, Equipment, Location…). A remark can
 //                   carry several tags in one angle, so a field can have
 //                   several VALUES per entry: the entry counts once under
 //                   each of them (Pareto of tags, like the Weekly Pareto).
 //   shift, week   — from the entry itself
-// An entry with no value for the Rows field is left out (not categorised
-// from that angle yet) rather than shown as an "Uncategorised" bar.
+// An entry with no value for the Group-by field is left out (not tagged
+// from that angle yet) rather than shown as an "Untagged" bar.
 // ---------------------------------------------------------------------------
 
 export interface PivotFieldDef {
@@ -24,31 +22,25 @@ export interface PivotFieldDef {
   label: string;
 }
 
-export const ANGLE_PREFIX = 'angle:';
+const ANGLE_PREFIX = 'angle:';
 export const angleField = (angle: string) => `${ANGLE_PREFIX}${angle}`;
 
 const BASE_FIELDS: PivotFieldDef[] = [
-  { key: 'category', label: 'Category (CSV)' },
   { key: 'shift', label: 'Shift' },
   { key: 'week', label: 'Week' },
 ];
 
-/** Kept for callers that only need the fixed fields. */
-export const PIVOT_FIELDS = BASE_FIELDS;
-
-/** Fields that have data in these entries: each angle found in their tags,
- * the CSV category if any entry has one, then Shift and Week. */
+/** Fields that have data in these entries: each angle found in their tags
+ * (Cause first), then Shift and Week. */
 export function pivotFieldsFor(entries: CategorizedEntryRow[]): PivotFieldDef[] {
   const angles = new Set<string>();
-  let hasCategory = false;
   for (const e of entries) {
-    if (e.category) hasCategory = true;
     for (const [angle, tags] of Object.entries(e.tags)) if (tags.length) angles.add(angle);
   }
   const angleFields = Array.from(angles)
     .sort((a, b) => (a === 'Cause' ? -1 : b === 'Cause' ? 1 : a.localeCompare(b)))
     .map((a) => ({ key: angleField(a), label: a }));
-  return [...angleFields, ...BASE_FIELDS.filter((f) => f.key !== 'category' || hasCategory)];
+  return [...angleFields, ...BASE_FIELDS];
 }
 
 export function pivotFieldLabel(key: string): string {
@@ -58,11 +50,9 @@ export function pivotFieldLabel(key: string): string {
 
 /** Every value an entry has for a field — none, one, or (for an angle with
  * several tags) more than one. */
-export function pivotDimValues(e: CategorizedEntryRow, key: string): string[] {
+function pivotDimValues(e: CategorizedEntryRow, key: string): string[] {
   if (key.startsWith(ANGLE_PREFIX)) return e.tags[key.slice(ANGLE_PREFIX.length)] ?? [];
   switch (key) {
-    case 'category':
-      return e.category ? [e.category] : [];
     case 'shift':
       return [e.shift ?? 'Unspecified'];
     case 'week':

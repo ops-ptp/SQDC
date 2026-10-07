@@ -46,7 +46,7 @@ export interface KpiRow {
 
 type InlineSettings = Pick<KpiRow, 'active' | 'isHigherBetter' | 'trackWeekly' | 'manualEntry'>;
 
-export function buildKpiRows(kpis: KpiWithPillar[], pillars: Pillar[]): KpiRow[] {
+function buildKpiRows(kpis: KpiWithPillar[], pillars: Pillar[]): KpiRow[] {
   const pillarById = new Map(pillars.map((p) => [p.id, p]));
   const map = new Map<string, { members: KpiWithPillar[] }>();
   for (const k of kpis) {

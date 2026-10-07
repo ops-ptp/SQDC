@@ -357,7 +357,7 @@ export default function AiCategorize({
       setMessage(
         `Saved ${tagRows.length} tag${tagRows.length === 1 ? '' : 's'} on ${accepted.length} remark${accepted.length === 1 ? '' : 's'} (${reviewAngles
           .map((a) => a.name)
-          .join(', ')}) — they now count in the Weekly Pareto, Enter Remarks and the pivot below.` +
+          .join(', ')}) — they now count in the Weekly Pareto, Enter Remarks and Analyse.` +
           (newByAngle.length ? ` New categories added — ${newByAngle.join('; ')}.` : '')
       );
       const savedIds = new Set(accepted.map((r) => r.entry.id));
@@ -376,17 +376,10 @@ export default function AiCategorize({
 
   return (
     <div className="card ai-cat">
-      <h3>
-        AI categorisation — {kpiLabel}{' '}
-        <InfoTip>
-          Google Gemini suggests Pareto tags for each missed-target remark, from one or more angles at once (e.g. Cause, Equipment, Location). You
-          review every suggestion before anything is saved. Saved tags are the same ones Enter Remarks, the Weekly Pareto and the pivot below use.
-        </InfoTip>
-      </h3>
-      <div className="alert alert-warning" style={{ marginBottom: 16 }}>
-        Remarks are sent to Google Gemini. Use a <b>paid</b> Google AI Studio key for live data — on the free tier Google may use what's sent to
-        improve its products.
-      </div>
+      <p className="muted insights-tab-intro">
+        Google Gemini suggests Pareto tags for each missed-target remark, from one or more angles at once. You review every suggestion before
+        anything is saved; saved tags are the same ones Enter Remarks, the Weekly Pareto and <b>Analyse</b> use.
+      </p>
 
       {notConfigured && <div className="alert alert-info">{notConfigured} A site admin adds the key in Supabase → Edge Functions → Secrets.</div>}
       {error && <div className="alert alert-error">{error}</div>}
@@ -394,6 +387,7 @@ export default function AiCategorize({
 
       <div className="ai-cat-setup">
         <div className="ai-cat-col">
+          <div className="ai-cat-step">Which remarks</div>
           <div className="ai-cat-row">
             <label className="field-label">
               From
@@ -408,23 +402,21 @@ export default function AiCategorize({
             <CheckField checked={onlyUntagged} onChange={setOnlyUntagged} />
             Skip remarks already tagged in every picked angle
           </label>
-          <label className="field-label">
-            <span className="field-title">
-              Extra instruction to the AI (optional){' '}
-              <InfoTip>Anything that helps it read your remarks — abbreviations, what counts as what. The angles and their categories are sent automatically.</InfoTip>
-            </span>
+          <details className="ai-cat-more" open={Boolean(instruction)}>
+            <summary>Extra instruction to the AI (optional)</summary>
+            <p className="muted">Anything that helps it read your remarks — abbreviations, what counts as what. The angles and their categories are sent automatically.</p>
             <TextAreaField
               value={instruction}
               onChange={setInstruction}
               rows={3}
               placeholder={'e.g. "RTG" and "RTGC" are the same crane. Weather includes haze and lightning stoppages.'}
             />
-          </label>
+          </details>
         </div>
 
         <div className="ai-cat-col">
           <div>
-            <div className="field-title ai-cat-angles-title">
+            <div className="ai-cat-step">
               Angles to tag{' '}
               <InfoTip>
                 An angle is one way of looking at the remarks, with its own categories and its own Pareto — e.g. Cause, Equipment, Location, Crew. Pick
@@ -529,6 +521,10 @@ export default function AiCategorize({
           </>
         )}
       </div>
+      <p className="ai-cat-privacy">
+        Remarks are sent to Google Gemini. Use a <b>paid</b> Google AI Studio key for live data — on the free tier Google may use what's sent to
+        improve its products.
+      </p>
 
       {review && review.length === 0 && <div className="empty-state">Nothing left to review.</div>}
       {review && review.length > 0 && (
@@ -672,12 +668,12 @@ export default function AiCategorize({
                 <div className="empty-state">Nothing ticked for this angle.</div>
               )}
             </div>
-            <div className="ai-cat-save">
-              <Button themeColor="primary" size="large" onClick={save} disabled={saving || accepted.length === 0}>
-                {saving ? 'Saving…' : `Save ${accepted.length} remark${accepted.length === 1 ? '' : 's'} · ${acceptedTagCount} tag${acceptedTagCount === 1 ? '' : 's'}`}
-              </Button>
-              <span className="muted">Unticked rows are left as they are. Saving adds tags — it never removes ones already on a remark.</span>
-            </div>
+          </div>
+          <div className="ai-cat-savebar">
+            <span className="muted">Unticked rows are left as they are. Saving adds tags — it never removes ones already on a remark.</span>
+            <Button themeColor="primary" size="large" onClick={save} disabled={saving || accepted.length === 0}>
+              {saving ? 'Saving…' : `Save ${accepted.length} remark${accepted.length === 1 ? '' : 's'} · ${acceptedTagCount} tag${acceptedTagCount === 1 ? '' : 's'}`}
+            </Button>
           </div>
         </div>
       )}
