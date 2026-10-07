@@ -193,6 +193,11 @@ function remarkColumns(tagsByEntry: Map<string, Record<string, string[]>>): Data
         Object.entries(tagsByEntry.get(r.id) ?? {})
           .map(([angle, tags]) => `${angle}: ${tags.join(', ')}`)
           .join(' · ') || '—',
+      // Filter by single tags ("Equipment: RTG"), not each row's whole set.
+      filterValues: (r) => {
+        const values = Object.entries(tagsByEntry.get(r.id) ?? {}).flatMap(([angle, tags]) => tags.map((t) => `${angle}: ${t}`));
+        return values.length ? values : ['(untagged)'];
+      },
     },
   ];
 }

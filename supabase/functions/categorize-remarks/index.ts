@@ -57,6 +57,13 @@ const isLegacyModel = (model: string) => /^gemini-[12]\./.test(model);
 const RETRYABLE = new Set([429, 500, 502, 503, 504]);
 const BACKOFF_MS = [1500, 4000];
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+// Edge Functions are stopped at 150s. Give each Gemini call at most 45s and
+// stop starting new attempts once the whole request nears 140s, so a hung
+// call becomes a retry (or a clear "busy" answer) instead of a 546 crash.
+const CALL_TIMEOUT_MS = 45_000;
+const REQUEST_BUDGET_MS = 140_000;
+const MIN_CALL_MS = 8_000;
+const MAX_INSTRUCTION = 2000;
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 
@@ -159,7 +166,9 @@ function angleBrief(key: string, angle: AngleSpec): string {
   return `${key} — angle "${angle.name}". ${how}\n   ${list}`;
 }
 
-async function categorizeChunkWith(model: string, instruction: string, angles: AngleSpec[], items: Item[]): Promise<ItemResult[]> {
+async function categorizeChunkWith(model: string, instruction: string, angles: AngleSpec[], items: Item[], deadline: number): Promise<ItemResult[]> {
+  const timeLeft = deadline - Date.now();
+  if (timeLeft < MIN_CALL_MS) throw Object.assign(new Error('Ran out of time waiting for Gemini.'), { status: 504 });
   // Short keys instead of uuids / free-text angle names keep the prompt small
   // and the schema's property names safe.
   const keyed = items.map((it, i) => ({ key: `r${i + 1}`, text: it.text }));
@@ -183,6 +192,7 @@ async function categorizeChunkWith(model: string, instruction: string, angles: A
   const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY },
+    signal: AbortSignal.timeout(Math.min(CALL_TIMEOUT_MS, timeLeft)),
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: SYSTEM }] },
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
@@ -247,15 +257,18 @@ async function categorizeChunkWith(model: string, instruction: string, angles: A
  * transient errors (overloaded, rate-limited, 5xx). A model that is missing
  * or retired for this key (400/403/404) is skipped straight away.
  */
-async function categorizeChunk(instruction: string, angles: AngleSpec[], items: Item[]): Promise<{ model: string; results: ItemResult[] }> {
+async function categorizeChunk(instruction: string, angles: AngleSpec[], items: Item[], deadline: number): Promise<{ model: string; results: ItemResult[] }> {
   let lastError: unknown = null;
   for (const model of MODELS) {
     for (let attempt = 0; attempt <= BACKOFF_MS.length; attempt++) {
       try {
-        return { model, results: await categorizeChunkWith(model, instruction, angles, items) };
+        return { model, results: await categorizeChunkWith(model, instruction, angles, items, deadline) };
       } catch (e) {
-        lastError = e;
-        const status = (e as { status?: number }).status;
+        // A call cut off by its timeout counts as Gemini being busy.
+        const timedOut = e instanceof DOMException && (e.name === 'TimeoutError' || e.name === 'AbortError');
+        lastError = timedOut ? Object.assign(new Error('Gemini took too long to answer.'), { status: 504 }) : e;
+        const status = (lastError as { status?: number }).status;
+        if (deadline - Date.now() < MIN_CALL_MS) throw lastError; // no time for another try
         if (status === 401) throw e; // bad key — no other model will help
         const retryable = status === undefined || RETRYABLE.has(status);
         if (!retryable) break; // this model is unusable for this key — next model
@@ -268,7 +281,7 @@ async function categorizeChunk(instruction: string, angles: AngleSpec[], items: 
 
 /** Runs the chunks a few at a time (keeps long runs inside the function's
  * time limit without tripping Gemini's per-minute rate limit). */
-async function runChunks(instruction: string, angles: AngleSpec[], items: Item[]): Promise<{ models: string[]; results: ItemResult[] }> {
+async function runChunks(instruction: string, angles: AngleSpec[], items: Item[], deadline: number): Promise<{ models: string[]; results: ItemResult[] }> {
   // More angles → more output per remark → smaller chunks.
   const size = Math.max(15, Math.floor(60 / angles.length));
   const chunks: Item[][] = [];
@@ -278,7 +291,7 @@ async function runChunks(instruction: string, angles: AngleSpec[], items: Item[]
   async function worker() {
     while (next < chunks.length) {
       const i = next++;
-      out[i] = await categorizeChunk(instruction, angles, chunks[i]);
+      out[i] = await categorizeChunk(instruction, angles, chunks[i], deadline);
     }
   }
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, chunks.length) }, worker));
@@ -300,6 +313,7 @@ function parseAngles(raw: unknown): AngleSpec[] {
 }
 
 Deno.serve(async (req) => {
+  const deadline = Date.now() + REQUEST_BUDGET_MS;
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
   if (!GEMINI_API_KEY) {
@@ -331,6 +345,9 @@ Deno.serve(async (req) => {
   if (angles.length > MAX_ANGLES) return json({ error: 'bad_request', message: `At most ${MAX_ANGLES} angles per run.` }, 400);
   if (items.length === 0) return json({ error: 'bad_request', message: 'No remarks to categorise.' }, 400);
   if (items.length > MAX_ITEMS) return json({ error: 'too_many', message: `At most ${MAX_ITEMS} remarks per run — narrow the date range.` }, 400);
+  if (String(body.instruction ?? '').length > MAX_INSTRUCTION) {
+    return json({ error: 'bad_request', message: `Keep the instruction under ${MAX_INSTRUCTION} characters.` }, 400);
+  }
 
   // ---- Caller must be a department admin of this department, or a site admin.
   const sb = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { persistSession: false } });
@@ -353,7 +370,7 @@ Deno.serve(async (req) => {
 
   try {
     const clipped = items.map((i) => ({ id: i.id, text: i.text.slice(0, MAX_TEXT) }));
-    const { models, results } = await runChunks(String(body.instruction ?? ''), angles, clipped);
+    const { models, results } = await runChunks(String(body.instruction ?? ''), angles, clipped, deadline);
     const model = models.join(', ');
     if (legacy) {
       return json({

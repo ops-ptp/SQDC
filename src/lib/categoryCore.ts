@@ -2,12 +2,29 @@
 
 export const DEFAULT_DIMENSION = 'Cause';
 
-/** Collapses whitespace and trims — the only normalisation applied to a
- * category label. Case and wording are deliberately kept exactly as typed
- * (merging near-duplicates like "QC breakdown"/"QC Breakdown" was deferred
- * by the user). */
+/** Collapses whitespace and trims. Case is kept as typed here; spellings
+ * that differ only by case are folded onto one label by `labelCanonicalizer`
+ * wherever tags are written. */
 export function cleanLabel(s: string): string {
   return s.replace(/\s+/g, ' ').trim();
+}
+
+/** Returns a function that maps a (dimension, label) to the spelling already
+ * in use for that dimension, ignoring case — the pick-list's spelling first,
+ * then the first spelling seen through this function. Stops "QC breakdown"
+ * and "QC Breakdown" becoming two Pareto bars. */
+export function labelCanonicalizer(existing: { dimension: string; label: string }[]): (dimension: string, label: string) => string {
+  const known = new Map<string, string>();
+  const key = (d: string, l: string) => `${d}\u0000${cleanLabel(l).toLowerCase()}`;
+  for (const c of existing) if (!known.has(key(c.dimension, c.label))) known.set(key(c.dimension, c.label), c.label);
+  return (dimension, label) => {
+    const k = key(dimension, label);
+    const hit = known.get(k);
+    if (hit !== undefined) return hit;
+    const clean = cleanLabel(label);
+    known.set(k, clean);
+    return clean;
+  };
 }
 
 /** Dimensions for a KPI, in a stable order: the default "Cause" first, then
@@ -31,7 +48,7 @@ export function orderedDimensions(categories: { dimension: string }[]): string[]
 // spreadsheet's own "Week 36 & 37" summary tabs.
 // ---------------------------------------------------------------------------
 
-export interface ParetoRow {
+interface ParetoRow {
   rank: number;
   category: string;
   count: number;

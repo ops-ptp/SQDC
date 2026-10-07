@@ -169,7 +169,7 @@ export type ActionStatus = 'not_started' | 'in_progress' | 'dropped' | 'complete
 /** Overdue isn't a stored status — it's derived from (status, deadline).
  * An action can be "in_progress" AND overdue at the same time; this is
  * purely how it's badged/highlighted, not a value you can select. */
-export type DisplayActionStatus = ActionStatus | 'overdue';
+type DisplayActionStatus = ActionStatus | 'overdue';
 
 export const ACTION_STATUS_META: Record<DisplayActionStatus, { label: string; color: string; bg: string }> = {
   not_started: { label: 'Not started', color: '#475569', bg: '#e2e8f0' },

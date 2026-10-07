@@ -6,7 +6,18 @@ export interface DataTableColumn<T> {
   key: string;
   label: string;
   accessor: (row: T) => string | number;
+  /** For a cell that holds several values (e.g. one row's Pareto tags): the
+   * values its filter offers and matches on. A row passes when any of its
+   * values is ticked. Defaults to the cell text as a single value. */
+  filterValues?: (row: T) => string[];
   align?: 'left' | 'right';
+}
+
+/** Width of the filter popup, kept in step with .data-table-filter-dropdown. */
+const FILTER_WIDTH = 300;
+
+function valuesOf<T>(col: DataTableColumn<T>, row: T): string[] {
+  return col.filterValues ? col.filterValues(row) : [String(col.accessor(row))];
 }
 
 interface Props<T> {
@@ -30,22 +41,22 @@ function FilterDropdown({
   selected,
   onChange,
   onClose,
-  anchorRect,
+  anchor,
 }: {
   values: string[];
   /** null = no filter active (everything shown, every box reads as checked) */
   selected: Set<string> | null;
   onChange: (next: Set<string> | null) => void;
   onClose: () => void;
-  /** Bounding rect of the ▾ button that opened this — positions the
-   * portal-rendered dropdown under it. Rendered via a portal (not inline in
-   * the header cell) because the table body scrolls with a fixed max-
-   * height; an inline-positioned dropdown would get clipped by that
-   * scroll container the moment it's more than a few rows down. */
-  anchorRect: DOMRect;
+  /** The ▾ button that opened this — the portal-rendered dropdown sits
+   * under it. Rendered via a portal (not inline in the header cell) because
+   * the table body scrolls with a fixed max-height; an inline-positioned
+   * dropdown would get clipped by that scroll container. */
+  anchor: HTMLElement;
 }) {
   const [search, setSearch] = useState('');
   const ref = useRef<HTMLDivElement>(null);
+  const [anchorRect, setAnchorRect] = useState(() => anchor.getBoundingClientRect());
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -55,21 +66,29 @@ function FilterDropdown({
       if (target.closest?.('.data-table-th-filter-btn')) return;
       if (ref.current && !ref.current.contains(target)) onClose();
     }
-    // The dropdown is fixed-positioned from where its ▾ was when it opened,
-    // so it would float away from the column once anything scrolls.
+    // Follow the column when the page or the table scrolls (on a phone the
+    // table scrolls sideways, and tapping a half-hidden ▾ scrolls it too);
+    // close only once the ▾ has left the screen.
+    let frame = 0;
     function handleScroll(e: Event) {
       if (ref.current && e.target instanceof Node && ref.current.contains(e.target)) return;
-      onClose();
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const r = anchor.getBoundingClientRect();
+        if (r.bottom < 0 || r.top > window.innerHeight || r.right < 0 || r.left > window.innerWidth) onClose();
+        else setAnchorRect(r);
+      });
     }
     document.addEventListener('mousedown', handleClick);
     window.addEventListener('scroll', handleScroll, true);
     window.addEventListener('resize', onClose);
     return () => {
+      cancelAnimationFrame(frame);
       document.removeEventListener('mousedown', handleClick);
       window.removeEventListener('scroll', handleScroll, true);
       window.removeEventListener('resize', onClose);
     };
-  }, [onClose]);
+  }, [onClose, anchor]);
 
   const visibleValues = values.filter((v) => v.toLowerCase().includes(search.trim().toLowerCase()));
   const isChecked = (v: string) => !selected || selected.has(v);
@@ -100,7 +119,13 @@ function FilterDropdown({
     <div
       className="data-table-filter-dropdown"
       ref={ref}
-      style={{ position: 'fixed', zIndex: 200, top: anchorRect.bottom + 4, left: Math.max(8, Math.min(anchorRect.left, window.innerWidth - 236)) }}
+      style={{
+        position: 'fixed',
+        zIndex: 200,
+        top: anchorRect.bottom + 4,
+        width: Math.min(FILTER_WIDTH, window.innerWidth - 16),
+        left: Math.max(8, Math.min(anchorRect.left, window.innerWidth - Math.min(FILTER_WIDTH, window.innerWidth - 16) - 8)),
+      }}
     >
       <TextField className="data-table-filter-search" placeholder="Search…" value={search} onChange={setSearch} autoFocus ariaLabel="Search values" />
       <label className="data-table-filter-option data-table-filter-select-all">
@@ -112,7 +137,9 @@ function FilterDropdown({
         {visibleValues.map((v) => (
           <label key={v} className="data-table-filter-option">
             <CheckField checked={isChecked(v)} onChange={() => toggleValue(v)} />
-            <span className="data-table-filter-option-text">{v || '(blank)'}</span>
+            <span className="data-table-filter-option-text" title={v}>
+              {v || '(blank)'}
+            </span>
           </label>
         ))}
       </div>
@@ -132,7 +159,7 @@ function FilterDropdown({
 export default function DataTable<T>({ columns, rows, rowKey, emptyMessage = 'No rows.' }: Props<T>) {
   const [filters, setFilters] = useState<Record<string, Set<string> | null>>({});
   const [openFilterKey, setOpenFilterKey] = useState<string | null>(null);
-  const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
+  const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
   const [sort, setSort] = useState<SortState>(null);
 
   // Distinct values per column, from the full row set — same "every value
@@ -140,7 +167,7 @@ export default function DataTable<T>({ columns, rows, rowKey, emptyMessage = 'No
   const distinctValues = useMemo(() => {
     const map: Record<string, string[]> = {};
     for (const col of columns) {
-      map[col.key] = Array.from(new Set(rows.map((r) => String(col.accessor(r))))).sort();
+      map[col.key] = Array.from(new Set(rows.flatMap((r) => valuesOf(col, r)))).sort((a, b) => a.localeCompare(b));
     }
     return map;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -151,7 +178,7 @@ export default function DataTable<T>({ columns, rows, rowKey, emptyMessage = 'No
       columns.every((col) => {
         const sel = filters[col.key];
         if (!sel) return true;
-        return sel.has(String(col.accessor(row)));
+        return valuesOf(col, row).some((v) => sel.has(v));
       })
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -197,21 +224,21 @@ export default function DataTable<T>({ columns, rows, rowKey, emptyMessage = 'No
                     type="button"
                     className={`data-table-th-filter-btn ${filters[col.key] ? 'data-table-th-filter-btn-active' : ''}`}
                     onClick={(e) => {
-                      const rect = e.currentTarget.getBoundingClientRect();
+                      const el = e.currentTarget;
                       setOpenFilterKey((k) => (k === col.key ? null : col.key));
-                      setAnchorRect(rect);
+                      setAnchorEl(el);
                     }}
                     aria-label={`Filter ${col.label}`}
                   >
                     ▾
                   </button>
-                  {openFilterKey === col.key && anchorRect && (
+                  {openFilterKey === col.key && anchorEl && (
                     <FilterDropdown
                       values={distinctValues[col.key] ?? []}
                       selected={filters[col.key] ?? null}
                       onChange={(next) => setFilters((f) => ({ ...f, [col.key]: next }))}
                       onClose={closeFilter}
-                      anchorRect={anchorRect}
+                      anchor={anchorEl}
                     />
                   )}
                 </span>

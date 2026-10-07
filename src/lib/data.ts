@@ -1,3 +1,4 @@
+import { format, parseISO, subDays } from 'date-fns';
 import { supabase } from './supabaseClient';
 import { baseNameOf, metTarget } from '../types';
 import type {
@@ -100,7 +101,7 @@ export async function fetchEntryForKpiAndDate(kpiId: string, date: string): Prom
   return (data as DailyEntry) ?? null;
 }
 
-export interface UpsertEntryInput {
+interface UpsertEntryInput {
   kpi_id: string;
   entry_date: string;
   target: number;
@@ -296,11 +297,41 @@ export async function saveKpiAdminUpdates(updates: KpiAdminUpdate[]): Promise<vo
  * the person confirm this explicitly before calling it. */
 export async function deleteKpis(ids: string[]): Promise<void> {
   if (ids.length === 0) return;
-  const { error } = await supabase.from('kpis').delete().in('id', ids);
-  if (error) throw error;
+  const doomed: Pick<Kpi, 'department_id' | 'pillar_id' | 'name'>[] = [];
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data, error } = await supabase.from('kpis').select('department_id, pillar_id, name').in('id', ids.slice(i, i + 200));
+    if (error) throw error;
+    doomed.push(...(data as Pick<Kpi, 'department_id' | 'pillar_id' | 'name'>[]));
+  }
+  for (let i = 0; i < ids.length; i += 200) {
+    const { error } = await supabase.from('kpis').delete().in('id', ids.slice(i, i + 200));
+    if (error) throw error;
+  }
+  await removeOrphanedKpiExtras(doomed);
 }
 
-export interface NewKpiInput {
+/** Pick lists, angles, pinned Paretos and uploaded weekly figures belong to
+ * a KPI by name, not by id, so the cascade doesn't reach them. Once no KPI
+ * of that name is left in its pillar, remove them too — otherwise a new KPI
+ * given the same name would quietly inherit them. */
+async function removeOrphanedKpiExtras(deleted: Pick<Kpi, 'department_id' | 'pillar_id' | 'name'>[]): Promise<void> {
+  const families = new Map<string, { departmentId: string; pillarId: string; base: string }>();
+  for (const k of deleted) {
+    const base = baseNameOf(k.name);
+    families.set(`${k.department_id}|${k.pillar_id}|${base}`, { departmentId: k.department_id, pillarId: k.pillar_id, base });
+  }
+  for (const f of families.values()) {
+    const { data, error } = await supabase.from('kpis').select('name').eq('department_id', f.departmentId).eq('pillar_id', f.pillarId);
+    if (error) throw error;
+    if ((data as { name: string }[]).some((k) => baseNameOf(k.name) === f.base)) continue;
+    for (const table of ['kpi_categories', 'kpi_dimensions', 'custom_paretos', 'weekly_entries']) {
+      const { error: delErr } = await supabase.from(table).delete().eq('department_id', f.departmentId).eq('pillar_id', f.pillarId).eq('kpi_base_name', f.base);
+      if (delErr) throw delErr;
+    }
+  }
+}
+
+interface NewKpiInput {
   department_id: string;
   pillar_id: string;
   name: string;
@@ -390,7 +421,7 @@ export async function fetchActions(departmentId: string, filters?: { pillarId?: 
   return data as ActionItem[];
 }
 
-export interface NewActionInput {
+interface NewActionInput {
   department_id: string;
   pillar_id: string;
   kpi_id: string | null;
@@ -407,7 +438,7 @@ export async function createAction(input: NewActionInput): Promise<ActionItem> {
   return data as ActionItem;
 }
 
-export interface UpdateActionInput {
+interface UpdateActionInput {
   id: string;
   pillar_id: string;
   kpi_id: string | null;
@@ -445,7 +476,7 @@ export async function fetchAllEmployeesAdmin(): Promise<Employee[]> {
   return fetchAllPages<Employee>((a, b) => supabase.from('employees').select('*').order('name').order('id').range(a, b));
 }
 
-export interface NewEmployeeInput {
+interface NewEmployeeInput {
   employee_code: string;
   name: string;
 }
@@ -456,7 +487,7 @@ export async function createEmployee(input: NewEmployeeInput): Promise<Employee>
   return data as Employee;
 }
 
-export interface EmployeeIdentityUpdate {
+interface EmployeeIdentityUpdate {
   id: string;
   employee_code: string;
   name: string;
@@ -493,7 +524,7 @@ export async function fetchDepartments(): Promise<Department[]> {
   return data as Department[];
 }
 
-export interface NewDepartmentInput {
+interface NewDepartmentInput {
   slug: string;
   name: string;
   entry_mode: EntryMode;
@@ -510,7 +541,7 @@ export async function createDepartment(input: NewDepartmentInput): Promise<Depar
   return data as Department;
 }
 
-export type DepartmentUpdate = Partial<Pick<Department, 'slug' | 'name' | 'active' | 'entry_mode' | 'upload_format' | 'sort_order'>>;
+type DepartmentUpdate = Partial<Pick<Department, 'slug' | 'name' | 'active' | 'entry_mode' | 'upload_format' | 'sort_order'>>;
 
 export async function updateDepartment(id: string, patch: DepartmentUpdate): Promise<Department> {
   const { data, error } = await supabase.from('departments').update(patch).eq('id', id).select('*').single();
@@ -588,11 +619,12 @@ export async function renameKpiGroup(departmentId: string, pillarId: string, bas
 
 /** Logical KPIs (Day/Night folded) per department, visible or not. */
 export async function fetchKpiCountsByDepartment(): Promise<Map<string, number>> {
-  const { data, error } = await supabase.from('kpis').select('department_id, name, is_secondary');
-  if (error) throw error;
+  const data = await fetchAllPages<{ department_id: string; name: string; is_secondary: boolean }>((a, b) =>
+    supabase.from('kpis').select('department_id, name, is_secondary').order('id').range(a, b)
+  );
   const seen = new Set<string>();
   const out = new Map<string, number>();
-  for (const k of data as { department_id: string; name: string; is_secondary: boolean }[]) {
+  for (const k of data) {
     if (k.is_secondary) continue;
     const key = `${k.department_id}|${baseNameOf(k.name)}`;
     if (seen.has(key)) continue;
@@ -619,14 +651,16 @@ export interface BoardRollup {
  * board's pill colours. Pass/fail is recomputed live from the KPI's current
  * direction, never the stored met_target snapshot. */
 export async function fetchBoardRollups(date: string): Promise<Map<string, BoardRollup>> {
-  const { data: kpiData, error: kErr } = await supabase
-    .from('kpis')
-    .select('id, department_id, name, is_higher_better')
-    .eq('active', true)
-    .eq('is_leading', false)
-    .eq('is_secondary', false);
-  if (kErr) throw kErr;
-  const kpis = kpiData as Pick<Kpi, 'id' | 'department_id' | 'name' | 'is_higher_better'>[];
+  const kpis = await fetchAllPages<Pick<Kpi, 'id' | 'department_id' | 'name' | 'is_higher_better'>>((a, b) =>
+    supabase
+      .from('kpis')
+      .select('id, department_id, name, is_higher_better')
+      .eq('active', true)
+      .eq('is_leading', false)
+      .eq('is_secondary', false)
+      .order('id')
+      .range(a, b)
+  );
   const entries: Pick<DailyEntry, 'kpi_id' | 'actual' | 'target'>[] = [];
   const ids = kpis.map((k) => k.id);
   for (let i = 0; i < ids.length; i += 150) {
@@ -667,20 +701,29 @@ export async function fetchBoardRollups(date: string): Promise<Map<string, Board
 // add/edit/delete — the number always comes from the latest upload.
 // ---------------------------------------------------------------------------
 
+const LEADING_LOOKBACK_DAYS = 31;
+
 /** The latest entry per KPI (up to `sinceDate`, inclusive) for a set of
  * leading KPIs — "latest" because different KPIs can in principle lag each
  * other by a day if an upload is partial; each is picked independently
  * rather than assuming they all share the same most-recent date. */
 export async function fetchLatestLeadingEntries(kpiIds: string[], sinceDate: string): Promise<LeadingEntry[]> {
   if (kpiIds.length === 0) return [];
-  const { data, error } = await supabase
-    .from('leading_entries')
-    .select('*')
-    .in('kpi_id', kpiIds)
-    .lte('entry_date', sinceDate)
-    .order('entry_date', { ascending: false });
-  if (error) throw error;
-  const rows = data as LeadingEntry[];
+  // Only the last month: a figure older than that isn't a "next 24 hours"
+  // outlook any more, and reading all history would grow forever (and run
+  // into the 1,000-row page limit).
+  const from = format(subDays(parseISO(sinceDate), LEADING_LOOKBACK_DAYS), 'yyyy-MM-dd');
+  const rows = await fetchAllPages<LeadingEntry>((a, b) =>
+    supabase
+      .from('leading_entries')
+      .select('*')
+      .in('kpi_id', kpiIds)
+      .gte('entry_date', from)
+      .lte('entry_date', sinceDate)
+      .order('entry_date', { ascending: false })
+      .order('id')
+      .range(a, b)
+  );
   const latestByKpi = new Map<string, LeadingEntry>();
   for (const row of rows) {
     if (!latestByKpi.has(row.kpi_id)) latestByKpi.set(row.kpi_id, row);
@@ -863,7 +906,7 @@ export interface CustomPareto {
   filter_values: string[] | null;
 }
 
-export interface CustomParetoInput {
+interface CustomParetoInput {
   department_id: string;
   pillar_id: string;
   kpi_base_name: string;

@@ -17,13 +17,13 @@ import type { ParetoDatum } from '../components/ParetoChart';
 // from that angle yet) rather than shown as an "Untagged" bar.
 // ---------------------------------------------------------------------------
 
-export interface PivotFieldDef {
+interface PivotFieldDef {
   key: string;
   label: string;
 }
 
 const ANGLE_PREFIX = 'angle:';
-export const angleField = (angle: string) => `${ANGLE_PREFIX}${angle}`;
+const angleField = (angle: string) => `${ANGLE_PREFIX}${angle}`;
 
 const BASE_FIELDS: PivotFieldDef[] = [
   { key: 'shift', label: 'Shift' },
@@ -98,7 +98,7 @@ export function pivotCoverage(entries: CategorizedEntryRow[], field: string): { 
   return { entries: n, multi };
 }
 
-export interface CrossTab {
+interface CrossTab {
   rows: string[];
   cols: string[];
   grid: Map<string, number>;

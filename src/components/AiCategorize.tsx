@@ -502,6 +502,7 @@ export default function AiCategorize({
               value={instruction}
               onChange={setInstruction}
               rows={3}
+              maxLength={2000}
               placeholder={'e.g. "RTG" and "RTGC" are the same crane. Weather includes haze and lightning stoppages.'}
             />
           </details>

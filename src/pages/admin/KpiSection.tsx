@@ -22,7 +22,7 @@ const WEEKLY_AGG_OPTIONS = [
   { value: 'sum', label: 'Total of the days' },
 ];
 
-export interface KpiRow {
+interface KpiRow {
   key: string;
   name: string;
   pillarId: string;
@@ -295,7 +295,8 @@ function DeleteKpiModal({ row, onCancel, onConfirmed }: { row: KpiRow; onCancel:
     <Modal title="Delete KPI" onClose={onCancel}>
       <p>
         This will permanently erase <strong>"{row.name}"</strong> and all of its historical data — every daily entry,
-        target, remark, and reason logged against it{row.hasSecondary ? ' (including its old-calculation figures)' : ''}.
+        target, remark, reason, Pareto tag and weekly figure logged against it
+        {row.hasSecondary ? ' (including its old-calculation figures)' : ''}.
       </p>
       <p>
         <strong>This cannot be undone.</strong> If you just want to remove it from the board without losing its

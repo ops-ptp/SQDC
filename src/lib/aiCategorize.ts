@@ -13,7 +13,7 @@ import { supabase } from './supabaseClient';
 
 export type AiConfidence = 'high' | 'medium' | 'low';
 
-export interface AiTag {
+interface AiTag {
   category: string;
   confidence: AiConfidence;
 }
@@ -29,14 +29,14 @@ export interface AiSuggestion {
   angles: Record<string, AiAngleResult>;
 }
 
-export interface AiAngleRequest {
+interface AiAngleRequest {
   name: string;
   categories: string[];
   allowNew: boolean;
   multi: boolean;
 }
 
-export interface AiCategorizeRequest {
+interface AiCategorizeRequest {
   employeeCode: string;
   departmentId: string;
   instruction: string;

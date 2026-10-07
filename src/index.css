@@ -1423,7 +1423,8 @@ textarea {
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
   padding: 8px;
-  width: 220px;
+  width: 300px;
+  max-width: calc(100vw - 16px);
   font-weight: 400;
   text-transform: none;
   letter-spacing: normal;
@@ -1443,7 +1444,7 @@ textarea {
 }
 
 .data-table-filter-option-list {
-  max-height: 180px;
+  max-height: 240px;
   overflow-y: auto;
 }
 
@@ -1459,8 +1460,12 @@ textarea {
 
 .data-table-filter-option-text {
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
 }
 
 .data-table-filter-empty {

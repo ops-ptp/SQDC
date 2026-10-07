@@ -203,7 +203,7 @@ function findColumnByHeader(headers: string[], colCount: number, label: string, 
   return fallback;
 }
 
-export interface ParsedDailyResult {
+interface ParsedDailyResult {
   rows: UploadDailyRow[];
   warnings: string[];
   rowsRead: number;
@@ -341,7 +341,7 @@ export async function parseDailyWorkbook(
   return { rows, warnings, rowsRead };
 }
 
-export interface ParsedTargetResult {
+interface ParsedTargetResult {
   targets: UploadTargetRow[];
   warnings: string[];
   rowsRead: number;
@@ -444,7 +444,7 @@ export async function parseDailyTargetSheet(buffer: ArrayBuffer, kpis: Kpi[]): P
   return { targets, warnings, rowsRead };
 }
 
-export interface ParsedWeeklyResult {
+interface ParsedWeeklyResult {
   rows: UploadWeeklyRow[];
   warnings: string[];
   rowsRead: number;
@@ -669,7 +669,7 @@ export async function parseWeeklyWorkbook(buffer: ArrayBuffer, kpis: Kpi[], uplo
   return { rows, warnings, rowsRead };
 }
 
-export interface ParsedLeadingResult {
+interface ParsedLeadingResult {
   rows: UploadLeadingRow[];
   warnings: string[];
   rowsRead: number;

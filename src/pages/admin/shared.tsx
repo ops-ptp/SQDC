@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { fetchAllKpisAdmin } from '../../lib/data';
-import { bulkAddEntryCategories, bulkAddKpiCategories, fetchEntriesLite, fillEmptyRemarks } from '../../lib/categories';
+import { bulkAddEntryCategories, bulkAddKpiCategories, fetchEntriesLite, fetchKpiCategories, fillEmptyRemarks } from '../../lib/categories';
+import { labelCanonicalizer } from '../../lib/categoryCore';
 import { familyOf, matchRows, parseParetoWorkbook } from '../../lib/categoryImport';
 import { baseNameOf, errorMessage } from '../../types';
 import { Button, InfoTip } from '../../components/ui';
@@ -112,6 +113,14 @@ export async function handleParetoUpload(file: File, departmentId: string, emplo
     const tagged = sheet.rows.filter((r) => r.tags.length > 0);
     if (!primary || tagged.length === 0) continue;
 
+    // Use the KPI's existing spelling of each category (ignoring case), so a
+    // sheet that writes "QC breakdown" doesn't start a second "QC Breakdown" bar.
+    const canonical = labelCanonicalizer(await fetchKpiCategories(departmentId, primary.pillar_id, sheet.kpiBase));
+    for (const r of tagged) {
+      const mapped = r.tags.map((t) => ({ ...t, category: canonical(t.dimension, t.category) }));
+      r.tags = mapped.filter((t, i) => mapped.findIndex((o) => o.dimension === t.dimension && o.category === t.category) === i);
+    }
+
     // Pick-list: every category seen on this sheet, in first-seen order.
     const seen = new Set<string>();
     for (const r of tagged) {
@@ -129,6 +138,8 @@ export async function handleParetoUpload(file: File, departmentId: string, emplo
     const entryById = new Map(entries.map((e) => [e.id, e]));
     let tagCount = 0;
     for (const m of matches) {
+      // Old-calculation shifts are never counted in any Pareto — don't store tags on them.
+      if (m.secondary) continue;
       for (const t of m.row.tags) {
         tagRows.push({ entry_id: m.entryId, dimension: t.dimension, category: t.category, created_by: employeeId });
         tagCount++;
@@ -143,7 +154,7 @@ export async function handleParetoUpload(file: File, departmentId: string, emplo
     const secondary = matches.filter((m) => m.secondary).length;
     summary.push(
       `${sheet.kpiBase}: ${matches.length} shift(s), ${tagCount} tag(s)` +
-        (secondary ? ` (${secondary} on the old calculation, not counted)` : '') +
+        (secondary ? ` (${secondary} on the old calculation, skipped)` : '') +
         (unmatched.length ? `, ${unmatched.length} unmatched` : '')
     );
   }

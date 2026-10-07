@@ -182,7 +182,7 @@ export async function fetchTaggedEntries(kpiIds: string[], from: string, to: str
 // overwrites anything people have entered in the app.
 // ---------------------------------------------------------------------------
 
-export interface EntryLiteRow {
+interface EntryLiteRow {
   id: string;
   kpi_id: string;
   entry_date: string;

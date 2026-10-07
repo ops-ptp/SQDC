@@ -127,12 +127,14 @@ export function TextAreaField({
   placeholder,
   rows = 2,
   className,
+  maxLength,
 }: {
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
   rows?: number;
   className?: string;
+  maxLength?: number;
 }) {
   return (
     <TextArea
@@ -141,6 +143,7 @@ export function TextAreaField({
       placeholder={placeholder}
       rows={rows}
       className={className}
+      maxLength={maxLength}
       autoSize
     />
   );

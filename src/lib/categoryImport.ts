@@ -27,12 +27,12 @@ const SHEET_ALIASES: Record<string, string> = {
  * tab labels on the board). Category labels themselves are never changed. */
 const DIMENSION_FIXES: Record<string, string> = { sympthom: 'Symptom' };
 
-export interface ParsedTag {
+interface ParsedTag {
   dimension: string;
   category: string;
 }
 
-export interface ParsedRemarkRow {
+interface ParsedRemarkRow {
   sheet: string;
   rowNumber: number;
   date: string; // yyyy-mm-dd
@@ -43,7 +43,7 @@ export interface ParsedRemarkRow {
   tags: ParsedTag[];
 }
 
-export interface ParsedSheet {
+interface ParsedSheet {
   sheet: string;
   /** Resolved KPI base name, or null when the sheet name matched nothing. */
   kpiBase: string | null;
@@ -170,7 +170,7 @@ export async function parseParetoWorkbook(buffer: ArrayBuffer, baseNames: string
 // Matching parsed rows to existing daily entries.
 // ---------------------------------------------------------------------------
 
-export interface EntryLite {
+interface EntryLite {
   id: string;
   kpi_id: string;
   entry_date: string;
@@ -178,7 +178,7 @@ export interface EntryLite {
   remarks: string | null;
 }
 
-export interface RowMatch {
+interface RowMatch {
   row: ParsedRemarkRow;
   entryId: string;
   /** True when the matched entry is a secondary ("Old" calculation) KPI —
