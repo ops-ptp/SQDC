@@ -49,8 +49,8 @@ export const MAX_AI_TAGS = 3;
 
 export class AiNotConfiguredError extends Error {}
 
-export async function suggestCategories(req: AiCategorizeRequest): Promise<{ model: string; results: AiSuggestion[] }> {
-  const { data, error } = await supabase.functions.invoke('categorize-remarks', { body: req });
+export async function suggestCategories(req: AiCategorizeRequest, signal?: AbortSignal): Promise<{ model: string; results: AiSuggestion[] }> {
+  const { data, error } = await supabase.functions.invoke('categorize-remarks', { body: req, signal });
   if (error) {
     // FunctionsHttpError carries the function's own JSON response.
     const ctx = (error as { context?: Response }).context;

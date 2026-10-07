@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { format, parseISO, subDays } from 'date-fns';
 import { AutoComplete } from '@progress/kendo-react-dropdowns';
 import { Chip } from '@progress/kendo-react-buttons';
@@ -18,9 +18,10 @@ import {
   type KpiAngle,
   type KpiCategory,
 } from '../lib/categories';
-import { AiNotConfiguredError, MAX_AI_ANGLES, MAX_AI_TAGS, remarkText, suggestCategories, type AiConfidence } from '../lib/aiCategorize';
+import { AiNotConfiguredError, MAX_AI_ANGLES, MAX_AI_TAGS, remarkText, suggestCategories, type AiConfidence, type AiSuggestion } from '../lib/aiCategorize';
 import { errorMessage, round2 } from '../types';
 import ParetoChart from './ParetoChart';
+import AiProgress, { SkeletonRows, type AiRunProgress } from './AiProgress';
 import { Button, CheckField, DateField, InfoTip, InlineLoader, Select, TextAreaField, TextField } from './ui';
 
 // ===========================================================================
@@ -68,6 +69,27 @@ interface ReviewRow {
 }
 
 const CONFIDENCE_LABEL: Record<ReviewTag['confidence'], string> = { high: 'High', medium: 'Medium', low: 'Low', manual: 'Added by you' };
+
+/** Remarks per request: smaller with more angles (more output per remark),
+ * so each batch is one quick Gemini call and the progress bar moves often. */
+const batchSizeFor = (angleCount: number) => Math.max(10, Math.floor(40 / angleCount));
+const PARALLEL_BATCHES = 2;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+function toReviewRow(entry: RawEntryRow, s: AiSuggestion | undefined, runAngles: AngleSetup[]): ReviewRow {
+  const rowTags: Record<string, ReviewTag[]> = {};
+  const reasons: Record<string, string> = {};
+  for (const a of runAngles) {
+    const r = s?.angles[a.name];
+    // "Other" means the AI found nothing that fits — that's a human call, so it starts off.
+    rowTags[a.name] = (r?.tags ?? []).filter((t) => cleanLabel(t.category).toLowerCase() !== 'other').map((t) => ({ ...t, category: cleanLabel(t.category) }));
+    reasons[a.name] = r?.reason ?? 'No suggestion returned';
+    if (r && r.tags.length > 0 && rowTags[a.name].length === 0) reasons[a.name] = `No category fits (AI said "Other") — ${r.reason}`;
+  }
+  const row: ReviewRow = { entry, accepted: false, tags: rowTags, reasons };
+  row.accepted = Object.values(rowTags).some((t) => t.length > 0);
+  return row;
+}
 
 const categoriesOf = (text: string) => Array.from(new Set(text.split('\n').map(cleanLabel).filter(Boolean)));
 const rowHasTags = (r: ReviewRow) => Object.values(r.tags).some((t) => t.length > 0);
@@ -132,6 +154,11 @@ export default function AiCategorize({
   const [previewAngle, setPreviewAngle] = useState('');
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [model, setModel] = useState('');
+  const [progress, setProgress] = useState<AiRunProgress | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+  // Remarks a cancelled or failed run didn't get to, for "Continue".
+  const [pending, setPending] = useState<{ entries: RawEntryRow[]; angles: AngleSetup[] } | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
   const idsKey = kpiIds.join(',');
 
   // Load the KPI's remarks, existing tags, category pick-lists and angles.
@@ -218,54 +245,120 @@ export default function AiCategorize({
     setAngleError(null);
   }
 
-  async function run() {
+  /** Fresh run over the candidates for the ticked angles. */
+  function run() {
     if (!employee || selectedAngles.length === 0) return;
+    setReview(null);
+    void runBatches(candidates.slice(0, MAX_PER_RUN), selectedAngles.map((a) => ({ ...a })), false);
+  }
+
+  /** Picks up where a cancelled or failed run stopped. */
+  function continueRun() {
+    if (!pending) return;
+    void runBatches(pending.entries, pending.angles, true);
+  }
+
+  function cancelRun() {
+    setCancelling(true);
+    abortRef.current?.abort();
+  }
+
+  /**
+   * Sends the remarks in small batches, two at a time, so the progress bar
+   * shows real progress. A batch that fails is retried once; if it fails
+   * again — or the admin cancels — the run stops, keeps every finished
+   * batch for review, and offers to continue with the rest.
+   */
+  async function runBatches(toTag: RawEntryRow[], runAngles: AngleSetup[], append: boolean) {
+    if (!employee || toTag.length === 0) return;
+    const controller = new AbortController();
+    abortRef.current = controller;
     setRunning(true);
+    setCancelling(false);
     setError(null);
     setMessage(null);
     setNotConfigured(null);
-    try {
-      const batch = candidates.slice(0, MAX_PER_RUN);
-      const runAngles = selectedAngles.map((a) => ({ ...a }));
-      const res = await suggestCategories({
-        employeeCode: employee.employee_code,
-        departmentId: department.id,
-        instruction,
-        angles: runAngles.map((a) => {
-          const categories = categoriesOf(a.categoriesText);
-          return { name: a.name, categories, allowNew: a.allowNew && categories.length > 0, multi: a.multi };
-        }),
-        items: batch.map((e) => ({ id: e.id, text: remarkText(e.reason, e.remarks) })),
-      });
-      const byId = new Map(res.results.map((r) => [r.id, r]));
-      setModel(res.model);
-      setReviewAngles(runAngles);
-      setPreviewAngle(runAngles[0].name);
-      setDrafts({});
-      setReview(
-        batch.map((entry) => {
-          const s = byId.get(entry.id);
-          const rowTags: Record<string, ReviewTag[]> = {};
-          const reasons: Record<string, string> = {};
-          for (const a of runAngles) {
-            const r = s?.angles[a.name];
-            // "Other" means the AI found nothing that fits — that's a human call, so it starts off.
-            rowTags[a.name] = (r?.tags ?? []).filter((t) => cleanLabel(t.category).toLowerCase() !== 'other').map((t) => ({ ...t, category: cleanLabel(t.category) }));
-            reasons[a.name] = r?.reason ?? 'No suggestion returned';
-            if (r && r.tags.length > 0 && rowTags[a.name].length === 0) reasons[a.name] = `No category fits (AI said "Other") — ${r.reason}`;
+    setPending(null);
+
+    const angleSpecs = runAngles.map((a) => {
+      const categories = categoriesOf(a.categoriesText);
+      return { name: a.name, categories, allowNew: a.allowNew && categories.length > 0, multi: a.multi };
+    });
+    const size = batchSizeFor(runAngles.length);
+    const batches: RawEntryRow[][] = [];
+    for (let i = 0; i < toTag.length; i += size) batches.push(toTag.slice(i, i + size));
+    const started = Date.now();
+    setProgress({ total: toTag.length, done: 0, batches: batches.length, batchesDone: 0, angles: runAngles.map((a) => a.name), startedAt: started, lastProgressAt: started });
+
+    const results = new Map<string, AiSuggestion>();
+    const finished = new Set<number>();
+    const models = new Set<string>();
+    let failure: unknown = null;
+    let next = 0;
+
+    async function worker() {
+      while (next < batches.length && !failure && !controller.signal.aborted) {
+        const index = next++;
+        const batch = batches[index];
+        const items = batch.map((e) => ({ id: e.id, text: remarkText(e.reason, e.remarks) }));
+        for (let attempt = 0; ; attempt++) {
+          try {
+            const res = await suggestCategories(
+              { employeeCode: employee!.employee_code, departmentId: department.id, instruction, angles: angleSpecs, items },
+              controller.signal
+            );
+            for (const r of res.results) results.set(r.id, r);
+            if (res.model) res.model.split(', ').forEach((m) => models.add(m));
+            finished.add(index);
+            setProgress((p) => p && { ...p, done: p.done + batch.length, batchesDone: p.batchesDone + 1, lastProgressAt: Date.now() });
+            break;
+          } catch (e) {
+            if (controller.signal.aborted) return;
+            if (e instanceof AiNotConfiguredError || attempt >= 1) {
+              failure = failure ?? e;
+              controller.abort();
+              return;
+            }
+            await sleep(1500);
           }
-          const row: ReviewRow = { entry, accepted: false, tags: rowTags, reasons };
-          row.accepted = rowHasTags(row);
-          return row;
-        })
-      );
-    } catch (e) {
-      if (e instanceof AiNotConfiguredError) setNotConfigured(e.message);
-      else setError(errorMessage(e, 'AI categorisation failed'));
-    } finally {
-      setRunning(false);
+        }
+      }
     }
+    await Promise.all(Array.from({ length: Math.min(PARALLEL_BATCHES, batches.length) }, worker));
+
+    // Keep every finished batch, in the original order.
+    const doneEntries = batches.filter((_, i) => finished.has(i)).flat();
+    const leftEntries = batches.filter((_, i) => !finished.has(i)).flat();
+    const rows = doneEntries.map((e) => toReviewRow(e, results.get(e.id), runAngles));
+    if (rows.length === 0 && !append) {
+      setReview(null);
+    } else if (rows.length > 0) {
+      setReviewAngles(runAngles);
+      setPreviewAngle((p) => (append && runAngles.some((a) => a.name === p) ? p : runAngles[0].name));
+      setModel((m) => Array.from(new Set([...(append && m ? m.split(', ') : []), ...models])).join(', '));
+      if (!append) setDrafts({});
+      setReview((prev) => (append && prev ? [...prev, ...rows] : rows));
+    }
+    if (leftEntries.length > 0) setPending({ entries: leftEntries, angles: runAngles });
+
+    if (failure instanceof AiNotConfiguredError) {
+      setNotConfigured(failure.message);
+    } else if (failure) {
+      setError(
+        `${errorMessage(failure, 'AI categorisation failed')} — stopped after ${doneEntries.length} of ${toTag.length} remarks.` +
+          (doneEntries.length ? ' The finished ones are below.' : '')
+      );
+    } else if (controller.signal.aborted) {
+      setMessage(`Cancelled — ${doneEntries.length} of ${toTag.length} remarks tagged${doneEntries.length ? ' and ready to review below' : ''}.`);
+    }
+    abortRef.current = null;
+    setProgress(null);
+    setCancelling(false);
+    setRunning(false);
   }
+
+  // Stop any run in flight if the panel goes away (KPI switched, page left).
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   function patchRow(id: string, fn: (r: ReviewRow) => ReviewRow) {
     setReview((prev) => prev?.map((r) => (r.entry.id === id ? fn(r) : r)) ?? null);
@@ -501,17 +594,31 @@ export default function AiCategorize({
         </div>
       </div>
 
+      {pending && !running && (
+        <div className="alert alert-info ai-cat-continue">
+          <span>
+            {pending.entries.length} remark{pending.entries.length === 1 ? '' : 's'} from that run {pending.entries.length === 1 ? "wasn't" : "weren't"} tagged yet.
+          </span>
+          <Button size="small" themeColor="primary" onClick={continueRun}>
+            Continue with {pending.entries.length}
+          </Button>
+          <Button size="small" fillMode="flat" onClick={() => setPending(null)}>
+            Dismiss
+          </Button>
+        </div>
+      )}
+
       <div className="ai-cat-run">
         {loading ? (
           <InlineLoader label="Loading remarks…" />
+        ) : progress ? (
+          <AiProgress progress={progress} onCancel={cancelRun} cancelling={cancelling} />
         ) : (
           <>
             <Button themeColor="primary" onClick={run} disabled={running || candidates.length === 0 || !employee || selectedAngles.length === 0}>
-              {running
-                ? 'Asking Gemini…'
-                : `Suggest tags for ${Math.min(candidates.length, MAX_PER_RUN)} remark${candidates.length === 1 ? '' : 's'}${
-                    selectedAngles.length > 1 ? ` × ${selectedAngles.length} angles` : ''
-                  }`}
+              {`Suggest tags for ${Math.min(candidates.length, MAX_PER_RUN)} remark${candidates.length === 1 ? '' : 's'}${
+                selectedAngles.length > 1 ? ` × ${selectedAngles.length} angles` : ''
+              }`}
             </Button>
             <span className="muted">
               {entries.length} missed-target entr{entries.length === 1 ? 'y' : 'ies'} in range
@@ -526,8 +633,9 @@ export default function AiCategorize({
         improve its products.
       </p>
 
-      {review && review.length === 0 && <div className="empty-state">Nothing left to review.</div>}
-      {review && review.length > 0 && (
+      {progress && <SkeletonRows rows={Math.min(6, Math.max(1, progress.total - progress.done))} angles={progress.angles} />}
+      {!progress && review && review.length === 0 && <div className="empty-state">Nothing left to review.</div>}
+      {!progress && review && review.length > 0 && (
         <div className="ai-cat-review">
           <div className="ai-cat-review-head">
             <h3>

@@ -2763,3 +2763,171 @@ textarea {
 .analyse-controls {
   align-items: flex-end;
 }
+
+/* ---------------- AI run progress ---------------- */
+.ai-cat-run:has(.ai-progress) {
+  display: block;
+}
+
+.ai-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 640px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--surface) 0%, var(--surface-sunk) 100%);
+}
+
+.ai-progress-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ai-progress-spark {
+  display: inline-block;
+  color: var(--primary);
+  font-size: 18px;
+  line-height: 1;
+  animation: ai-spark 1.6s ease-in-out infinite;
+}
+
+.ai-progress-title {
+  font-family: var(--font-display);
+  font-size: 18px;
+  color: var(--text);
+}
+
+.ai-progress-time {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.ai-progress-bar {
+  position: relative;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+/* A soft light sweeping along the whole track keeps it alive even while
+   a batch is still out. */
+.ai-progress-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.55) 50%, transparent 100%);
+  transform: translateX(-100%);
+  animation: ai-sweep 1.8s ease-in-out infinite;
+}
+
+.ai-progress-fill {
+  position: relative;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--primary) 0%, #f9a65a 50%, var(--primary) 100%);
+  background-size: 200% 100%;
+  animation: ai-flow 2.4s linear infinite;
+  transition: width 0.5s ease;
+}
+
+.ai-progress-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13.5px;
+  color: var(--text);
+}
+
+.ai-progress-pct {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.ai-progress-status {
+  font-size: 13px;
+  color: var(--muted);
+  animation: ai-fade 0.5s ease;
+}
+
+.ai-progress-status.is-slow {
+  color: var(--primary-dark);
+}
+
+.ai-progress-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.ai-progress-actions .muted {
+  font-size: 12.5px;
+}
+
+.ai-cat-continue {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.ai-skeleton {
+  margin-top: 18px;
+  pointer-events: none;
+}
+
+.skel {
+  display: block;
+  height: 12px;
+  margin: 3px 0;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--surface-sunk) 25%, #e3eae8 50%, var(--surface-sunk) 75%);
+  background-size: 200% 100%;
+  animation: ai-flow 1.4s linear infinite;
+}
+
+.skel-box {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+}
+
+.skel-chip {
+  height: 20px;
+  border-radius: 999px;
+}
+
+@keyframes ai-spark {
+  0%, 100% { transform: scale(0.85) rotate(0deg); opacity: 0.7; }
+  50% { transform: scale(1.15) rotate(90deg); opacity: 1; }
+}
+
+@keyframes ai-sweep {
+  to { transform: translateX(100%); }
+}
+
+@keyframes ai-flow {
+  from { background-position: 200% 0; }
+  to { background-position: 0 0; }
+}
+
+@keyframes ai-fade {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-progress-spark,
+  .ai-progress-bar::after,
+  .ai-progress-fill,
+  .ai-progress-status,
+  .skel {
+    animation: none;
+  }
+}
