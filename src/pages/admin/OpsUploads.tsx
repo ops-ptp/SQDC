@@ -358,16 +358,15 @@ export default function OpsUploads({ onCatalogChanged }: { onCatalogChanged: () 
       };
     }
 
-    // Manual-override protection: split out rows for manual_entry KPIs and
-    // check which (kpi_id, date) pairs already carry a person-typed value —
-    // those are dropped from this upload rather than overwritten.
-    const manualEntryKpiIds = new Set(kpis.filter((k) => k.manual_entry).map((k) => k.id));
-    const candidateManualRows = parsed.rows.filter((r) => manualEntryKpiIds.has(r.kpi_id));
+    // Manual-override protection: any (kpi_id, date) that already carries a
+    // person-typed value is dropped from this upload rather than overwritten
+    // — for every KPI, not just the manual_entry ones, since a department
+    // set to "both" can type a value for any KPI.
     const overrideKeys =
-      candidateManualRows.length > 0
+      parsed.rows.length > 0
         ? await fetchManualOverrideKeys(
-            Array.from(new Set(candidateManualRows.map((r) => r.kpi_id))),
-            Array.from(new Set(candidateManualRows.map((r) => r.entry_date)))
+            Array.from(new Set(parsed.rows.map((r) => r.kpi_id))),
+            Array.from(new Set(parsed.rows.map((r) => r.entry_date)))
           )
         : new Set<string>();
 

@@ -18,6 +18,10 @@ interface DepartmentsContextValue {
   loading: boolean;
   error: string | null;
   reload: () => Promise<void>;
+  /** Puts a just-saved department into the list straight away — e.g. after
+   * its web address changes, so the new /d/<slug> resolves at once instead
+   * of flashing "Board not found" until the reload finishes. */
+  applyDepartment: (d: Department) => void;
 }
 
 const DepartmentsContext = createContext<DepartmentsContextValue | undefined>(undefined);
@@ -43,7 +47,9 @@ export function DepartmentsProvider({ children }: { children: ReactNode }) {
     reload();
   }, [reload]);
 
-  return <DepartmentsContext.Provider value={{ departments, loading, error, reload }}>{children}</DepartmentsContext.Provider>;
+  const applyDepartment = useCallback((d: Department) => setDepartments((prev) => prev.map((x) => (x.id === d.id ? d : x))), []);
+
+  return <DepartmentsContext.Provider value={{ departments, loading, error, reload, applyDepartment }}>{children}</DepartmentsContext.Provider>;
 }
 
 export function useDepartments(): DepartmentsContextValue {

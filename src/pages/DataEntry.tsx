@@ -15,9 +15,9 @@ import {
 import CategoryPicker from '../components/CategoryPicker';
 import { PILLAR_COLORS, errorMessage, isManualKpi, metTarget, round2, type DailyEntry, type Department, type Kpi, type Pillar, type Reason } from '../types';
 import { Chip, SegmentedControl } from '@progress/kendo-react-buttons';
+import { useTodayString } from '../lib/useToday';
 import { Button, DateField, NumberField, PageLoader, Select, TextAreaField, TextField, InlineLoader, InfoTip } from '../components/ui';
 
-const TODAY = format(new Date(), 'yyyy-MM-dd');
 // Staff typically log the previous day's completed shift results each
 // morning — matches the Board, which reviews yesterday's performance.
 const YESTERDAY = format(subDays(new Date(), 1), 'yyyy-MM-dd');
@@ -51,6 +51,10 @@ interface FormState {
   reasonId: string; // '' | OTHER_SENTINEL | a real reason uuid
   reasonOther: string;
   existing: DailyEntry | null;
+  /** Which KPI row the form was loaded for — saves are refused until it
+   * matches the selected KPI/shift, so a slow earlier load can never put
+   * one KPI's figures onto another. */
+  kpiId: string | null;
   /** This date's target — from the Admin upload's Target-sheet data
    * (kpi_daily_targets) when available, falling back to the KPI catalog's
    * fixed target otherwise. Used for the manual-entry met/missed check and
@@ -70,6 +74,7 @@ const EMPTY_FORM: FormState = {
   reasonId: '',
   reasonOther: '',
   existing: null,
+  kpiId: null,
   resolvedTarget: 0,
   loading: true,
   saving: false,
@@ -169,6 +174,10 @@ export default function DataEntry() {
   const remarksOnly = department.entry_mode === 'upload';
   const location = useLocation();
   const deepLinkApplied = useRef(false);
+  // Only the latest form load may fill the form (KPI/shift/date can change
+  // faster than the network answers).
+  const loadSeq = useRef(0);
+  const today = useTodayString();
   const [pillars, setPillars] = useState<Pillar[]>([]);
   const [groups, setGroups] = useState<KpiGroup[]>([]);
   const [selectedDate, setSelectedDate] = useState(YESTERDAY);
@@ -220,9 +229,13 @@ export default function DataEntry() {
   useEffect(() => {
     const ids = groups.flatMap((g) => [g.day?.id, g.night?.id, g.single?.id].filter((x): x is string => Boolean(x)));
     if (ids.length === 0) return;
+    let cancelled = false;
     fetchEntriesForKpisOnDate(ids, selectedDate)
-      .then(setDateEntries)
-      .catch(() => setDateEntries([]));
+      .then((e) => !cancelled && setDateEntries(e))
+      .catch(() => !cancelled && setDateEntries([]));
+    return () => {
+      cancelled = true;
+    };
   }, [groups, selectedDate]);
 
   // Load the form for whichever KPI + shift is currently selected. Fires on
@@ -232,6 +245,7 @@ export default function DataEntry() {
     const shift = defaultShift(selectedGroup);
     const kpi = activeKpi(selectedGroup, shift);
     if (!kpi) return;
+    const seq = ++loadSeq.current;
     setForm((f) => ({ ...f, shift, loading: true }));
     Promise.all([
       fetchReasonsForKpi(kpi.id),
@@ -239,10 +253,12 @@ export default function DataEntry() {
       fetchKpiDailyTarget(kpi.id, selectedDate).catch(() => null),
     ])
       .then(([reasons, existing, dailyTarget]) => {
+        if (seq !== loadSeq.current) return;
         setForm({
           shift,
           reasons,
           existing,
+          kpiId: kpi.id,
           resolvedTarget: dailyTarget ?? selectedGroup.target,
           actualInput: existing ? String(existing.actual) : '',
           remarks: existing?.remarks ?? '',
@@ -254,7 +270,7 @@ export default function DataEntry() {
           error: null,
         });
       })
-      .catch((e) => setForm((f) => ({ ...f, loading: false, error: errorMessage(e, 'Failed to load entry') })));
+      .catch((e) => seq === loadSeq.current && setForm((f) => ({ ...f, loading: false, error: errorMessage(e, 'Failed to load entry') })));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedGroup?.key, selectedDate]);
 
@@ -262,6 +278,7 @@ export default function DataEntry() {
     if (!selectedGroup) return;
     const kpi = activeKpi(selectedGroup, shift);
     if (!kpi) return;
+    const seq = ++loadSeq.current;
     setForm((f) => ({ ...f, shift, loading: true }));
     try {
       const [reasons, existing, dailyTarget] = await Promise.all([
@@ -269,10 +286,12 @@ export default function DataEntry() {
         fetchEntryForKpiAndDate(kpi.id, selectedDate),
         fetchKpiDailyTarget(kpi.id, selectedDate).catch(() => null),
       ]);
+      if (seq !== loadSeq.current) return;
       setForm({
         shift,
         reasons,
         existing,
+        kpiId: kpi.id,
         resolvedTarget: dailyTarget ?? selectedGroup.target,
         actualInput: existing ? String(existing.actual) : '',
         remarks: existing?.remarks ?? '',
@@ -284,8 +303,17 @@ export default function DataEntry() {
         error: null,
       });
     } catch (e) {
-      setForm((f) => ({ ...f, loading: false, error: errorMessage(e, 'Failed to load entry') }));
+      if (seq === loadSeq.current) setForm((f) => ({ ...f, loading: false, error: errorMessage(e, 'Failed to load entry') }));
     }
+  }
+
+  /** True (and says so) while the form still belongs to another KPI/shift. */
+  function formIsStale(kpiId: string): boolean {
+    if (form.loading || form.kpiId !== kpiId) {
+      patch({ error: 'Still loading this KPI — try again in a moment.' });
+      return true;
+    }
+    return false;
   }
 
   function patch(p: Partial<FormState>) {
@@ -298,7 +326,7 @@ export default function DataEntry() {
   async function handleSaveManual() {
     if (!employee || !selectedGroup) return;
     const kpi = activeKpi(selectedGroup, form.shift);
-    if (!kpi) return;
+    if (!kpi || formIsStale(kpi.id)) return;
 
     const actual = Number(form.actualInput);
     if (form.actualInput.trim() === '' || Number.isNaN(actual)) {
@@ -344,7 +372,7 @@ export default function DataEntry() {
   async function handleSaveRemarks() {
     if (!employee || !selectedGroup || !form.existing) return;
     const kpi = activeKpi(selectedGroup, form.shift);
-    if (!kpi) return;
+    if (!kpi || formIsStale(kpi.id)) return;
 
     // Recomputed live rather than trusting form.existing.met_target — see
     // groupNeedsRemark's comment for why that stored value can be stale
@@ -454,7 +482,7 @@ export default function DataEntry() {
         </div>
         <label className="date-picker">
           <span className="field-label">Date</span>
-          <DateField value={selectedDate} max={TODAY} onChange={(v) => v && setSelectedDate(v)} ariaLabel="Date" />
+          <DateField value={selectedDate} max={today} onChange={(v) => v && setSelectedDate(v)} ariaLabel="Date" />
         </label>
       </div>
 

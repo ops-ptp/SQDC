@@ -144,19 +144,30 @@ export async function fetchKpisForUpload(departmentId: string): Promise<Kpi[]> {
   return data as Kpi[];
 }
 
-/** Which (kpi_id, entry_date) pairs already carry a person-typed value for a
- * manual_entry KPI — the upload must never overwrite these. Pass the full
- * candidate set; only the ones actually flagged come back. */
+/** Which (kpi_id, entry_date) pairs already carry a person-typed value —
+ * an upload must never overwrite these. Pass the full candidate set; only
+ * the ones actually flagged come back. Reads every page (a year of typed
+ * values is well past the API's 1,000-row answer) and asks for the dates
+ * a few months at a time to keep each request URL short. */
 export async function fetchManualOverrideKeys(kpiIds: string[], dates: string[]): Promise<Set<string>> {
-  if (kpiIds.length === 0 || dates.length === 0) return new Set();
-  const { data, error } = await supabase
-    .from('daily_entries')
-    .select('kpi_id, entry_date')
-    .in('kpi_id', kpiIds)
-    .in('entry_date', dates)
-    .eq('is_manual_override', true);
-  if (error) throw error;
-  return new Set((data as { kpi_id: string; entry_date: string }[]).map((r) => `${r.kpi_id}|${r.entry_date}`));
+  const keys = new Set<string>();
+  if (kpiIds.length === 0 || dates.length === 0) return keys;
+  const sortedDates = [...new Set(dates)].sort();
+  for (let i = 0; i < sortedDates.length; i += 120) {
+    const slice = sortedDates.slice(i, i + 120);
+    const rows = await fetchAllPages<{ kpi_id: string; entry_date: string }>((a, b) =>
+      supabase
+        .from('daily_entries')
+        .select('kpi_id, entry_date')
+        .in('kpi_id', kpiIds)
+        .in('entry_date', slice)
+        .eq('is_manual_override', true)
+        .order('id')
+        .range(a, b)
+    );
+    for (const r of rows) keys.add(`${r.kpi_id}|${r.entry_date}`);
+  }
+  return keys;
 }
 
 export interface UploadDailyRow {
@@ -430,9 +441,8 @@ export async function setActionStatus(id: string, status: ActionItem['status']):
 /** Everyone, active or not, for Site Admin's employee directory and the
  * department member pickers. */
 export async function fetchAllEmployeesAdmin(): Promise<Employee[]> {
-  const { data, error } = await supabase.from('employees').select('*').order('name');
-  if (error) throw error;
-  return data as Employee[];
+  // Every page — the roster will outgrow the API's 1,000-row answer.
+  return fetchAllPages<Employee>((a, b) => supabase.from('employees').select('*').order('name').order('id').range(a, b));
 }
 
 export interface NewEmployeeInput {
@@ -514,12 +524,12 @@ export async function updateDepartment(id: string, patch: DepartmentUpdate): Pro
 /** Every membership row — small (people x departments), used for the
  * logged-in person's own roles and for Site Admin's overview. */
 export async function fetchMemberships(filter?: { employeeId?: string; departmentId?: string }): Promise<DepartmentMember[]> {
-  let q = supabase.from('department_members').select('id, department_id, employee_id, role');
-  if (filter?.employeeId) q = q.eq('employee_id', filter.employeeId);
-  if (filter?.departmentId) q = q.eq('department_id', filter.departmentId);
-  const { data, error } = await q;
-  if (error) throw error;
-  return data as DepartmentMember[];
+  return fetchAllPages<DepartmentMember>((a, b) => {
+    let q = supabase.from('department_members').select('id, department_id, employee_id, role');
+    if (filter?.employeeId) q = q.eq('employee_id', filter.employeeId);
+    if (filter?.departmentId) q = q.eq('department_id', filter.departmentId);
+    return q.order('id').range(a, b);
+  });
 }
 
 /** Adds someone to a department, or changes their role if they're already
@@ -543,6 +553,16 @@ export async function removeDepartmentMember(id: string): Promise<void> {
 export type KpiSettingsPatch = Partial<
   Pick<Kpi, 'unit' | 'target' | 'is_higher_better' | 'active' | 'manual_entry' | 'track_weekly' | 'weekly_agg' | 'info'>
 >;
+
+/** Saves a new display order (see src/lib/kpiOrder.ts) — one small update
+ * per changed row, a few at a time. */
+export async function saveKpiOrder(updates: { id: string; sort_order: number }[]): Promise<void> {
+  for (let i = 0; i < updates.length; i += 8) {
+    const results = await Promise.all(updates.slice(i, i + 8).map((u) => supabase.from('kpis').update({ sort_order: u.sort_order }).eq('id', u.id)));
+    const failed = results.find((r) => r.error);
+    if (failed?.error) throw failed.error;
+  }
+}
 
 /** Applies the same settings to every row of one logical KPI (its Day,
  * Night and Old variants). */
@@ -720,15 +740,19 @@ function shiftFromKpiName(name: string): 'Day' | 'Night' | null {
  * direction is corrected later, every entry written before that change
  * would otherwise keep the old, now-wrong verdict, and Insights would
  * silently disagree with the Board (which already recomputes live). */
-export async function fetchMissedEntriesForKpiIds(kpiIds: string[], sinceDate: string): Promise<RawEntryRow[]> {
+export async function fetchMissedEntriesForKpiIds(kpiIds: string[], sinceDate: string, untilDate?: string): Promise<RawEntryRow[]> {
   if (kpiIds.length === 0) return [];
-  const { data, error } = await supabase
-    .from('daily_entries')
-    .select('id, entry_date, actual, target, remarks, reason_other, reason:reasons(label), kpi:kpis(name, unit, is_higher_better)')
-    .in('kpi_id', kpiIds)
-    .gte('entry_date', sinceDate)
-    .order('entry_date', { ascending: false });
-  if (error) throw error;
+  // Every page — a long date range on a Day/Night KPI passes the API's
+  // 1,000-row answer, which used to drop the oldest remarks silently.
+  const data = await fetchAllPages((a, b) => {
+    let q = supabase
+      .from('daily_entries')
+      .select('id, entry_date, actual, target, remarks, reason_other, reason:reasons(label), kpi:kpis(name, unit, is_higher_better)')
+      .in('kpi_id', kpiIds)
+      .gte('entry_date', sinceDate);
+    if (untilDate) q = q.lte('entry_date', untilDate);
+    return q.order('entry_date', { ascending: false }).order('id').range(a, b);
+  });
   const rows = (data ?? []) as unknown as {
     id: string;
     entry_date: string;
@@ -765,7 +789,7 @@ const PAGE = 1000;
 
 /** Reads every row of a PostgREST query, a page at a time (the API caps a
  * single response at 1,000 rows). */
-async function fetchAllPages<T>(page: (from: number, to: number) => PromiseLike<{ data: unknown; error: unknown }>): Promise<T[]> {
+export async function fetchAllPages<T>(page: (from: number, to: number) => PromiseLike<{ data: unknown; error: unknown }>): Promise<T[]> {
   const out: T[] = [];
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await page(from, from + PAGE - 1);

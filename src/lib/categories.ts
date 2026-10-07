@@ -1,4 +1,5 @@
 import { supabase } from './supabaseClient';
+import { fetchAllPages } from './data';
 import type { DailyEntry } from '../types';
 import { cleanLabel } from './categoryCore';
 
@@ -118,11 +119,19 @@ export async function upsertKpiAngles(
   if (error) throw error;
 }
 
+/** Tags on the given entries. Asks for 200 entries at a time (a long list
+ * of ids in one request URL gets rejected) and reads every page. */
 export async function fetchEntryCategories(entryIds: string[]): Promise<EntryCategory[]> {
-  if (entryIds.length === 0) return [];
-  const { data, error } = await supabase.from('entry_categories').select('id, entry_id, dimension, category').in('entry_id', entryIds);
-  if (error) throw error;
-  return data as EntryCategory[];
+  const out: EntryCategory[] = [];
+  for (let i = 0; i < entryIds.length; i += 200) {
+    const ids = entryIds.slice(i, i + 200);
+    out.push(
+      ...(await fetchAllPages<EntryCategory>((a, b) =>
+        supabase.from('entry_categories').select('id, entry_id, dimension, category').in('entry_id', ids).order('id').range(a, b)
+      ))
+    );
+  }
+  return out;
 }
 
 export async function addEntryCategory(entryId: string, dimension: string, category: string, createdBy: string | null): Promise<void> {
@@ -183,14 +192,11 @@ export interface EntryLiteRow {
 
 export async function fetchEntriesLite(kpiIds: string[], from: string, to: string): Promise<EntryLiteRow[]> {
   if (kpiIds.length === 0) return [];
-  const { data, error } = await supabase
-    .from('daily_entries')
-    .select('id, kpi_id, entry_date, actual, remarks')
-    .in('kpi_id', kpiIds)
-    .gte('entry_date', from)
-    .lte('entry_date', to);
-  if (error) throw error;
-  return data as EntryLiteRow[];
+  // Every page: a Day/Night/Old KPI over most of a year passes 1,000 rows,
+  // and entries past that used to be reported as "no matching entry".
+  return fetchAllPages<EntryLiteRow>((a, b) =>
+    supabase.from('daily_entries').select('id, kpi_id, entry_date, actual, remarks').in('kpi_id', kpiIds).gte('entry_date', from).lte('entry_date', to).order('id').range(a, b)
+  );
 }
 
 const CHUNK = 400;

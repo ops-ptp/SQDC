@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { CheckField, TextField } from './ui';
 
@@ -49,10 +49,26 @@ function FilterDropdown({
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+      const target = e.target as Element;
+      // The ▾ buttons toggle the dropdown themselves on click — closing here
+      // first would make a click on the open column's ▾ re-open it.
+      if (target.closest?.('.data-table-th-filter-btn')) return;
+      if (ref.current && !ref.current.contains(target)) onClose();
+    }
+    // The dropdown is fixed-positioned from where its ▾ was when it opened,
+    // so it would float away from the column once anything scrolls.
+    function handleScroll(e: Event) {
+      if (ref.current && e.target instanceof Node && ref.current.contains(e.target)) return;
+      onClose();
     }
     document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
+    window.addEventListener('scroll', handleScroll, true);
+    window.addEventListener('resize', onClose);
+    return () => {
+      document.removeEventListener('mousedown', handleClick);
+      window.removeEventListener('scroll', handleScroll, true);
+      window.removeEventListener('resize', onClose);
+    };
   }, [onClose]);
 
   const visibleValues = values.filter((v) => v.toLowerCase().includes(search.trim().toLowerCase()));
@@ -84,7 +100,7 @@ function FilterDropdown({
     <div
       className="data-table-filter-dropdown"
       ref={ref}
-      style={{ position: 'fixed', top: anchorRect.bottom + 4, left: Math.min(anchorRect.left, window.innerWidth - 236) }}
+      style={{ position: 'fixed', zIndex: 200, top: anchorRect.bottom + 4, left: Math.max(8, Math.min(anchorRect.left, window.innerWidth - 236)) }}
     >
       <TextField className="data-table-filter-search" placeholder="Search…" value={search} onChange={setSearch} autoFocus ariaLabel="Search values" />
       <label className="data-table-filter-option data-table-filter-select-all">
@@ -155,6 +171,8 @@ export default function DataTable<T>({ columns, rows, rowKey, emptyMessage = 'No
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filtered, sort]);
 
+  const closeFilter = useCallback(() => setOpenFilterKey(null), []);
+
   function toggleSort(key: string) {
     setSort((prev) => {
       if (!prev || prev.key !== key) return { key, dir: 'asc' };
@@ -192,7 +210,7 @@ export default function DataTable<T>({ columns, rows, rowKey, emptyMessage = 'No
                       values={distinctValues[col.key] ?? []}
                       selected={filters[col.key] ?? null}
                       onChange={(next) => setFilters((f) => ({ ...f, [col.key]: next }))}
-                      onClose={() => setOpenFilterKey(null)}
+                      onClose={closeFilter}
                       anchorRect={anchorRect}
                     />
                   )}

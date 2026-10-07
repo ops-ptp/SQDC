@@ -224,14 +224,19 @@ export function InfoTip({ children, label = 'More info' }: { children: React.Rea
         className="info-tip"
         aria-label={label}
         aria-expanded={open}
-        onMouseEnter={() => setOpen(true)}
-        onMouseLeave={() => setOpen(false)}
-        onFocus={() => setOpen(true)}
+        // A tap on a phone fires hover, focus AND click; reacting to all
+        // three opened and instantly closed the tip on Android. So: hover
+        // only for a mouse, focus only from the keyboard, and a tap toggles.
+        onPointerEnter={(e) => e.pointerType === 'mouse' && setOpen(true)}
+        onPointerLeave={(e) => e.pointerType === 'mouse' && setOpen(false)}
+        onFocus={(e) => e.currentTarget.matches(':focus-visible') && setOpen(true)}
         onBlur={() => setOpen(false)}
         onClick={(e) => {
           // Don't let a surrounding <label> treat this as a click on its field.
           e.preventDefault();
-          setOpen((o) => !o);
+          const pointerType = (e.nativeEvent as PointerEvent).pointerType;
+          if (pointerType === 'mouse') setOpen(true);
+          else setOpen((o) => !o);
         }}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {

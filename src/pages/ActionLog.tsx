@@ -144,13 +144,15 @@ function ActionEditModal({
 }
 
 export default function ActionLog() {
-  const { employee, isDeptAdmin } = useEmployee();
+  const { employee, isDeptAdmin, isDeptMember } = useEmployee();
   const department = useDepartment();
   const canManage = isDeptAdmin(department.id);
   const [pillars, setPillars] = useState<Pillar[]>([]);
   const [kpis, setKpis] = useState<Kpi[]>([]);
   const [actions, setActions] = useState<ActionItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
   const [filterPillar, setFilterPillar] = useState<string>('all');
   const [showForm, setShowForm] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -168,12 +170,16 @@ export default function ActionLog() {
 
   async function loadAll() {
     setLoading(true);
+    setLoadError(null);
     try {
       const [p, k, a] = await Promise.all([fetchPillars(), fetchKpis(department.id), fetchActions(department.id)]);
       setPillars(p);
       setKpis(k);
       setActions(a);
       if (p.length > 0) setForm((f) => ({ ...f, pillar_id: f.pillar_id || p[0].id }));
+    } catch (e) {
+      // Say so, rather than showing an empty log as if nothing was logged.
+      setLoadError(errorMessage(e, 'Failed to load the action log'));
     } finally {
       setLoading(false);
     }
@@ -198,10 +204,12 @@ export default function ActionLog() {
   async function handleStatusChange(a: ActionItem, status: ActionStatus) {
     const prevStatus = a.status;
     setActions((prev) => prev.map((x) => (x.id === a.id ? { ...x, status } : x)));
+    setStatusError(null);
     try {
       await setActionStatus(a.id, status);
-    } catch {
+    } catch (e) {
       setActions((prev) => prev.map((x) => (x.id === a.id ? { ...x, status: prevStatus } : x)));
+      setStatusError(`Couldn't change the status of "${a.action}" — ${errorMessage(e, 'please try again')}.`);
     }
   }
 
@@ -235,6 +243,21 @@ export default function ActionLog() {
   }
 
   if (loading) return <PageLoader label="Loading action log…" />;
+  if (loadError) {
+    return (
+      <div className="page">
+        <div className="alert alert-error">
+          {loadError}{' '}
+          <Button size="small" onClick={loadAll}>
+            Try again
+          </Button>
+        </div>
+      </div>
+    );
+  }
+  // Adding an action is for the department's own members (viewers without a
+  // login can read the log, like the board).
+  const canAdd = isDeptMember(department.id);
 
   return (
     <div className="page">
@@ -242,12 +265,15 @@ export default function ActionLog() {
         <div>
           <h1>Action Log <InfoTip>Actions raised against Pareto reasons across all four pillars.</InfoTip></h1>
         </div>
-        <Button themeColor={showForm ? 'base' : 'primary'} svgIcon={showForm ? undefined : plusIcon} onClick={() => setShowForm((s) => !s)}>
-          {showForm ? 'Cancel' : 'New action'}
-        </Button>
+        {canAdd && (
+          <Button themeColor={showForm ? 'base' : 'primary'} svgIcon={showForm ? undefined : plusIcon} onClick={() => setShowForm((s) => !s)}>
+            {showForm ? 'Cancel' : 'New action'}
+          </Button>
+        )}
       </div>
+      {statusError && <div className="alert alert-error">{statusError}</div>}
 
-      {showForm && (
+      {showForm && canAdd && (
         <form className="card action-form" onSubmit={handleSubmit}>
           <ActionFields value={form} onChange={(patch) => setForm((f) => ({ ...f, ...patch }))} pillars={pillars} kpis={kpis} />
           {formError && <div className="alert alert-error">{formError}</div>}

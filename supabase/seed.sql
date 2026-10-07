@@ -43,7 +43,6 @@ delete from leading_entries;
 delete from actions;
 delete from daily_entries;
 delete from reasons;
-delete from kpi_assignments;
 delete from kpis;
 delete from employees;
 delete from pillars;
@@ -57,20 +56,25 @@ insert into pillars (code, name, sort_order) values
 
 -- ---- Employees -----------------------------------------------------------
 -- Employee IDs are 6-digit, zero-padded numbers (enforced by a check
--- constraint in schema.sql). 000003 (Aiman) is seeded as the demo Admin/
--- Superuser — the only one who sees the Admin tab (Daily/Weekly Excel
--- upload) by default. (Job-title text used to live here too, in a `role`
--- column — dropped in the database-cleanup migration since nothing in the
--- app ever read it.)
-insert into employees (employee_code, name, is_admin) values
-  ('000001', 'Nasser',   false),
-  ('000002', 'Noura',    false),
-  ('000003', 'Aiman',    true),
-  ('000004', 'Farah',    false),
-  ('000005', 'Hassan',   false),
-  ('000006', 'Zaid',     false),
-  ('000007', 'Iris',     false),
-  ('000008', 'Marcus',   false);
+-- constraint in schema.sql). 000003 (Aiman) is seeded as the demo site
+-- admin and the first department's admin; everyone else is a member of
+-- that department.
+insert into employees (employee_code, name) values
+  ('000001', 'Nasser'),
+  ('000002', 'Noura'),
+  ('000003', 'Aiman'),
+  ('000004', 'Farah'),
+  ('000005', 'Hassan'),
+  ('000006', 'Zaid'),
+  ('000007', 'Iris'),
+  ('000008', 'Marcus');
+
+update employees set is_site_admin = true where employee_code = '000003';
+
+insert into department_members (department_id, employee_id, role)
+select default_department_id(), e.id, case when e.employee_code = '000003' then 'admin' else 'member' end
+from employees e
+on conflict (department_id, employee_id) do nothing;
 
 -- ---- KPIs -----------------------------------------------------------------
 -- is_leading: true = a leading/process indicator, forecast on the Forward
@@ -136,23 +140,6 @@ insert into kpis (pillar_id, name, unit, is_higher_better, target, info, sort_or
   ('QC PM & Service - MTD',                 '%', 'Month-to-date view of preventive maintenance & service completed, discussed forward-looking against plan.', 20),
   ('QC PM & Service - Projection Today',     '',  'Forecast of preventive maintenance & service planned for today.', 21)
 ) as v(name, unit, info, ord) where pillars.code = 'C';
-
--- ---- KPI assignments (who is responsible for updating each KPI) -----------
--- Only lagging KPIs are assigned — leading KPIs are forecast on the Forward
--- Looking board by any logged-in employee, not tied to a numeric entry form.
-insert into kpi_assignments (kpi_id, employee_id)
-select k.id, e.id from kpis k, employees e
-where (k.name like 'Accident During Operation%' and e.employee_code in ('000001','000003'))
-   or (k.name like 'Delay – Waiting for CHE%' and e.employee_code in ('000004','000007'))
-   or (k.name like 'Overall Mixing Yard%' and e.employee_code in ('000007','000004'))
-   or (k.name like 'Labour Supply as Required%' and e.employee_code in ('000004','000003'))
-   or (k.name like 'Moves (%' and e.employee_code in ('000005','000008'))
-   or (k.name like 'GMPH Mainliner%' and e.employee_code in ('000005','000008'))
-   or (k.name like 'GMPH Feeder%' and e.employee_code in ('000005','000008'))
-   or (k.name like 'Mainliner Load GMPH%' and e.employee_code in ('000005','000008'))
-   or (k.name like 'Gate Truck Waiting Time%' and e.employee_code in ('000005','000003'))
-   or (k.name = 'QC Preventive Maintenance & Service' and e.employee_code in ('000006'))
-   or (k.name = 'Average Litres per Vessel Call' and e.employee_code in ('000006'));
 
 -- ---- Reasons per KPI (curated lists, feed the Pareto chart) --------------
 -- Applied to both the "(Day)"/"(Night)" variant and any un-suffixed match.
@@ -275,7 +262,7 @@ begin
         else 'Target missed — reason under review.'
       end;
 
-      select employee_id into entrant from kpi_assignments where kpi_id = k.id limit 1;
+      select id into entrant from employees order by employee_code offset (abs(hashtext(k.id::text)) % 8) limit 1;
 
       insert into daily_entries (kpi_id, entry_date, target, actual, met_target, reason_id, remarks, entered_by)
       values (k.id, d, k.target, entry_actual, entry_met, chosen_reason, entry_remarks, entrant)

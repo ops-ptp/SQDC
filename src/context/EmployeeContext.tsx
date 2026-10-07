@@ -25,6 +25,10 @@ interface EmployeeContextValue {
 const EmployeeContext = createContext<EmployeeContextValue | undefined>(undefined);
 
 async function fetchEmployee(code: string): Promise<Employee> {
+  // The lookup is case-insensitive (ilike), where %, _ and * are wildcards —
+  // "00004_" would log in as whichever employee happens to match. Real IDs
+  // never contain them, so refuse them outright.
+  if (/[%_*\\]/.test(code)) throw new Error(`ID "${code}" cannot access this page. Please return to SQDC Board`);
   const { data, error: err } = await supabase
     .from('employees')
     .select('*')

@@ -1,4 +1,4 @@
-import { getISOWeek } from 'date-fns';
+import { getISOWeek, getISOWeekYear, parseISO } from 'date-fns';
 import type { CategorizedEntryRow } from './data';
 import type { ParetoDatum } from '../components/ParetoChart';
 
@@ -55,8 +55,12 @@ function pivotDimValues(e: CategorizedEntryRow, key: string): string[] {
   switch (key) {
     case 'shift':
       return [e.shift ?? 'Unspecified'];
-    case 'week':
-      return [`Wk ${getISOWeek(new Date(e.entry_date))}`];
+    case 'week': {
+      // ISO year + zero-padded week ("2026-W07"): weeks from different years
+      // stay apart and the labels sort in time order.
+      const d = parseISO(e.entry_date);
+      return [`${getISOWeekYear(d)}-W${String(getISOWeek(d)).padStart(2, '0')}`];
+    }
     default:
       return [];
   }

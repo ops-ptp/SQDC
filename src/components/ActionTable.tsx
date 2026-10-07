@@ -1,5 +1,5 @@
+import { useTodayString } from '../lib/useToday';
 import { format, parseISO } from 'date-fns';
-import { useEffect, useState } from 'react';
 import { DropDownList } from '@progress/kendo-react-dropdowns';
 import { pencilIcon } from '@progress/kendo-svg-icons';
 import { Button } from './ui';
@@ -23,17 +23,6 @@ const STATUS_OPTIONS = STATUS_ORDER.map((s) => ({ value: s, label: ACTION_STATUS
  * days, so a value computed once (module load, or even once per mount)
  * would let the "Overdue" status silently go stale until someone reloads
  * the page — this keeps it correct without a reload. */
-function useTodayString(): string {
-  const [today, setToday] = useState(() => format(new Date(), 'yyyy-MM-dd'));
-  useEffect(() => {
-    const now = new Date();
-    const nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 5);
-    const timer = setTimeout(() => setToday(format(new Date(), 'yyyy-MM-dd')), nextMidnight.getTime() - now.getTime());
-    return () => clearTimeout(timer);
-  }, [today]);
-  return today;
-}
-
 const ROW_CLASS: Record<string, string> = {
   overdue: 'row-overdue',
   dropped: 'row-dropped',

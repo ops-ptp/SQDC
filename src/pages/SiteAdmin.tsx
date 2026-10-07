@@ -290,13 +290,25 @@ function AddEmployeeModal({ onCancel, onSaved }: { onCancel: () => void; onSaved
   );
 }
 
-function EmployeesCard({ employees, memberships, onChanged }: { employees: Employee[]; memberships: DepartmentMember[]; onChanged: () => void }) {
+function EmployeesCard({
+  employees,
+  memberships,
+  onChanged,
+  notice,
+}: {
+  employees: Employee[];
+  memberships: DepartmentMember[];
+  /** Reloads the roster (which remounts this card) — pass the confirmation
+   * to show, so it survives the remount. */
+  onChanged: (message: string) => void;
+  notice: string | null;
+}) {
   const { departments } = useDepartments();
   const { employee: me, refresh } = useEmployee();
   const [rows, setRows] = useState<Employee[]>(employees);
   const [filter, setFilter] = useState('');
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(notice);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<Employee | null>(null);
@@ -323,8 +335,7 @@ function EmployeesCard({ employees, memberships, onChanged }: { employees: Emplo
     try {
       const updates: EmployeeSiteUpdate[] = dirty.map((r) => ({ id: r.id, active: r.active, is_site_admin: r.is_site_admin }));
       await saveEmployeeSiteUpdates(updates);
-      setMessage(`Saved ${updates.length} change${updates.length === 1 ? '' : 's'}.`);
-      onChanged();
+      onChanged(`Saved ${updates.length} change${updates.length === 1 ? '' : 's'}.`);
       if (updates.some((u) => u.id === me?.id)) await refresh();
     } catch (e) {
       setError(errorMessage(e, 'Failed to save'));
@@ -418,8 +429,7 @@ function EmployeesCard({ employees, memberships, onChanged }: { employees: Emplo
           onCancel={() => setAdding(false)}
           onSaved={(msg) => {
             setAdding(false);
-            setMessage(msg);
-            onChanged();
+            onChanged(msg);
           }}
         />
       )}
@@ -429,8 +439,7 @@ function EmployeesCard({ employees, memberships, onChanged }: { employees: Emplo
           onCancel={() => setEditing(null)}
           onSaved={(msg) => {
             setEditing(null);
-            setMessage(msg);
-            onChanged();
+            onChanged(msg);
           }}
         />
       )}
@@ -446,6 +455,7 @@ export default function SiteAdmin() {
   // Remounts the Employees card (resetting its unsaved toggles) whenever the
   // roster is reloaded.
   const [version, setVersion] = useState(0);
+  const [employeesNotice, setEmployeesNotice] = useState<string | null>(null);
 
   function load() {
     Promise.all([fetchAllEmployeesAdmin(), fetchMemberships()])
@@ -477,7 +487,16 @@ export default function SiteAdmin() {
       ) : (
         <>
           <DepartmentsCard employees={employees} memberships={memberships} onChanged={load} />
-          <EmployeesCard key={version} employees={employees} memberships={memberships} onChanged={load} />
+          <EmployeesCard
+            key={version}
+            employees={employees}
+            memberships={memberships}
+            notice={employeesNotice}
+            onChanged={(msg) => {
+              setEmployeesNotice(msg);
+              load();
+            }}
+          />
         </>
       )}
     </div>

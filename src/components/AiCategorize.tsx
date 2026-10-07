@@ -168,7 +168,7 @@ export default function AiCategorize({
     setReview(null);
     setError(null);
     Promise.all([
-      fetchMissedEntriesForKpiIds(kpiIds, from),
+      fetchMissedEntriesForKpiIds(kpiIds, from, to),
       fetchKpiCategories(department.id, pillarId, kpiLabel),
       fetchKpiAngles(department.id, pillarId, kpiLabel).catch(() => [] as KpiAngle[]),
     ])

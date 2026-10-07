@@ -20,7 +20,7 @@ const UPLOAD_FORMAT_OPTIONS: { value: UploadFormat; label: string }[] = [
 
 export default function SettingsSection() {
   const department = useDepartment();
-  const { reload } = useDepartments();
+  const { reload, applyDepartment } = useDepartments();
   const { isSiteAdmin } = useEmployee();
   const navigate = useNavigate();
   const [name, setName] = useState(department.name);
@@ -47,9 +47,12 @@ export default function SettingsSection() {
         entry_mode: entryMode,
         upload_format: uploadFormat,
       });
-      await reload();
+      // Same department (same id), so the page isn't remounted: the tab and
+      // this message survive a change of web address.
+      applyDepartment(updated);
       setMessage('Saved.');
       if (updated.slug !== department.slug) navigate(departmentPath(updated, 'admin'), { replace: true });
+      void reload();
     } catch (e) {
       setError(errorMessage(e, 'Failed to save'));
     } finally {

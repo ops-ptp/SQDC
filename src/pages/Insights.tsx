@@ -564,7 +564,7 @@ export default function Insights() {
       </div>
 
       {pillarId && kpiGroup && (
-        <TabStrip selected={tab} onSelect={(e) => setTab(e.selected)} className="admin-tabs insights-tabs" keepTabsMounted>
+        <TabStrip selected={tab} onSelect={(e) => setTab(e.selected)} className="admin-tabs insights-tabs" keepTabsMounted animation={false}>
           <TabStripTab title="1 · Tag remarks">
             <AiCategorize
               key={`${pillarId}|${kpiGroup.key}`}
@@ -579,7 +579,7 @@ export default function Insights() {
             <AnalyseTab key={`${pillarId}|${kpiGroup.key}`} pillarId={pillarId} kpiGroup={kpiGroup} refreshKey={refreshKey} color={color} />
           </TabStripTab>
           <TabStripTab title={`3 · Remarks${remarksLoading ? '' : ` (${remarks.length})`}`}>
-            <RemarksTab remarks={remarks} tagsByEntry={tagsByEntry} />
+            <RemarksTab key={kpiGroup.key} remarks={remarks} tagsByEntry={tagsByEntry} />
           </TabStripTab>
         </TabStrip>
       )}

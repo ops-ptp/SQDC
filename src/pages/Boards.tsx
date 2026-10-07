@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { format, subDays } from 'date-fns';
+import { format, parseISO, subDays } from 'date-fns';
+import { useTodayString } from '../lib/useToday';
 import { departmentPath, useDepartments } from '../context/DepartmentContext';
 import { useEmployee } from '../context/EmployeeContext';
 import { fetchBoardRollups, type BoardRollup } from '../lib/data';
@@ -19,7 +20,10 @@ export default function Boards() {
   const navigate = useNavigate();
   const [rollups, setRollups] = useState<Map<string, BoardRollup> | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const yesterday = subDays(new Date(), 1);
+  // Recomputed when the day rolls over, so an overview left open overnight
+  // moves on to the new "yesterday".
+  const todayStr = useTodayString();
+  const yesterday = subDays(parseISO(todayStr), 1);
   const yesterdayStr = format(yesterday, 'yyyy-MM-dd');
 
   useEffect(() => {

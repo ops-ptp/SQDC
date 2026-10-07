@@ -1,14 +1,16 @@
 import { format, parseISO } from 'date-fns';
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { pencilIcon } from '@progress/kendo-svg-icons';
-import { bulkUpsertLeadingEntriesFromUpload, fetchLatestLeadingEntries, fetchLeadingKpis } from '../lib/data';
+import { dragAndDropIcon, pencilIcon } from '@progress/kendo-svg-icons';
+import { bulkUpsertLeadingEntriesFromUpload, fetchAllKpisAdmin, fetchLatestLeadingEntries, fetchLeadingKpis, saveKpiOrder } from '../lib/data';
+import { renumberKpis } from '../lib/kpiOrder';
+import { useTodayString } from '../lib/useToday';
+import ArrangeBar from '../components/ArrangeBar';
+import SortableList from '../components/SortableList';
 import { useDepartment, useDeptPath } from '../context/DepartmentContext';
 import { useEmployee } from '../context/EmployeeContext';
 import { PILLAR_COLORS, errorMessage, round2, type KpiWithPillar, type LeadingEntry } from '../types';
 import { Button, NumberField, PageLoader, InfoTip } from '../components/ui';
-
-const TODAY = new Date();
 
 /** '%' KPIs get a % sign; everything else is a plain thousands-separated
  * number with its unit suffixed. Both are capped at 2 decimal places. */
@@ -96,7 +98,15 @@ export default function ForwardLooking() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const todayStr = format(TODAY, 'yyyy-MM-dd');
+  // Re-evaluated at midnight, so a screen left open overnight asks for — and
+  // labels — the new day's figures.
+  const todayStr = useTodayString();
+  // Arrange mode (department admins): KPI ids per pillar, in the order
+  // being arranged; null when not arranging.
+  const [arrange, setArrange] = useState<Record<string, string[]> | null>(null);
+  const [arrangeDirty, setArrangeDirty] = useState(false);
+  const [arrangeSaving, setArrangeSaving] = useState(false);
+  const [arrangeError, setArrangeError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -118,7 +128,7 @@ export default function ForwardLooking() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [department.id]);
+  }, [department.id, todayStr]);
 
   const entryByKpi = useMemo(() => new Map(entries.map((e) => [e.kpi_id, e])), [entries]);
 
@@ -131,17 +141,66 @@ export default function ForwardLooking() {
       if (!byPillar.has(key)) byPillar.set(key, { pillar: k.pillar, kpis: [] });
       byPillar.get(key)!.kpis.push(k);
     }
+    for (const g of byPillar.values()) g.kpis.sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name));
     return Array.from(byPillar.values()).sort((a, b) => pillarOrderIndex(a.pillar.code) - pillarOrderIndex(b.pillar.code));
   }, [kpis]);
+
+  const canArrange = isDeptAdmin(department.id) && kpis.length > 1;
+
+  function startArrange() {
+    setArrange(Object.fromEntries(groups.map((g) => [g.pillar.code, g.kpis.map((k) => k.id)])));
+    setArrangeDirty(false);
+    setArrangeError(null);
+  }
+
+  async function saveArrange() {
+    if (!arrange) return;
+    setArrangeSaving(true);
+    setArrangeError(null);
+    try {
+      // Hidden Next 24 Hours KPIs aren't on this page; renumbering keeps
+      // them after the visible ones in their pillar.
+      const all = (await fetchAllKpisAdmin(department.id)).filter((k) => k.is_leading);
+      const updates = groups.flatMap((g) => {
+        const pillarKpis = all.filter((k) => k.pillar.code === g.pillar.code);
+        const units = (arrange[g.pillar.code] ?? []).map((id) => pillarKpis.filter((k) => k.id === id));
+        return renumberKpis(units, pillarKpis);
+      });
+      await saveKpiOrder(updates);
+      const byId = new Map(updates.map((u) => [u.id, u.sort_order]));
+      setKpis((prev) => prev.map((k) => (byId.has(k.id) ? { ...k, sort_order: byId.get(k.id)! } : k)));
+      setArrange(null);
+    } catch (e) {
+      setArrangeError(errorMessage(e, 'Could not save the new order'));
+    } finally {
+      setArrangeSaving(false);
+    }
+  }
 
   if (loading) return <PageLoader label="Loading Next 24 Hours board…" />;
   if (error) return <div className="alert alert-error page-margin">{error}</div>;
 
   return (
     <div className="page fl-page">
-      <div className="page-header">
+      <div className="page-header page-header-row fl-header">
         <h1>Next 24 Hours <InfoTip>Leading indicators for the day ahead.</InfoTip></h1>
+        {canArrange && !arrange && (
+          <Button fillMode="outline" svgIcon={dragAndDropIcon} onClick={startArrange} title="Change the order of the KPIs in each pillar">
+            Arrange KPIs
+          </Button>
+        )}
       </div>
+
+      {arrange && (
+        <ArrangeBar
+          hint="Drag the cards within each pillar (or focus one and use the arrow keys)."
+          dirty={arrangeDirty}
+          saving={arrangeSaving}
+          error={arrangeError}
+          onCancel={() => setArrange(null)}
+          onSave={saveArrange}
+        />
+      )}
 
       {kpis.length === 0 ? (
         <div className="empty-state">
@@ -161,6 +220,29 @@ export default function ForwardLooking() {
                 <div className="fl-column-header">
                   <span className="fl-column-title">{g.pillar.name}</span>
                 </div>
+                {arrange ? (
+                  <SortableList
+                    itemClassName="sortable-card"
+                    items={(arrange[g.pillar.code] ?? []).map((id) => g.kpis.find((k) => k.id === id)).filter((k): k is KpiWithPillar => Boolean(k))}
+                    getKey={(k) => k.id}
+                    getLabel={(k) => k.name}
+                    onChange={(next) => {
+                      setArrange((a) => (a ? { ...a, [g.pillar.code]: next.map((k) => k.id) } : a));
+                      setArrangeDirty(true);
+                    }}
+                    ariaLabel={`${g.pillar.name} — drag to reorder`}
+                    className="fl-column-body"
+                    renderItem={(k) => {
+                      const entry = entryByKpi.get(k.id);
+                      return (
+                        <div className="fl-card fl-card-arrange" style={{ borderLeftColor: colors.base }}>
+                          <div className="fl-card-kpi">{k.name}</div>
+                          <div className="fl-card-value fl-card-value-sm">{entry ? formatValue(entry.value, k.unit) : '—'}</div>
+                        </div>
+                      );
+                    }}
+                  />
+                ) : (
                 <div className="fl-column-body">
                   {g.kpis.map((k) => {
                     const entry = entryByKpi.get(k.id);
@@ -192,6 +274,7 @@ export default function ForwardLooking() {
                     );
                   })}
                 </div>
+                )}
               </div>
             );
           })}

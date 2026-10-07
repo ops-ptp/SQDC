@@ -6,7 +6,7 @@ import { applyPivotFilter, computeChartData, computeCrossTab, pivotCoverage, piv
 import { rollUpWeekly } from '../lib/weeklyRollup';
 import { useEmployee } from '../context/EmployeeContext';
 import { useDepartment, useDeptPath } from '../context/DepartmentContext';
-import { baseNameOf, metTarget, PILLAR_COLORS, round2, weeklyFromUpload, type ActionItem, type DailyEntry, type Kpi, type Pillar, type PerformanceStatus, type WeeklyEntry } from '../types';
+import { baseNameOf, errorMessage, metTarget, PILLAR_COLORS, round2, weeklyFromUpload, type ActionItem, type DailyEntry, type Kpi, type Pillar, type PerformanceStatus, type WeeklyEntry } from '../types';
 import KpiRunChart, { type RunPoint } from './KpiRunChart';
 import ParetoChart, { type ParetoDatum } from './ParetoChart';
 import CategoryPareto from './CategoryPareto';
@@ -15,12 +15,17 @@ import ActionTable from './ActionTable';
 import PillarLetterGrid, { type DayStatus } from './PillarLetterGrid';
 import { InlineLoader } from './ui';
 import ScrollFadeRow from './ScrollFadeRow';
+import SortableList from './SortableList';
 
 export type Granularity = 'daily' | 'weekly';
 
 interface Props {
   pillar: Pillar;
   kpis: Kpi[];
+  /** Arrange mode (Dashboard): this pillar's KPI base names in the order
+   * being arranged. When set, the pill row becomes a drag-to-reorder list. */
+  arrangeKeys?: string[];
+  onArrange?: (keys: string[]) => void;
   granularity?: Granularity;
   /** Daily view only — controlled by one board-wide toggle button in
    * Dashboard.tsx so all 4 quadrants show/hide together. Weekly view always
@@ -92,7 +97,7 @@ function buildGroups(kpis: Kpi[]): KpiGroup[] {
     else if (isNight) g.night = k;
     else g.single = k;
   }
-  return Array.from(map.values()).sort((a, b) => a.sortOrder - b.sortOrder);
+  return Array.from(map.values()).sort((a, b) => a.sortOrder - b.sortOrder || a.label.localeCompare(b.label));
 }
 
 function groupKpiIds(g: KpiGroup): string[] {
@@ -146,6 +151,8 @@ export default function PillarQuadrant({
   latestAvailableDate: latestAvailableDateProp,
   onDayClick,
   paretoPeriod: paretoPeriodProp,
+  arrangeKeys,
+  onArrange,
 }: Props) {
   const navigate = useNavigate();
   const { employee } = useEmployee();
@@ -192,6 +199,7 @@ export default function PillarQuadrant({
   const [actions, setActions] = useState<ActionItem[]>([]);
   const [reasonLabelById, setReasonLabelById] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   // Admin-saved Pareto configurations from Insights (Export -> AI -> Pivot
   // builder -> "Save to Board"). Read-only here — delete/edit only happens
   // in Insights, per how this was scoped. Fetched once per pillar rather
@@ -229,27 +237,44 @@ export default function PillarQuadrant({
       setReferenceTargets(new Map());
       return;
     }
+    // Each effect below ignores answers that arrive after its inputs have
+    // changed again (quick clicks on days or KPI pills), so an older, slower
+    // request can never paint the previous day's or KPI's figures.
+    let cancelled = false;
     fetchEntriesForKpisOnDate(ids, referenceDateStr)
-      .then(setReferenceEntries)
-      .catch(() => setReferenceEntries([]));
+      .then((e) => !cancelled && setReferenceEntries(e))
+      .catch(() => !cancelled && setReferenceEntries([]));
     fetchKpiDailyTargetsForDate(ids, referenceDateStr)
-      .then(setReferenceTargets)
-      .catch(() => setReferenceTargets(new Map()));
+      .then((t) => !cancelled && setReferenceTargets(t))
+      .catch(() => !cancelled && setReferenceTargets(new Map()));
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kpis, referenceDateStr]);
 
   // Actions for this pillar — independent of which KPI pill is selected.
   useEffect(() => {
-    fetchActions(department.id, { pillarId: pillar.id }).then(setActions);
+    let cancelled = false;
+    fetchActions(department.id, { pillarId: pillar.id })
+      .then((a) => !cancelled && setActions(a))
+      .catch(() => !cancelled && setActions([]));
+    return () => {
+      cancelled = true;
+    };
   }, [department.id, pillar.id]);
 
   // Custom Paretos saved from Insights — fetched once per pillar. Whether
   // one applies to the currently-selected KPI is worked out below
   // (customPareto), not here.
   useEffect(() => {
+    let cancelled = false;
     fetchCustomParetosForPillar(department.id, pillar.id)
-      .then(setCustomParetos)
-      .catch(() => setCustomParetos([]));
+      .then((p) => !cancelled && setCustomParetos(p))
+      .catch(() => !cancelled && setCustomParetos([]));
+    return () => {
+      cancelled = true;
+    };
   }, [department.id, pillar.id]);
 
   const customPareto = customParetos.find((p) => p.kpi_base_name === selectedGroup?.key) ?? null;
@@ -262,9 +287,15 @@ export default function PillarQuadrant({
       setCustomParetoEntries([]);
       return;
     }
-    fetchCategorizedEntriesForKpiIds(groupKpiIds(selectedGroup))
-      .then(setCustomParetoEntries)
-      .catch(() => setCustomParetoEntries([]));
+    // Primary rows only — the same set Insights analyses (the "(Old)"
+    // comparison rows would otherwise be counted twice for e.g. Mainliner).
+    let cancelled = false;
+    fetchCategorizedEntriesForKpiIds(primaryKpiIds(selectedGroup))
+      .then((e) => !cancelled && setCustomParetoEntries(e))
+      .catch(() => !cancelled && setCustomParetoEntries([]));
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customPareto?.id, selectedGroup?.key]);
 
@@ -305,6 +336,15 @@ export default function PillarQuadrant({
         const map = new Map<string, string>();
         for (const list of reasonsByKpi) for (const r of list) map.set(r.id, r.label);
         setReasonLabelById(map);
+        setLoadError(null);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        // Don't leave the previous KPI's figures under this KPI's name.
+        setMonthEntries([]);
+        setWindowEntries([]);
+        setParetoEntries([]);
+        setLoadError(errorMessage(e, "Couldn't load this KPI's figures"));
       })
       .finally(() => !cancelled && setLoading(false));
     return () => {
@@ -334,7 +374,11 @@ export default function PillarQuadrant({
       : fetchEntriesForKpis(primaryKpiIds(selectedGroup), trendSince).then((entries) =>
           rollUpWeekly(kpis, entries).filter((w) => w.kpi_base_name === selectedGroup.label)
         );
-    source.then(setWeeklySource).catch(() => setWeeklySource([]));
+    let cancelled = false;
+    source.then((w) => !cancelled && setWeeklySource(w)).catch(() => !cancelled && setWeeklySource([]));
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [granularity, selectedGroup?.key, pillar.id, selectedGroup?.label, weeklyUploaded, trendSince]);
 
@@ -346,7 +390,11 @@ export default function PillarQuadrant({
           kpis.filter((k) => !k.is_secondary).map((k) => k.id),
           paretoPeriod.from
         ).then((entries) => rollUpWeekly(kpis, entries));
-    source.then(setPillarWeekly).catch(() => setPillarWeekly([]));
+    let cancelled = false;
+    source.then((w) => !cancelled && setPillarWeekly(w)).catch(() => !cancelled && setPillarWeekly([]));
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [granularity, pillar.id, weeklyUploaded, kpis, paretoPeriod.from]);
 
@@ -410,7 +458,9 @@ export default function PillarQuadrant({
   // ---- Letter grid: one cell per calendar day, combined Day+Night average -
   const daysInMonth = getDaysInMonth(referenceDate);
   const dayStatuses: DayStatus[] = useMemo(() => {
-    if (!selectedGroup) return [];
+    // A pillar with no KPIs yet still has a normal month: every real day
+    // shows as "no data" rather than the whole letter going black.
+    if (!selectedGroup) return Array.from({ length: daysInMonth }, (_, i) => ({ day: i + 1, status: i + 1 > latestAvailableDay ? 'future' : 'nodata' }));
     const dayIdx = indexByDate(monthEntries.filter((e) => e.kpi_id === selectedGroup.day?.id));
     const nightIdx = indexByDate(monthEntries.filter((e) => e.kpi_id === selectedGroup.night?.id));
     const singleIdx = indexByDate(monthEntries.filter((e) => e.kpi_id === selectedGroup.single?.id));
@@ -677,6 +727,21 @@ export default function PillarQuadrant({
     <section className="quadrant">
       {hero}
 
+      {arrangeKeys && onArrange ? (
+        <SortableList
+          items={arrangeKeys}
+          getKey={(k) => k}
+          getLabel={(k) => k}
+          onChange={onArrange}
+          ariaLabel={`${pillar.name} KPIs — drag to reorder`}
+          className="kpi-pills kpi-pills-arranging"
+          renderItem={(k) => (
+            <span className="kpi-pill kpi-pill-arrange" style={{ borderColor: colors.base, color: colors.text }}>
+              {k}
+            </span>
+          )}
+        />
+      ) : (
       <ScrollFadeRow className="kpi-pills">
         {groups.map((g) => {
           const status = groupStatus(g);
@@ -699,7 +764,9 @@ export default function PillarQuadrant({
           );
         })}
       </ScrollFadeRow>
+      )}
 
+      {loadError && <div className="alert alert-error quadrant-load-error">{loadError}</div>}
       {selectedGroup && (
         <>
           <div className="kpi-headline">

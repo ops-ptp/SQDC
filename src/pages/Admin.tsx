@@ -66,6 +66,9 @@ export default function Admin() {
         }}
         className="admin-tabs"
         keepTabsMounted
+        // No fade: Kendo wraps animated tab content in a z-index 600 layer,
+        // which slid over the sticky navbar and covered portal dropdowns.
+        animation={false}
       >
         {tabs.map((t) => (
           <TabStripTab key={t.title} title={t.title}>

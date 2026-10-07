@@ -1,15 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
-import { endOfMonth, format, subDays, subMonths } from 'date-fns';
+import { endOfMonth, format, parseISO, subDays, subMonths } from 'date-fns';
 import { Link } from 'react-router-dom';
-import { fetchAllKpisAdmin, fetchPillars } from '../lib/data';
+import { fetchAllKpisAdmin, fetchPillars, saveKpiOrder } from '../lib/data';
 import { useDepartment, useDeptPath } from '../context/DepartmentContext';
 import { useEmployee } from '../context/EmployeeContext';
 import type { Kpi, Pillar } from '../types';
-import { errorMessage } from '../types';
+import { baseNameOf, errorMessage } from '../types';
+import { orderedBaseNames, renumberKpis } from '../lib/kpiOrder';
+import { useTodayString } from '../lib/useToday';
+import ArrangeBar from '../components/ArrangeBar';
 import PillarQuadrant, { type Granularity } from '../components/PillarQuadrant';
 import { paretoPeriod as computeParetoPeriod, type ParetoSpan } from '../lib/categoryCore';
 import { SegmentedControl } from '@progress/kendo-react-buttons';
-import { chevronDownIcon, chevronLeftIcon, chevronRightIcon, chevronUpIcon, xIcon } from '@progress/kendo-svg-icons';
+import { chevronDownIcon, chevronLeftIcon, chevronRightIcon, chevronUpIcon, dragAndDropIcon, xIcon } from '@progress/kendo-svg-icons';
 import { Button, PageLoader, Select } from '../components/ui';
 
 const MONTH_OPTIONS_COUNT = 12;
@@ -22,7 +25,7 @@ export default function Dashboard() {
   const [kpis, setKpis] = useState<Kpi[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [granularity, setGranularity] = useState<Granularity>('daily');
+  const [chosenGranularity, setGranularity] = useState<Granularity>('daily');
   // Single toggle hiding/showing Pareto + Actions across all 4 pillars at
   // once — Daily view only; Weekly view always shows both regardless.
   const [showParetoActions, setShowParetoActions] = useState(true);
@@ -41,6 +44,12 @@ export default function Dashboard() {
   // the latest COMPLETED period (a review looks back at a finished week).
   const [paretoSpan, setParetoSpan] = useState<ParetoSpan>(2);
   const [paretoOffset, setParetoOffset] = useState<number | null>(null);
+  // Arrange mode (department admins): each pillar's KPI base names in the
+  // order being arranged; null when not arranging.
+  const [arrange, setArrange] = useState<Record<string, string[]> | null>(null);
+  const [arrangeDirty, setArrangeDirty] = useState(false);
+  const [arrangeSaving, setArrangeSaving] = useState(false);
+  const [arrangeError, setArrangeError] = useState<string | null>(null);
 
   useEffect(() => {
     // Fetches every lagging KPI, active AND hidden — the Board itself
@@ -58,8 +67,15 @@ export default function Dashboard() {
       .finally(() => setLoading(false));
   }, [department.id]);
 
-  const today = new Date();
+  // Re-renders just after midnight (and when the tab is shown again), so a
+  // board left open on a screen overnight moves on to review the new
+  // "yesterday" instead of staying on the old day.
+  const todayStr = useTodayString();
+  const today = useMemo(() => parseISO(todayStr), [todayStr]);
   const isCurrentMonth = monthOffset === 0;
+  // Weekly view doesn't make sense for a past month's one-time review — a
+  // past month is always shown Daily (the toggle is greyed out).
+  const granularity: Granularity = isCurrentMonth ? chosenGranularity : 'daily';
   // Live board reviews yesterday, same as always. A past month has no
   // "yesterday" to speak of — review it as of its own last day instead.
   const defaultReferenceDate = isCurrentMonth ? subDays(today, 1) : endOfMonth(subMonths(today, monthOffset));
@@ -78,8 +94,7 @@ export default function Dashboard() {
         const d = subMonths(today, i);
         return { offset: i, label: i === 0 ? 'This month' : format(d, 'MMMM yyyy') };
       }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
+    [today]
   );
 
   function handleMonthChange(offset: number) {
@@ -94,11 +109,39 @@ export default function Dashboard() {
     setSelectedDay(day);
   }
 
-  // Weekly view doesn't make sense for a past month's one-time review — lock
-  // to Daily and grey out the toggle whenever a non-current month is picked.
-  useEffect(() => {
-    if (!isCurrentMonth) setGranularity('daily');
-  }, [isCurrentMonth]);
+
+  // One stable array per pillar, so a quadrant doesn't refetch everything
+  // whenever the page re-renders (e.g. toggling Pareto & Actions).
+  const kpisByPillar = useMemo(() => new Map(pillars.map((p) => [p.id, kpis.filter((k) => k.pillar_id === p.id)])), [pillars, kpis]);
+  const canArrange = isDeptAdmin(department.id) && kpis.some((k) => k.active);
+
+  function startArrange() {
+    setGranularity('daily');
+    setArrange(Object.fromEntries(pillars.map((p) => [p.id, orderedBaseNames((kpisByPillar.get(p.id) ?? []).filter((k) => k.active))])));
+    setArrangeDirty(false);
+    setArrangeError(null);
+  }
+
+  async function saveArrange() {
+    if (!arrange) return;
+    setArrangeSaving(true);
+    setArrangeError(null);
+    try {
+      const updates = pillars.flatMap((p) => {
+        const pillarKpis = kpisByPillar.get(p.id) ?? [];
+        const units = (arrange[p.id] ?? []).map((base) => pillarKpis.filter((k) => k.active && baseNameOf(k.name) === base));
+        return renumberKpis(units, pillarKpis);
+      });
+      await saveKpiOrder(updates);
+      const byId = new Map(updates.map((u) => [u.id, u.sort_order]));
+      setKpis((prev) => prev.map((k) => (byId.has(k.id) ? { ...k, sort_order: byId.get(k.id)! } : k)));
+      setArrange(null);
+    } catch (e) {
+      setArrangeError(errorMessage(e, 'Could not save the new order'));
+    } finally {
+      setArrangeSaving(false);
+    }
+  }
 
   if (loading) return <PageLoader label="Loading board…" />;
   if (error) return <div className="alert alert-error page-margin">{error}</div>;
@@ -172,6 +215,11 @@ export default function Dashboard() {
               </div>
             </>
           )}
+          {canArrange && !arrange && (
+            <Button fillMode="outline" svgIcon={dragAndDropIcon} onClick={startArrange} title="Change the order of each pillar's KPIs">
+              Arrange KPIs
+            </Button>
+          )}
           {granularity === 'daily' && (
             <Button
               fillMode="outline"
@@ -196,12 +244,27 @@ export default function Dashboard() {
           )}
         </div>
       )}
-      <div className={`board-grid ${granularity === 'weekly' ? 'board-grid-weekly' : ''}`}>
+      {arrange && (
+        <ArrangeBar
+          hint="Drag the KPIs within each pillar (or focus one and use the arrow keys). The new order shows everywhere — Board, Enter Remarks, Admin and the upload template."
+          dirty={arrangeDirty}
+          saving={arrangeSaving}
+          error={arrangeError}
+          onCancel={() => setArrange(null)}
+          onSave={saveArrange}
+        />
+      )}
+      <div className={`board-grid ${granularity === 'weekly' ? 'board-grid-weekly' : ''}${arrange ? ' is-arranging' : ''}`}>
         {pillars.map((p) => (
           <PillarQuadrant
             key={p.id}
             pillar={p}
-            kpis={kpis.filter((k) => k.pillar_id === p.id)}
+            kpis={kpisByPillar.get(p.id) ?? []}
+            arrangeKeys={arrange?.[p.id]}
+            onArrange={(keys) => {
+              setArrange((a) => (a ? { ...a, [p.id]: keys } : a));
+              setArrangeDirty(true);
+            }}
             granularity={granularity}
             showParetoActions={showParetoActions}
             referenceDate={referenceDate}
