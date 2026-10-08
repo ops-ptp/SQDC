@@ -22,8 +22,12 @@ interface Props {
   pillarId: string;
   /** Logical KPI base name — Day and Night share one category list. */
   kpiBaseName: string;
-  /** The daily entry (one shift) being tagged. */
-  entryId: string;
+  /** The daily entry (one shift) being tagged; null before it's first
+   * saved — ticks are then kept in `pendingTags` for the caller to write. */
+  entryId: string | null;
+  /** With no entryId: the ticks so far, and where changes are reported. */
+  pendingTags?: { dimension: string; category: string }[];
+  onPendingChange?: (tags: { dimension: string; category: string }[]) => void;
   /** Who's tagging (stored on new tags); null when not logged in. */
   employeeId: string | null;
   /** Read-only when false — chips shown, no toggling or adding. */
@@ -40,11 +44,16 @@ interface Props {
  * separate Save step — so it works the same on Enter Remarks and in the
  * board's Pareto drill-down. Typing a new category reuses an existing one
  * when it only differs by case, so the list can't grow new casing variants. */
-export default function CategoryPicker({ pillarId, kpiBaseName, entryId, employeeId, editable, onChange, color = '#2A544F' }: Props) {
+export default function CategoryPicker({ pillarId, kpiBaseName, entryId, pendingTags, onPendingChange, employeeId, editable, onChange, color = '#2A544F' }: Props) {
   const department = useDepartment();
   const [list, setList] = useState<KpiCategory[]>([]);
   const [angles, setAngles] = useState<KpiAngle[]>([]);
-  const [tags, setTags] = useState<EntryCategory[]>([]);
+  const [savedTags, setTags] = useState<EntryCategory[]>([]);
+  // Before the entry exists, the caller holds the ticks.
+  const tags: EntryCategory[] = useMemo(
+    () => (entryId ? savedTags : (pendingTags ?? []).map((t) => ({ id: `${t.dimension}|${t.category}`, entry_id: '', dimension: t.dimension, category: t.category }))),
+    [entryId, savedTags, pendingTags]
+  );
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -54,7 +63,11 @@ export default function CategoryPicker({ pillarId, kpiBaseName, entryId, employe
     // Starts in the loading state; callers key this component by entry, so
     // a different shift always mounts a fresh instance.
     let cancelled = false;
-    Promise.all([fetchKpiCategories(department.id, pillarId, kpiBaseName), fetchKpiAngles(department.id, pillarId, kpiBaseName).catch(() => []), fetchEntryCategories([entryId])])
+    Promise.all([
+      fetchKpiCategories(department.id, pillarId, kpiBaseName),
+      fetchKpiAngles(department.id, pillarId, kpiBaseName).catch(() => []),
+      entryId ? fetchEntryCategories([entryId]) : Promise.resolve([] as EntryCategory[]),
+    ])
       .then(([l, a, t]) => {
         if (cancelled) return;
         setList(l);
@@ -78,8 +91,15 @@ export default function CategoryPicker({ pillarId, kpiBaseName, entryId, employe
     return tags.some((t) => t.dimension === dimension && t.category === label);
   }
 
+  function togglePending(dimension: string, label: string) {
+    const cur = pendingTags ?? [];
+    const on = cur.some((t) => t.dimension === dimension && t.category === label);
+    onPendingChange?.(on ? cur.filter((t) => !(t.dimension === dimension && t.category === label)) : [...cur, { dimension, category: label }]);
+  }
+
   async function toggle(dimension: string, label: string) {
     if (!editable || busy) return;
+    if (!entryId) return togglePending(dimension, label);
     const key = `${dimension}|${label}`;
     setBusy(key);
     setError(null);
@@ -109,7 +129,9 @@ export default function CategoryPicker({ pillarId, kpiBaseName, entryId, employe
       if (!list.some((c) => c.dimension === dimension && c.label === label)) {
         setList((prev) => [...prev, { id: `${dimension}|${label}`, pillar_id: pillarId, kpi_base_name: kpiBaseName, dimension, label, sort_order: 999 }]);
       }
-      if (!isOn(dimension, label)) {
+      if (!isOn(dimension, label) && !entryId) {
+        togglePending(dimension, label);
+      } else if (!isOn(dimension, label) && entryId) {
         await addEntryCategory(entryId, dimension, label, employeeId);
         setTags((prev) => [...prev, { id: `${dimension}|${label}`, entry_id: entryId, dimension, category: label }]);
         onChange?.();

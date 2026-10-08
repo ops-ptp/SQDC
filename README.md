@@ -3,11 +3,11 @@
 A digital replacement for the physical SQDC (Safety, Quality, Delivery, Cost) board.
 An Admin/Superuser uploads the daily and weekly Excel exports (**Admin** tab), which
 populates each KPI's Performance value automatically; staff then log in with their
-Employee ID and use **Enter Remarks** to add the remark/reason for any KPI that missed
+Employee ID and use **Enter Remarks** to add the remark and its Pareto tags for any KPI that missed
 target — 3 KPIs (Accident During Operation, QC Preventive Maintenance & Service,
 Average Litres per Vessel Call) still get their Performance value typed in manually,
 since they aren't reliably captured by the upload. The dashboard renders each pillar
-with a large S/Q/D/C letter mosaic, a run chart vs. target, a Pareto of reasons, and the
+with a large S/Q/D/C letter mosaic, a run chart vs. target, a Pareto of tagged causes, and the
 pillar's action list. A **Next 24 Hours** board shows the day's leading KPI projections —
 also from the Admin Excel upload, no manual entry needed. An **Insights** page lets a
 department admin tag missed-target remarks from several angles with AI suggestions
@@ -83,7 +83,7 @@ to be operated with no code or SQL involved. Day to day, that covers:
 
 ### What still needs someone comfortable with SQL or code
 
-- Adding/editing pillars or reasons
+- Adding/editing pillars
 - Bootstrapping the very first site admin (nobody can open Site Admin to grant it until
   at least one account already is one): `update employees set is_site_admin = true where
   employee_code = '0000XX';`
@@ -200,7 +200,9 @@ value from the upload.
 weekly_entries: the Board's Weekly-view source of truth for the 7 KPIs the Weekly
 workbook tracks, keyed by pillar + KPI base name + ISO year + ISO week (not kpi_id,
 since the sheet's figures are already blended, no Day/Night split).
-reasons: curated reasons feeding the Pareto.
+reasons: the retired per-KPI reason pick list (8 Oct 2026). daily_entries.reason_id /
+reason_other are kept as history (shown in Insights, sent to the AI as context) but no
+longer written; Pareto tags (entry_categories) replaced them.
 actions: the action list. action_no is a friendly number. Overdue is derived, not
 stored.
 leading_entries: Next 24 Hours values, one row per KPI per day.
@@ -397,7 +399,7 @@ on the Board than in Insights, check there first.
 
 ## Administering things that still require SQL/Table Editor
 
-- Pillars, reasons - Table Editor or SQL following seed.sql's shape.
+- Pillars - Table Editor or SQL following seed.sql's shape.
 - Bootstrapping the very first site admin: update employees set is_site_admin = true
   where employee_code = '...'; (only needed once, before anyone can open Site Admin).
 

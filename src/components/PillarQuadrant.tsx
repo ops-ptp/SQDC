@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { addDays, format, parseISO, startOfMonth, getDaysInMonth, startOfWeek, subWeeks, subDays, getISOWeek, getISOWeekYear } from 'date-fns';
-import { fetchActions, fetchCategorizedEntriesForKpiIds, fetchCustomParetosForPillar, fetchEntriesForKpi, fetchEntriesForKpis, fetchEntriesForKpisOnDate, fetchKpiDailyTargetsForDate, fetchReasonsForKpi, fetchWeeklyEntriesForKpiBase, fetchWeeklyEntriesForPillar, type CategorizedEntryRow, type CustomPareto } from '../lib/data';
+import { fetchActions, fetchCategorizedEntriesForKpiIds, fetchCustomParetosForPillar, fetchEntriesForKpi, fetchEntriesForKpis, fetchEntriesForKpisOnDate, fetchKpiDailyTargetsForDate, fetchWeeklyEntriesForKpiBase, fetchWeeklyEntriesForPillar, type CategorizedEntryRow, type CustomPareto } from '../lib/data';
 import { applyPivotFilter, computeChartData, computeCrossTab, pivotCoverage, pivotFieldLabel } from '../lib/pivot';
 import { rollUpWeekly } from '../lib/weeklyRollup';
 import { useEmployee } from '../context/EmployeeContext';
 import { useDepartment, useDeptPath } from '../context/DepartmentContext';
 import { baseNameOf, errorMessage, metTarget, PILLAR_COLORS, round2, weeklyFromUpload, type ActionItem, type DailyEntry, type Kpi, type Pillar, type PerformanceStatus, type WeeklyEntry } from '../types';
 import KpiRunChart, { type RunPoint } from './KpiRunChart';
-import ParetoChart, { type ParetoDatum } from './ParetoChart';
+import ParetoChart from './ParetoChart';
 import CategoryPareto from './CategoryPareto';
 import { paretoPeriod as computeParetoPeriod, type ParetoPeriod } from '../lib/categoryCore';
 import ActionTable from './ActionTable';
@@ -155,7 +155,7 @@ export default function PillarQuadrant({
   onArrange,
 }: Props) {
   const navigate = useNavigate();
-  const { employee } = useEmployee();
+  const { employee, isDeptAdmin } = useEmployee();
   const department = useDepartment();
   const deptPath = useDeptPath();
   // Operations' weekly figures come from its Weekly workbook upload; every
@@ -189,7 +189,6 @@ export default function PillarQuadrant({
   // Pareto has its own lookback window, independent of the Trend chart's —
   // daily view: same last-7-days window as the chart. Weekly view: last 2
   // weeks (the chart stays at last 8 ISO weeks) — see item 8 of the spec.
-  const [paretoEntries, setParetoEntries] = useState<DailyEntry[]>([]);
   // Fallback source for the Weekly trend — uploaded weekly figures, used only
   // for ISO weeks that have no live daily_entries to aggregate (item 1/8).
   const [weeklySource, setWeeklySource] = useState<WeeklyEntry[]>([]);
@@ -197,7 +196,6 @@ export default function PillarQuadrant({
   // pill can be coloured by its own weekly result (see groupStatus).
   const [pillarWeekly, setPillarWeekly] = useState<WeeklyEntry[]>([]);
   const [actions, setActions] = useState<ActionItem[]>([]);
-  const [reasonLabelById, setReasonLabelById] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   // Admin-saved Pareto configurations from Insights (Export -> AI -> Pivot
@@ -327,26 +325,14 @@ export default function PillarQuadrant({
       granularity === 'weekly'
         ? format(subWeeks(startOfWeek(referenceDate, { weekStartsOn: 1 }), 7), 'yyyy-MM-dd')
         : format(subDays(referenceDate, 6), 'yyyy-MM-dd');
-    // Pareto window: daily reuses the chart's 7-day window; weekly is a
-    // shorter last-2-weeks lookback, not the chart's 8-week one.
-    // Weekly: the board-wide Weekly / Bi-weekly period (upper bound applied
-    // when counting, below).
-    const paretoSince = granularity === 'weekly' ? paretoPeriod.from : windowSince;
-
     Promise.all([
       Promise.all(ids.map((id) => fetchEntriesForKpi(id, monthSince))),
       Promise.all(ids.map((id) => fetchEntriesForKpi(id, windowSince))),
-      granularity === 'weekly' ? Promise.all(ids.map((id) => fetchEntriesForKpi(id, paretoSince))) : null,
-      Promise.all(ids.map((id) => fetchReasonsForKpi(id))),
     ])
-      .then(([monthByKpi, windowByKpi, paretoByKpi, reasonsByKpi]) => {
+      .then(([monthByKpi, windowByKpi]) => {
         if (cancelled) return;
         setMonthEntries(monthByKpi.flat());
         setWindowEntries(windowByKpi.flat());
-        setParetoEntries(paretoByKpi ? paretoByKpi.flat() : windowByKpi.flat());
-        const map = new Map<string, string>();
-        for (const list of reasonsByKpi) for (const r of list) map.set(r.id, r.label);
-        setReasonLabelById(map);
         setLoadError(null);
       })
       .catch((e) => {
@@ -354,7 +340,6 @@ export default function PillarQuadrant({
         // Don't leave the previous KPI's figures under this KPI's name.
         setMonthEntries([]);
         setWindowEntries([]);
-        setParetoEntries([]);
         setLoadError(errorMessage(e, "Couldn't load this KPI's figures"));
       })
       .finally(() => !cancelled && setLoading(false));
@@ -638,23 +623,6 @@ export default function PillarQuadrant({
   // written before that change keeps the old, now-wrong verdict baked in
   // unless read live like this — same reasoning as the Remarks/Summary
   // block below.
-  const paretoData: ParetoDatum[] = useMemo(() => {
-    if (!selectedGroup) return [];
-    // Old-calculation shift entries (Mainliner Load GMPH only) ride along in
-    // paretoEntries because the chart above needs them, but they must never
-    // factor into a met/missed verdict — same invariant as groupStatus and
-    // the letter grid, so this Pareto doesn't silently disagree with them.
-    const ids = new Set(primaryKpiIds(selectedGroup));
-    const counts = new Map<string, number>();
-    for (const e of paretoEntries) {
-      if (!ids.has(e.kpi_id)) continue;
-      if (granularity === 'weekly' && e.entry_date > paretoPeriod.to) continue;
-      if (groupMetTarget(selectedGroup, e.actual, e.target)) continue;
-      const label = e.reason_other?.trim() || (e.reason_id ? reasonLabelById.get(e.reason_id) : undefined) || 'Unspecified';
-      counts.set(label, (counts.get(label) ?? 0) + 1);
-    }
-    return Array.from(counts.entries()).map(([label, count]) => ({ label, count }));
-  }, [paretoEntries, reasonLabelById, selectedGroup, granularity, paretoPeriod.to]);
 
   // ---- Custom Pareto (admin-saved from Insights) — applies the SAME
   // shared pivot logic Insights itself uses, against live categorized
@@ -876,8 +844,7 @@ export default function PillarQuadrant({
             <>
               <div className="quadrant-section">
                 {/* Daily and Weekly share one Pareto: the KPI's tags, with a tab per
-                    angle (Cause, Equipment, …). The reasons chart is the fallback
-                    for a KPI nobody has tagged yet. */}
+                    angle (Cause, Equipment, …). */}
                 <div className="quadrant-block-title">
                   Pareto — {granularity === 'weekly' ? paretoPeriod.label : dailyParetoPeriod.label}
                 </div>
@@ -891,7 +858,17 @@ export default function PillarQuadrant({
                   period={granularity === 'weekly' ? paretoPeriod : dailyParetoPeriod}
                   color={colors.base}
                   employeeId={employee?.id ?? null}
-                  fallback={<ParetoChart data={paretoData} barColor={colors.base} />}
+                  fallback={
+                    <div className="empty-state" style={{ height: 120 }}>
+                      No tags yet for this KPI — tick Categories when entering a remark
+                      {isDeptAdmin(department.id) ? (
+                        <>
+                          , or <Link to={deptPath('insights')}>tag its remarks in Insights</Link>
+                        </>
+                      ) : null}
+                      .
+                    </div>
+                  }
                 />
               </div>
 

@@ -109,14 +109,6 @@ export interface KpiWithPillar extends Kpi {
   pillar: Pick<Pillar, 'code' | 'name'>;
 }
 
-export interface Reason {
-  id: string;
-  kpi_id: string;
-  label: string;
-  active: boolean;
-  sort_order: number;
-}
-
 export interface DailyEntry {
   id: string;
   kpi_id: string;

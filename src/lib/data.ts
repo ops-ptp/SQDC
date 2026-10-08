@@ -13,7 +13,6 @@ import type {
   KpiWithPillar,
   LeadingEntry,
   Pillar,
-  Reason,
   UploadFormat,
   WeeklyEntry,
 } from '../types';
@@ -48,17 +47,6 @@ export async function fetchLeadingKpis(departmentId: string): Promise<KpiWithPil
     .order('sort_order');
   if (error) throw error;
   return data as unknown as KpiWithPillar[];
-}
-
-export async function fetchReasonsForKpi(kpiId: string): Promise<Reason[]> {
-  const { data, error } = await supabase
-    .from('reasons')
-    .select('*')
-    .eq('kpi_id', kpiId)
-    .eq('active', true)
-    .order('sort_order');
-  if (error) throw error;
-  return data as Reason[];
 }
 
 export async function fetchEntriesForKpi(kpiId: string, sinceDate: string): Promise<DailyEntry[]> {
@@ -107,8 +95,8 @@ interface UpsertEntryInput {
   target: number;
   actual: number;
   met_target: boolean;
-  reason_id: string | null;
-  reason_other: string | null;
+  // reason_id / reason_other are no longer written (the reason dropdown was
+  // retired for Pareto tags); left out so a save keeps any old reason.
   remarks: string | null;
   entered_by: string;
   /** true when this write comes from a person manually entering a

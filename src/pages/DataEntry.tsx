@@ -9,19 +9,18 @@ import {
   fetchKpiDailyTarget,
   fetchKpis,
   fetchPillars,
-  fetchReasonsForKpi,
   upsertDailyEntry,
 } from '../lib/data';
+import { bulkAddEntryCategories } from '../lib/categories';
 import CategoryPicker from '../components/CategoryPicker';
-import { PILLAR_COLORS, errorMessage, isManualKpi, metTarget, round2, type DailyEntry, type Department, type Kpi, type Pillar, type Reason } from '../types';
+import { PILLAR_COLORS, errorMessage, isManualKpi, metTarget, round2, type DailyEntry, type Department, type Kpi, type Pillar } from '../types';
 import { Chip, SegmentedControl } from '@progress/kendo-react-buttons';
 import { useTodayString } from '../lib/useToday';
-import { Button, DateField, NumberField, PageLoader, Select, TextAreaField, TextField, InlineLoader, InfoTip } from '../components/ui';
+import { Button, DateField, NumberField, PageLoader, TextAreaField, InlineLoader, InfoTip } from '../components/ui';
 
 // Staff typically log the previous day's completed shift results each
 // morning — matches the Board, which reviews yesterday's performance.
 const YESTERDAY = format(subDays(new Date(), 1), 'yyyy-MM-dd');
-const OTHER_SENTINEL = 'OTHER';
 
 type Shift = 'day' | 'night' | 'single';
 
@@ -45,12 +44,12 @@ interface KpiGroup {
 
 interface FormState {
   shift: Shift;
-  reasons: Reason[];
   actualInput: string;
   remarks: string;
-  reasonId: string; // '' | OTHER_SENTINEL | a real reason uuid
-  reasonOther: string;
   existing: DailyEntry | null;
+  /** Categories ticked before a typed value's first save — written to the
+   * new entry right after it's saved. */
+  pendingTags: { dimension: string; category: string }[];
   /** Which KPI row the form was loaded for — saves are refused until it
    * matches the selected KPI/shift, so a slow earlier load can never put
    * one KPI's figures onto another. */
@@ -68,12 +67,10 @@ interface FormState {
 
 const EMPTY_FORM: FormState = {
   shift: 'single',
-  reasons: [],
   actualInput: '',
   remarks: '',
-  reasonId: '',
-  reasonOther: '',
   existing: null,
+  pendingTags: [],
   kpiId: null,
   resolvedTarget: 0,
   loading: true,
@@ -247,23 +244,17 @@ export default function DataEntry() {
     if (!kpi) return;
     const seq = ++loadSeq.current;
     setForm((f) => ({ ...f, shift, loading: true }));
-    Promise.all([
-      fetchReasonsForKpi(kpi.id),
-      fetchEntryForKpiAndDate(kpi.id, selectedDate),
-      fetchKpiDailyTarget(kpi.id, selectedDate).catch(() => null),
-    ])
-      .then(([reasons, existing, dailyTarget]) => {
+    Promise.all([fetchEntryForKpiAndDate(kpi.id, selectedDate), fetchKpiDailyTarget(kpi.id, selectedDate).catch(() => null)])
+      .then(([existing, dailyTarget]) => {
         if (seq !== loadSeq.current) return;
         setForm({
           shift,
-          reasons,
           existing,
+          pendingTags: [],
           kpiId: kpi.id,
           resolvedTarget: dailyTarget ?? selectedGroup.target,
           actualInput: existing ? String(existing.actual) : '',
           remarks: existing?.remarks ?? '',
-          reasonId: existing?.reason_id ?? (existing?.reason_other ? OTHER_SENTINEL : ''),
-          reasonOther: existing?.reason_other ?? '',
           loading: false,
           saving: false,
           saved: false,
@@ -281,22 +272,16 @@ export default function DataEntry() {
     const seq = ++loadSeq.current;
     setForm((f) => ({ ...f, shift, loading: true }));
     try {
-      const [reasons, existing, dailyTarget] = await Promise.all([
-        fetchReasonsForKpi(kpi.id),
-        fetchEntryForKpiAndDate(kpi.id, selectedDate),
-        fetchKpiDailyTarget(kpi.id, selectedDate).catch(() => null),
-      ]);
+      const [existing, dailyTarget] = await Promise.all([fetchEntryForKpiAndDate(kpi.id, selectedDate), fetchKpiDailyTarget(kpi.id, selectedDate).catch(() => null)]);
       if (seq !== loadSeq.current) return;
       setForm({
         shift,
-        reasons,
         existing,
+        pendingTags: [],
         kpiId: kpi.id,
         resolvedTarget: dailyTarget ?? selectedGroup.target,
         actualInput: existing ? String(existing.actual) : '',
         remarks: existing?.remarks ?? '',
-        reasonId: existing?.reason_id ?? (existing?.reason_other ? OTHER_SENTINEL : ''),
-        reasonOther: existing?.reason_other ?? '',
         loading: false,
         saving: false,
         saved: false,
@@ -316,8 +301,9 @@ export default function DataEntry() {
     return false;
   }
 
+  /** Any edit clears "Saved ✓"; a save passes saved: true explicitly. */
   function patch(p: Partial<FormState>) {
-    setForm((f) => ({ ...f, ...p, saved: false }));
+    setForm((f) => ({ ...f, saved: false, ...p }));
   }
 
   /** Manual-entry save: person types the Performance value directly (one of
@@ -334,11 +320,6 @@ export default function DataEntry() {
       return;
     }
     const met = metTarget({ is_higher_better: selectedGroup.isHigherBetter }, form.resolvedTarget, actual);
-    const hasReason = (form.reasonId && form.reasonId !== OTHER_SENTINEL) || (form.reasonId === OTHER_SENTINEL && form.reasonOther.trim());
-    if (!met && !hasReason) {
-      patch({ error: 'Target missed — please select a reason category (or "Other" and specify it).' });
-      return;
-    }
     if (!met && !form.remarks.trim()) {
       patch({ error: 'Target missed — please add a remark explaining what happened.' });
       return;
@@ -352,13 +333,14 @@ export default function DataEntry() {
         target: form.resolvedTarget,
         actual,
         met_target: met,
-        reason_id: met ? null : form.reasonId && form.reasonId !== OTHER_SENTINEL ? form.reasonId : null,
-        reason_other: met ? null : form.reasonId === OTHER_SENTINEL ? form.reasonOther.trim() || null : null,
         remarks: form.remarks.trim() || null,
         entered_by: employee.id,
         is_manual_override: true,
       });
-      patch({ saving: false, saved: true, existing: saved });
+      if (!met && form.pendingTags.length > 0) {
+        await bulkAddEntryCategories(form.pendingTags.map((t) => ({ entry_id: saved.id, dimension: t.dimension, category: t.category, created_by: employee.id })));
+      }
+      patch({ saving: false, saved: true, existing: saved, pendingTags: [] });
       setDateEntries((prev) => [...prev.filter((e) => e.kpi_id !== kpi.id), saved]);
     } catch (e) {
       patch({ saving: false, error: errorMessage(e, 'Failed to save') });
@@ -366,7 +348,7 @@ export default function DataEntry() {
   }
 
   /** Remarks-only save: the Performance value already exists (written by the
-   * Admin Excel upload) — only remarks/reason are editable. Leaves
+   * Admin Excel upload) — only the remark is editable. Leaves
    * is_manual_override untouched (omitted from the payload) since this was
    * never a manually-typed value. */
   async function handleSaveRemarks() {
@@ -378,11 +360,6 @@ export default function DataEntry() {
     // groupNeedsRemark's comment for why that stored value can be stale
     // after a KPI's direction is corrected in KPI Management.
     const met = metTarget({ is_higher_better: selectedGroup.isHigherBetter }, form.existing.target, form.existing.actual);
-    const hasReason = (form.reasonId && form.reasonId !== OTHER_SENTINEL) || (form.reasonId === OTHER_SENTINEL && form.reasonOther.trim());
-    if (!met && !hasReason) {
-      patch({ error: 'Target was missed — please select a reason category (or "Other" and specify it).' });
-      return;
-    }
     if (!met && !form.remarks.trim()) {
       patch({ error: 'Target was missed — please add a remark explaining what happened.' });
       return;
@@ -400,8 +377,6 @@ export default function DataEntry() {
         // self-heal a row's stored met_target the next time someone
         // touches it, rather than needing a separate backfill.
         met_target: met,
-        reason_id: met ? null : form.reasonId && form.reasonId !== OTHER_SENTINEL ? form.reasonId : null,
-        reason_other: met ? null : form.reasonId === OTHER_SENTINEL ? form.reasonOther.trim() || null : null,
         remarks: form.remarks.trim() || null,
         entered_by: employee.id,
       });
@@ -415,43 +390,31 @@ export default function DataEntry() {
   /** Category chips for the saved entry of the selected shift — feeds the
    * Weekly/Bi-weekly Pareto. Saves on click, independent of the Save
    * button, so it only appears once there's a saved entry to tag. */
-  function renderCategories(entryId: string) {
+  function renderCategories(entryId: string | null) {
     if (!selectedGroup) return null;
     const pillarColor = (PILLAR_COLORS[pillars.find((p) => p.id === selectedGroup.pillarId)?.code ?? 'S'] ?? PILLAR_COLORS.S).base;
     return (
       <div className="category-block">
         <label className="field-label">
-          Categories <InfoTip>Tick every cause that applied. Saved instantly and counted in the Weekly Pareto.</InfoTip>
+          Categories{' '}
+          <InfoTip>
+            {entryId
+              ? 'Tick every cause that applied. Saved instantly and counted in the Board’s Pareto.'
+              : 'Tick every cause that applied. Saved together with the entry and counted in the Board’s Pareto.'}
+          </InfoTip>
         </label>
         <CategoryPicker
-          key={entryId}
+          key={entryId ?? `pending|${form.kpiId}|${selectedDate}`}
           pillarId={selectedGroup.pillarId}
           kpiBaseName={selectedGroup.label}
           entryId={entryId}
+          pendingTags={entryId ? undefined : form.pendingTags}
+          onPendingChange={(pendingTags) => setForm((f) => ({ ...f, pendingTags, saved: false }))}
           employeeId={employee?.id ?? null}
           editable={Boolean(employee)}
           color={pillarColor}
         />
       </div>
-    );
-  }
-
-  /** Reason category + "Other" free text — used by both the manual-entry
-   * and the remarks-only forms below. */
-  function renderReasonFields() {
-    return (
-      <>
-        <label className="field-label">Reason category</label>
-        <Select
-          value={form.reasonId}
-          placeholder="— Select a reason —"
-          onChange={(v) => patch({ reasonId: v, reasonOther: v === OTHER_SENTINEL ? form.reasonOther : '' })}
-          options={[...form.reasons.map((r) => ({ value: r.id, label: r.label })), { value: OTHER_SENTINEL, label: 'Other (please specify)' }]}
-        />
-        {form.reasonId === OTHER_SENTINEL && (
-          <TextField placeholder="Specify the reason category…" value={form.reasonOther} onChange={(v) => patch({ reasonOther: v })} />
-        )}
-      </>
     );
   }
 
@@ -473,7 +436,7 @@ export default function DataEntry() {
             <InfoTip>
               Logged in as {employee?.name}.{' '}
               {remarksOnly
-                ? 'Performance values come from the daily Admin upload — pick a KPI below to add the remark or reason for it.'
+                ? 'Performance values come from the daily Admin upload — pick a KPI below to add the remark and its categories.'
                 : department.entry_mode === 'both'
                   ? 'Type a KPI’s value here, or let the Admin upload fill it in — a value typed here is never overwritten by an upload. Add a remark whenever a target is missed.'
                   : 'Pick a KPI, type the day’s value, and add a remark whenever the target is missed.'}
@@ -595,18 +558,17 @@ export default function DataEntry() {
               )}
 
               {manualMet === false && (
-                <div className="reason-block">
-                  <span className="pill pill-bad">Target missed</span>
-                  {renderReasonFields()}
-                </div>
+                <span className="pill pill-bad" style={{ marginTop: 8 }}>
+                  Target missed
+                </span>
               )}
 
               <label className="field-label">Remarks{manualMet === false ? ' (required — target missed)' : ' (optional)'}</label>
               <TextAreaField className="entry-remarks" value={form.remarks} onChange={(v) => patch({ remarks: v })} placeholder="What happened, what's being done about it…" />
 
-              {form.existing &&
-                !metTarget({ is_higher_better: selectedGroup.isHigherBetter }, form.existing.target, form.existing.actual) &&
-                renderCategories(form.existing.id)}
+              {/* Shown as soon as the typed value misses target — before the
+                  first save too; ticks then save together with the entry. */}
+              {manualMet === false && renderCategories(form.existing?.id ?? null)}
 
               {form.error && <div className="alert alert-error">{form.error}</div>}
 
@@ -638,11 +600,6 @@ export default function DataEntry() {
                       <span className={`pill ${existingMet ? 'pill-good' : 'pill-bad'}`}>{existingMet ? 'Target met' : 'Target missed'}</span>
                     </div>
 
-                    {!existingMet && (
-                      <div className="reason-block">
-                        {renderReasonFields()}
-                      </div>
-                    )}
                   </>
                 );
               })()}
