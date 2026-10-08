@@ -183,7 +183,9 @@ A few modeling decisions worth knowing:
   Moves column. It usually equals the Next 24hrs projection but not always (some Night
   shifts differ).
 - Leading KPIs (Next 24 Hours) have a Target setting in Admin → KPIs: none, a fixed
-  number, or follow a board KPI's daily target (kpis.has_target + kpis.target_kpi_id).
+  number, or follow a board KPI's target for the DAY BEFORE the projection's date (a
+  projection for today is planned against yesterday's target; kpis.has_target +
+  kpis.target_kpi_id).
   With a target, the card turns green or red and shows "Target X · N above/below".
 
 ---

@@ -112,7 +112,7 @@ type TargetMode = 'none' | 'fixed' | 'daily';
 const TARGET_MODE_OPTIONS = [
   { value: 'none', label: 'None — plain card' },
   { value: 'fixed', label: 'Fixed number' },
-  { value: 'daily', label: "Follow a board KPI's daily target" },
+  { value: 'daily', label: "Follow a board KPI's target (day before)" },
 ];
 
 function KpiFormModal({ mode, row, pillars, existingNames, boardKpis, onCancel, onSaved }: KpiFormProps) {
@@ -241,8 +241,8 @@ function KpiFormModal({ mode, row, pillars, existingNames, boardKpis, onCancel, 
               <span className="field-title">
                 Follow{' '}
                 <InfoTip>
-                  Uses that KPI's target for the same day from the upload's Target sheet, and its direction. On a day with no daily target, its
-                  standard target.
+                  Compares today's projection with that KPI's target for the day before (from the upload's Target sheet), using its direction.
+                  If the day before has no daily target, its standard target.
                 </InfoTip>
               </span>
               <Select value={targetKpiId} onChange={setTargetKpiId} placeholder="— Pick a board KPI —" options={boardKpis.map((k) => ({ value: k.id, label: k.name }))} ariaLabel="Follow board KPI" />
@@ -430,7 +430,7 @@ function KpiTable({
                   {r.hasSecondary && <span className="pill pill-bad admin-kpi-secondary-tag">+old calc</span>}
                 </td>
                 <td>{r.unit || '—'}</td>
-                <td>{!r.isLeading ? r.target : !r.hasTarget ? '—' : r.targetKpiId ? `Daily · ${boardKpiNames.get(r.targetKpiId) ?? 'board KPI'}` : r.target}</td>
+                <td>{!r.isLeading ? r.target : !r.hasTarget ? '—' : r.targetKpiId ? `Day before · ${boardKpiNames.get(r.targetKpiId) ?? 'board KPI'}` : r.target}</td>
                 <td>
                   {r.isLeading && r.hasTarget && r.targetKpiId ? (
                     <span className="muted">Same as the followed KPI</span>

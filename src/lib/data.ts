@@ -252,13 +252,16 @@ export async function fetchKpiDailyTargetsForDate(kpiIds: string[], date: string
 }
 
 /** What a Next 24 Hours card is compared with when it follows a board KPI:
- * that KPI's daily target on the card's date (Target sheet), else its
+ * that KPI's daily target (Target sheet) for the DAY BEFORE the card's date
+ * — a projection for today is planned against yesterday's target — else its
  * standard target. Keyed by the Next 24 Hours KPI's id. */
 export interface FollowedTarget {
   target: number;
   isHigherBetter: boolean;
-  /** 'daily' = from the Target sheet for that date; 'standard' = fallback. */
+  /** 'daily' = from the Target sheet for the day before; 'standard' = fallback. */
   source: 'daily' | 'standard';
+  /** The day whose daily target was used (the card's date minus one). */
+  targetDate: string;
   kpiName: string;
 }
 
@@ -266,7 +269,8 @@ export async function fetchFollowedTargets(cards: { kpiId: string; followsKpiId:
   const out = new Map<string, FollowedTarget>();
   if (cards.length === 0) return out;
   const linkedIds = Array.from(new Set(cards.map((c) => c.followsKpiId)));
-  const dates = Array.from(new Set(cards.map((c) => c.date)));
+  const dayBefore = (d: string) => format(subDays(parseISO(d), 1), 'yyyy-MM-dd');
+  const dates = Array.from(new Set(cards.map((c) => dayBefore(c.date))));
   const [{ data: kpiData, error: kErr }, { data: tData, error: tErr }] = await Promise.all([
     supabase.from('kpis').select('id, name, target, is_higher_better').in('id', linkedIds),
     supabase.from('kpi_daily_targets').select('kpi_id, entry_date, target').in('kpi_id', linkedIds).in('entry_date', dates),
@@ -278,11 +282,13 @@ export async function fetchFollowedTargets(cards: { kpiId: string; followsKpiId:
   for (const c of cards) {
     const k = linked.get(c.followsKpiId);
     if (!k) continue;
-    const d = daily.get(`${c.followsKpiId}|${c.date}`);
+    const targetDate = dayBefore(c.date);
+    const d = daily.get(`${c.followsKpiId}|${targetDate}`);
     out.set(c.kpiId, {
       target: d ?? Number(k.target),
       isHigherBetter: k.is_higher_better,
       source: d === undefined ? 'standard' : 'daily',
+      targetDate,
       kpiName: k.name,
     });
   }

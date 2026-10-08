@@ -1,4 +1,4 @@
-import { format, parseISO } from 'date-fns';
+import { format, parseISO, subDays } from 'date-fns';
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { dragAndDropIcon, pencilIcon } from '@progress/kendo-svg-icons';
@@ -37,12 +37,15 @@ function targetGapLine(value: number, target: number, unit: string, label = 'Tar
 
 /** The target a card is judged against: a fixed number on the KPI, or the
  * followed board KPI's target for that day (null until it has loaded). */
-function cardTarget(k: KpiWithPillar, followed: Map<string, FollowedTarget>): { target: number; isHigherBetter: boolean; label: string } | null {
+function cardTarget(k: KpiWithPillar, followed: Map<string, FollowedTarget>, todayStr: string): { target: number; isHigherBetter: boolean; label: string } | null {
   if (!k.has_target) return null;
   if (!k.target_kpi_id) return { target: Number(k.target), isHigherBetter: k.is_higher_better, label: 'Target' };
   const f = followed.get(k.id);
   if (!f) return null;
-  return { target: f.target, isHigherBetter: f.isHigherBetter, label: f.source === 'daily' ? 'Daily target' : 'Standard target' };
+  if (f.source === 'standard') return { target: f.target, isHigherBetter: f.isHigherBetter, label: 'Standard target' };
+  // The projection is planned against the day before's target.
+  const isYesterday = f.targetDate === format(subDays(parseISO(todayStr), 1), 'yyyy-MM-dd');
+  return { target: f.target, isHigherBetter: f.isHigherBetter, label: isYesterday ? "Yesterday's target" : `Target for ${format(parseISO(f.targetDate), 'd MMM')}` };
 }
 
 // Requested board order: Quality, Delivery, Cost (Safety has no leading
@@ -290,7 +293,7 @@ export default function ForwardLooking() {
                 <div className="fl-column-body">
                   {g.kpis.map((k) => {
                     const entry = entryByKpi.get(k.id);
-                    const t = cardTarget(k, followed);
+                    const t = cardTarget(k, followed, todayStr);
                     const met = entry && t ? metTarget({ is_higher_better: t.isHigherBetter }, t.target, entry.value) : null;
                     return (
                       <div key={k.id} className="fl-card" style={{ borderLeftColor: colors.base }}>
