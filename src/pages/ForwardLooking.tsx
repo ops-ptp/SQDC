@@ -9,7 +9,7 @@ import ArrangeBar from '../components/ArrangeBar';
 import SortableList from '../components/SortableList';
 import { useDepartment, useDeptPath } from '../context/DepartmentContext';
 import { useEmployee } from '../context/EmployeeContext';
-import { PILLAR_COLORS, errorMessage, round2, type KpiWithPillar, type LeadingEntry } from '../types';
+import { PILLAR_COLORS, errorMessage, metTarget, round2, type KpiWithPillar, type LeadingEntry } from '../types';
 import { Button, NumberField, PageLoader, InfoTip } from '../components/ui';
 
 /** '%' KPIs get a % sign; everything else is a plain thousands-separated
@@ -17,6 +17,14 @@ import { Button, NumberField, PageLoader, InfoTip } from '../components/ui';
 function formatValue(value: number, unit: string): string {
   if (unit === '%') return `${round2(value)}%`;
   return new Intl.NumberFormat('en', { maximumFractionDigits: 2 }).format(value);
+}
+
+/** "Target 12,241 · 349 below" — the gap is in the KPI's own unit, and the
+ * colour of the number above it says whether that's good or bad. */
+function targetGapLine(value: number, target: number, unit: string): string {
+  const gap = round2(value - target);
+  const where = gap === 0 ? 'on target' : `${formatValue(Math.abs(gap), unit)} ${gap > 0 ? 'above' : 'below'}`;
+  return `Target ${formatValue(target, unit)} · ${where}`;
 }
 
 // Requested board order: Quality, Delivery, Cost (Safety has no leading
@@ -246,15 +254,21 @@ export default function ForwardLooking() {
                 <div className="fl-column-body">
                   {g.kpis.map((k) => {
                     const entry = entryByKpi.get(k.id);
+                    const target = Number(k.target);
+                    const met = entry && k.has_target ? metTarget(k, target, entry.value) : null;
                     return (
                       <div key={k.id} className="fl-card" style={{ borderLeftColor: colors.base }}>
                         <div className="fl-card-kpi">{k.name}</div>
                         {entry ? (
                           <>
-                            <div className="fl-card-value">
+                            <div className={`fl-card-value${met === null ? '' : met ? ' value-good' : ' value-bad'}`}>
                               {formatValue(entry.value, k.unit)}
                               {k.unit && k.unit !== '%' && <span className="fl-card-unit">{k.unit}</span>}
+                              {met !== null && <span className="sr-only">{met ? ' — target met' : ' — target missed'}</span>}
                             </div>
+                            {met !== null && (
+                              <div className={`fl-card-target ${met ? 'fl-card-target-good' : 'fl-card-target-bad'}`}>{targetGapLine(entry.value, target, k.unit)}</div>
+                            )}
                             <div className="fl-card-asof">
                               As of {entry.entry_date === todayStr ? 'today' : format(parseISO(entry.entry_date), 'EEE, d MMM')}
                             </div>

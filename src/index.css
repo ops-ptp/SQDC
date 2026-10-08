@@ -1327,6 +1327,29 @@ textarea {
   margin-left: 4px;
 }
 
+/* Beats .fl-card-value's own colour. */
+.fl-card-value.value-good {
+  color: var(--good);
+}
+
+.fl-card-value.value-bad {
+  color: var(--bad);
+}
+
+.fl-card-target {
+  font-size: 12.5px;
+  font-weight: 600;
+  margin-top: 6px;
+}
+
+.fl-card-target-good {
+  color: var(--good);
+}
+
+.fl-card-target-bad {
+  color: var(--bad);
+}
+
 .fl-card-asof {
   font-size: 11.5px;
   color: var(--muted);

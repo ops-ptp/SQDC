@@ -343,6 +343,7 @@ interface NewKpiInput {
   manual_entry?: boolean;
   track_weekly?: boolean;
   weekly_agg?: 'avg' | 'sum';
+  has_target?: boolean;
 }
 
 /** Auto-creates a catalog row for a brand-new spreadsheet column detected
@@ -582,7 +583,7 @@ export async function removeDepartmentMember(id: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export type KpiSettingsPatch = Partial<
-  Pick<Kpi, 'unit' | 'target' | 'is_higher_better' | 'active' | 'manual_entry' | 'track_weekly' | 'weekly_agg' | 'info'>
+  Pick<Kpi, 'unit' | 'target' | 'is_higher_better' | 'active' | 'manual_entry' | 'track_weekly' | 'weekly_agg' | 'info' | 'has_target'>
 >;
 
 /** Saves a new display order (see src/lib/kpiOrder.ts) — one small update

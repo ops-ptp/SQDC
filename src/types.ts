@@ -95,6 +95,10 @@ export interface Kpi {
   /** How daily values roll up into a weekly figure when the department has
    * no weekly workbook: average (rates, %, productivity) or sum (counts). */
   weekly_agg: 'avg' | 'sum';
+  /** Next 24 Hours (leading) KPIs only: compare the projection with
+   * `target` / `is_higher_better` and colour the card green or red. Board
+   * KPIs are always judged against their target, so it's unused there. */
+  has_target: boolean;
 }
 
 export interface KpiWithPillar extends Kpi {

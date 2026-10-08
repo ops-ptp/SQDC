@@ -1108,3 +1108,10 @@ begin
 
   drop table if exists pg_temp.tag_spelling;
 end $$;
+
+
+-- =============================================================================
+-- Next 24 Hours targets (8 Oct 2026): a leading KPI can be compared with its
+-- target / is_higher_better, which colours its card green or red.
+-- =============================================================================
+alter table kpis add column if not exists has_target boolean not null default false;

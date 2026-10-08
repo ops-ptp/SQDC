@@ -37,6 +37,8 @@ interface KpiRow {
   info: string;
   weeklyAgg: 'avg' | 'sum';
   sortOrder: number;
+  /** Next 24 Hours KPIs: compare with the target on the card. */
+  hasTarget: boolean;
   // Inline-editable settings:
   active: boolean;
   isHigherBetter: boolean;
@@ -74,6 +76,7 @@ function buildKpiRows(kpis: KpiWithPillar[], pillars: Pillar[]): KpiRow[] {
       info: rep.info ?? '',
       weeklyAgg: rep.weekly_agg ?? 'avg',
       sortOrder: Math.min(...g.members.map((k) => k.sort_order)),
+      hasTarget: rep.has_target ?? false,
       active: rep.active,
       isHigherBetter: rep.is_higher_better,
       trackWeekly: g.members.some((k) => k.track_weekly),
@@ -116,10 +119,14 @@ function KpiFormModal({ mode, row, pillars, existingNames, onCancel, onSaved }: 
   const [weeklyAgg, setWeeklyAgg] = useState<'avg' | 'sum'>(row?.weeklyAgg ?? 'avg');
   const [manualEntry, setManualEntry] = useState(row?.manualEntry ?? false);
   const [info, setInfo] = useState(row?.info ?? '');
+  const [hasTarget, setHasTarget] = useState(row?.hasTarget ?? false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const isBoard = kind === 'board';
+  // A board KPI is always judged against its target; a Next 24 Hours KPI
+  // only when "Compare with a target" is ticked.
+  const showTarget = isBoard || hasTarget;
   const renamed = mode === 'edit' && row && (name.trim() !== row.name || pillarId !== row.pillarId);
 
   async function handleSubmit(e: FormEvent) {
@@ -132,6 +139,7 @@ function KpiFormModal({ mode, row, pillars, existingNames, onCancel, onSaved }: 
     if (!pillarId) return setError('Pick a pillar.');
     const targetNum = target.trim() === '' ? 0 : Number(target);
     if (Number.isNaN(targetNum)) return setError('Standard target must be a number.');
+    if (!isBoard && hasTarget && target.trim() === '') return setError('Enter the target to compare the projection with.');
 
     setSaving(true);
     setError(null);
@@ -148,6 +156,7 @@ function KpiFormModal({ mode, row, pillars, existingNames, onCancel, onSaved }: 
           manual_entry: showManualToggle && isBoard ? manualEntry : false,
           track_weekly: isBoard ? trackWeekly : false,
           weekly_agg: weeklyAgg,
+          has_target: !isBoard && hasTarget,
         };
         if (isBoard && split) {
           await createKpi({ ...base, name: `${cleanName} (Day)` });
@@ -159,6 +168,10 @@ function KpiFormModal({ mode, row, pillars, existingNames, onCancel, onSaved }: 
       } else if (row) {
         if (renamed) await renameKpiGroup(department.id, row.pillarId, row.name, pillarId, cleanName);
         const patch: KpiSettingsPatch = { unit: unit.trim(), target: targetNum, weekly_agg: weeklyAgg, info: info.trim() || null };
+        if (!isBoard) {
+          patch.has_target = hasTarget;
+          patch.is_higher_better = direction === 'higher';
+        }
         await updateKpis(row.ids, patch);
         onSaved(`Saved "${cleanName}".`);
       }
@@ -196,17 +209,27 @@ function KpiFormModal({ mode, row, pillars, existingNames, onCancel, onSaved }: 
             Unit
             <TextField value={unit} onChange={setUnit} placeholder="%, Count, Hours, RM…" />
           </label>
-          <label>
-            <span className="field-title">
-              Standard target{' '}
-            <InfoTip>
-              The target each day is judged against unless an upload's Targets sheet gives that day its own. Changing it
-              affects new entries only — past days keep the target they were judged against.
-            </InfoTip>
-            </span>
-            <NumberField value={target} onChange={setTarget} placeholder="0" />
-          </label>
-          {mode === 'add' && (
+          {!isBoard && (
+            <label className="kpi-form-check span-2">
+              <CheckField checked={hasTarget} onChange={setHasTarget} />
+              Compare with a target{' '}
+              <InfoTip>The Next 24 Hours card turns green or red and shows how far the projection is from this target.</InfoTip>
+            </label>
+          )}
+          {showTarget && (
+            <label>
+              <span className="field-title">
+                {isBoard ? 'Standard target' : 'Target'}{' '}
+                <InfoTip>
+                  {isBoard
+                    ? "The target each day is judged against unless an upload's Targets sheet gives that day its own. Changing it affects new entries only — past days keep the target they were judged against."
+                    : 'The figure each day’s projection is compared with, e.g. the budgeted moves per shift.'}
+                </InfoTip>
+              </span>
+              <NumberField value={target} onChange={setTarget} placeholder="0" />
+            </label>
+          )}
+          {showTarget && (mode === 'add' || !isBoard) && (
             <label>
               Direction
               <Select value={direction} onChange={setDirection} options={DIRECTION_OPTIONS} />
@@ -373,7 +396,7 @@ function KpiTable({
                   {r.hasSecondary && <span className="pill pill-bad admin-kpi-secondary-tag">+old calc</span>}
                 </td>
                 <td>{r.unit || '—'}</td>
-                <td>{r.isLeading ? '—' : r.target}</td>
+                <td>{r.isLeading && !r.hasTarget ? '—' : r.target}</td>
                 <td>
                   <Select
                     className="admin-kpi-direction-select"
