@@ -99,6 +99,10 @@ export interface Kpi {
    * `target` / `is_higher_better` and colour the card green or red. Board
    * KPIs are always judged against their target, so it's unused there. */
   has_target: boolean;
+  /** Next 24 Hours KPIs with a target: when set, the card follows this
+   * board KPI's daily target (from the upload's Target sheet) instead of a
+   * fixed number, and uses that KPI's direction. */
+  target_kpi_id: string | null;
 }
 
 export interface KpiWithPillar extends Kpi {

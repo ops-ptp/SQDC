@@ -39,6 +39,8 @@ interface KpiRow {
   sortOrder: number;
   /** Next 24 Hours KPIs: compare with the target on the card. */
   hasTarget: boolean;
+  /** Next 24 Hours KPIs: the board KPI whose daily target the card follows. */
+  targetKpiId: string | null;
   // Inline-editable settings:
   active: boolean;
   isHigherBetter: boolean;
@@ -77,6 +79,7 @@ function buildKpiRows(kpis: KpiWithPillar[], pillars: Pillar[]): KpiRow[] {
       weeklyAgg: rep.weekly_agg ?? 'avg',
       sortOrder: Math.min(...g.members.map((k) => k.sort_order)),
       hasTarget: rep.has_target ?? false,
+      targetKpiId: rep.target_kpi_id ?? null,
       active: rep.active,
       isHigherBetter: rep.is_higher_better,
       trackWeekly: g.members.some((k) => k.track_weekly),
@@ -99,11 +102,20 @@ interface KpiFormProps {
   row?: KpiRow;
   pillars: Pillar[];
   existingNames: string[];
+  /** Board KPIs a Next 24 Hours KPI can follow the daily target of. */
+  boardKpis: { id: string; name: string }[];
   onCancel: () => void;
   onSaved: (message: string) => void;
 }
 
-function KpiFormModal({ mode, row, pillars, existingNames, onCancel, onSaved }: KpiFormProps) {
+type TargetMode = 'none' | 'fixed' | 'daily';
+const TARGET_MODE_OPTIONS = [
+  { value: 'none', label: 'None — plain card' },
+  { value: 'fixed', label: 'Fixed number' },
+  { value: 'daily', label: "Follow a board KPI's daily target" },
+];
+
+function KpiFormModal({ mode, row, pillars, existingNames, boardKpis, onCancel, onSaved }: KpiFormProps) {
   const department = useDepartment();
   const opsFormat = department.upload_format === 'ops' && department.entry_mode !== 'manual';
   const showManualToggle = department.entry_mode === 'upload';
@@ -119,14 +131,16 @@ function KpiFormModal({ mode, row, pillars, existingNames, onCancel, onSaved }: 
   const [weeklyAgg, setWeeklyAgg] = useState<'avg' | 'sum'>(row?.weeklyAgg ?? 'avg');
   const [manualEntry, setManualEntry] = useState(row?.manualEntry ?? false);
   const [info, setInfo] = useState(row?.info ?? '');
-  const [hasTarget, setHasTarget] = useState(row?.hasTarget ?? false);
+  const [targetMode, setTargetMode] = useState<TargetMode>(row?.hasTarget ? (row.targetKpiId ? 'daily' : 'fixed') : 'none');
+  const [targetKpiId, setTargetKpiId] = useState(row?.targetKpiId ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const isBoard = kind === 'board';
   // A board KPI is always judged against its target; a Next 24 Hours KPI
-  // only when "Compare with a target" is ticked.
-  const showTarget = isBoard || hasTarget;
+  // against a fixed number or a board KPI's daily target, or not at all.
+  const hasTarget = !isBoard && targetMode !== 'none';
+  const showTarget = isBoard || targetMode === 'fixed';
   const renamed = mode === 'edit' && row && (name.trim() !== row.name || pillarId !== row.pillarId);
 
   async function handleSubmit(e: FormEvent) {
@@ -139,7 +153,9 @@ function KpiFormModal({ mode, row, pillars, existingNames, onCancel, onSaved }: 
     if (!pillarId) return setError('Pick a pillar.');
     const targetNum = target.trim() === '' ? 0 : Number(target);
     if (Number.isNaN(targetNum)) return setError('Standard target must be a number.');
-    if (!isBoard && hasTarget && target.trim() === '') return setError('Enter the target to compare the projection with.');
+    if (!isBoard && targetMode === 'fixed' && target.trim() === '') return setError('Enter the target to compare the projection with.');
+    if (!isBoard && targetMode === 'daily' && !targetKpiId) return setError('Pick the board KPI whose daily target to follow.');
+    const followKpiId = !isBoard && targetMode === 'daily' ? targetKpiId : null;
 
     setSaving(true);
     setError(null);
@@ -156,7 +172,8 @@ function KpiFormModal({ mode, row, pillars, existingNames, onCancel, onSaved }: 
           manual_entry: showManualToggle && isBoard ? manualEntry : false,
           track_weekly: isBoard ? trackWeekly : false,
           weekly_agg: weeklyAgg,
-          has_target: !isBoard && hasTarget,
+          has_target: hasTarget,
+          target_kpi_id: followKpiId,
         };
         if (isBoard && split) {
           await createKpi({ ...base, name: `${cleanName} (Day)` });
@@ -170,7 +187,8 @@ function KpiFormModal({ mode, row, pillars, existingNames, onCancel, onSaved }: 
         const patch: KpiSettingsPatch = { unit: unit.trim(), target: targetNum, weekly_agg: weeklyAgg, info: info.trim() || null };
         if (!isBoard) {
           patch.has_target = hasTarget;
-          patch.is_higher_better = direction === 'higher';
+          patch.target_kpi_id = followKpiId;
+          if (targetMode === 'fixed') patch.is_higher_better = direction === 'higher';
         }
         await updateKpis(row.ids, patch);
         onSaved(`Saved "${cleanName}".`);
@@ -210,16 +228,30 @@ function KpiFormModal({ mode, row, pillars, existingNames, onCancel, onSaved }: 
             <TextField value={unit} onChange={setUnit} placeholder="%, Count, Hours, RM…" />
           </label>
           {!isBoard && (
-            <label className="kpi-form-check span-2">
-              <CheckField checked={hasTarget} onChange={setHasTarget} />
-              Compare with a target{' '}
-              <InfoTip>The Next 24 Hours card turns green or red and shows how far the projection is from this target.</InfoTip>
+            <label>
+              <span className="field-title">
+                Target{' '}
+                <InfoTip>With a target, the Next 24 Hours card turns green or red and shows how far the projection is from it.</InfoTip>
+              </span>
+              <Select value={targetMode} onChange={(v) => setTargetMode(v as TargetMode)} options={TARGET_MODE_OPTIONS} ariaLabel="Target" />
+            </label>
+          )}
+          {!isBoard && targetMode === 'daily' && (
+            <label>
+              <span className="field-title">
+                Follow{' '}
+                <InfoTip>
+                  Uses that KPI's target for the same day from the upload's Target sheet, and its direction. On a day with no daily target, its
+                  standard target.
+                </InfoTip>
+              </span>
+              <Select value={targetKpiId} onChange={setTargetKpiId} placeholder="— Pick a board KPI —" options={boardKpis.map((k) => ({ value: k.id, label: k.name }))} ariaLabel="Follow board KPI" />
             </label>
           )}
           {showTarget && (
             <label>
               <span className="field-title">
-                {isBoard ? 'Standard target' : 'Target'}{' '}
+                {isBoard ? 'Standard target' : 'Target value'}{' '}
                 <InfoTip>
                   {isBoard
                     ? "The target each day is judged against unless an upload's Targets sheet gives that day its own. Changing it affects new entries only — past days keep the target they were judged against."
@@ -351,9 +383,11 @@ function KpiTable({
   onEdit,
   onDelete,
   locked,
+  boardKpiNames,
 }: {
   title: string;
   locked: boolean;
+  boardKpiNames: Map<string, string>;
   rows: KpiRow[];
   showWeekly: boolean;
   showManual: boolean;
@@ -396,16 +430,20 @@ function KpiTable({
                   {r.hasSecondary && <span className="pill pill-bad admin-kpi-secondary-tag">+old calc</span>}
                 </td>
                 <td>{r.unit || '—'}</td>
-                <td>{r.isLeading && !r.hasTarget ? '—' : r.target}</td>
+                <td>{!r.isLeading ? r.target : !r.hasTarget ? '—' : r.targetKpiId ? `Daily · ${boardKpiNames.get(r.targetKpiId) ?? 'board KPI'}` : r.target}</td>
                 <td>
-                  <Select
-                    className="admin-kpi-direction-select"
-                    value={r.isHigherBetter ? 'higher' : 'lower'}
-                    onChange={(v) => onPatch(r.key, { isHigherBetter: v === 'higher' })}
-                    options={DIRECTION_OPTIONS}
-                    size="small"
-                    ariaLabel={`Direction for ${r.name}`}
-                  />
+                  {r.isLeading && r.hasTarget && r.targetKpiId ? (
+                    <span className="muted">Same as the followed KPI</span>
+                  ) : (
+                    <Select
+                      className="admin-kpi-direction-select"
+                      value={r.isHigherBetter ? 'higher' : 'lower'}
+                      onChange={(v) => onPatch(r.key, { isHigherBetter: v === 'higher' })}
+                      options={DIRECTION_OPTIONS}
+                      size="small"
+                      ariaLabel={`Direction for ${r.name}`}
+                    />
+                  )}
                 </td>
                 {showWeekly && <td>{!r.isLeading && <CheckField checked={r.trackWeekly} onChange={(v) => onPatch(r.key, { trackWeekly: v })} />}</td>}
                 {showManual && <td>{!r.isLeading && <CheckField checked={r.manualEntry} onChange={(v) => onPatch(r.key, { manualEntry: v })} />}</td>}
@@ -448,12 +486,15 @@ export default function KpiSection({ refreshKey, onChanged }: { refreshKey: numb
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState<{ mode: 'add' | 'edit'; row?: KpiRow } | null>(null);
   const [pendingDelete, setPendingDelete] = useState<KpiRow | null>(null);
+  const [boardKpis, setBoardKpis] = useState<{ id: string; name: string }[]>([]);
+  const boardKpiNames = useMemo(() => new Map(boardKpis.map((k) => [k.id, k.name])), [boardKpis]);
 
   function load() {
     setLoading(true);
     Promise.all([fetchPillars(), fetchAllKpisAdmin(department.id)])
       .then(([p, kpis]) => {
         setPillars(p);
+        setBoardKpis(kpis.filter((k) => !k.is_leading && !k.is_secondary).map((k) => ({ id: k.id, name: k.active ? k.name : `${k.name} (hidden)` })));
         const built = buildKpiRows(kpis, p);
         setRows(built);
         setOriginal(new Map(built.map((r) => [r.key, settingsOf(r)])));
@@ -553,6 +594,7 @@ export default function KpiSection({ refreshKey, onChanged }: { refreshKey: numb
             onPatch={handlePatch}
             onEdit={(row) => setForm({ mode: 'edit', row })}
             onDelete={setPendingDelete}
+            boardKpiNames={boardKpiNames}
           />
           <KpiTable
             title="Next 24 Hours"
@@ -563,6 +605,7 @@ export default function KpiSection({ refreshKey, onChanged }: { refreshKey: numb
             onPatch={handlePatch}
             onEdit={(row) => setForm({ mode: 'edit', row })}
             onDelete={setPendingDelete}
+            boardKpiNames={boardKpiNames}
           />
         </>
       )}
@@ -573,6 +616,7 @@ export default function KpiSection({ refreshKey, onChanged }: { refreshKey: numb
           row={form.row}
           pillars={pillars}
           existingNames={existingNames}
+          boardKpis={boardKpis}
           onCancel={() => setForm(null)}
           onSaved={(msg) => {
             setForm(null);

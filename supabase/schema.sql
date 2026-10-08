@@ -1115,3 +1115,5 @@ end $$;
 -- target / is_higher_better, which colours its card green or red.
 -- =============================================================================
 alter table kpis add column if not exists has_target boolean not null default false;
+-- A Next 24 Hours card can follow a board KPI's daily target instead of a fixed number.
+alter table kpis add column if not exists target_kpi_id uuid references kpis(id) on delete set null;

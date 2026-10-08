@@ -2,7 +2,15 @@ import { format, parseISO } from 'date-fns';
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { dragAndDropIcon, pencilIcon } from '@progress/kendo-svg-icons';
-import { bulkUpsertLeadingEntriesFromUpload, fetchAllKpisAdmin, fetchLatestLeadingEntries, fetchLeadingKpis, saveKpiOrder } from '../lib/data';
+import {
+  bulkUpsertLeadingEntriesFromUpload,
+  fetchAllKpisAdmin,
+  fetchFollowedTargets,
+  fetchLatestLeadingEntries,
+  fetchLeadingKpis,
+  saveKpiOrder,
+  type FollowedTarget,
+} from '../lib/data';
 import { renumberKpis } from '../lib/kpiOrder';
 import { useTodayString } from '../lib/useToday';
 import ArrangeBar from '../components/ArrangeBar';
@@ -21,10 +29,20 @@ function formatValue(value: number, unit: string): string {
 
 /** "Target 12,241 · 349 below" — the gap is in the KPI's own unit, and the
  * colour of the number above it says whether that's good or bad. */
-function targetGapLine(value: number, target: number, unit: string): string {
+function targetGapLine(value: number, target: number, unit: string, label = 'Target'): string {
   const gap = round2(value - target);
   const where = gap === 0 ? 'on target' : `${formatValue(Math.abs(gap), unit)} ${gap > 0 ? 'above' : 'below'}`;
-  return `Target ${formatValue(target, unit)} · ${where}`;
+  return `${label} ${formatValue(target, unit)} · ${where}`;
+}
+
+/** The target a card is judged against: a fixed number on the KPI, or the
+ * followed board KPI's target for that day (null until it has loaded). */
+function cardTarget(k: KpiWithPillar, followed: Map<string, FollowedTarget>): { target: number; isHigherBetter: boolean; label: string } | null {
+  if (!k.has_target) return null;
+  if (!k.target_kpi_id) return { target: Number(k.target), isHigherBetter: k.is_higher_better, label: 'Target' };
+  const f = followed.get(k.id);
+  if (!f) return null;
+  return { target: f.target, isHigherBetter: f.isHigherBetter, label: f.source === 'daily' ? 'Daily target' : 'Standard target' };
 }
 
 // Requested board order: Quality, Delivery, Cost (Safety has no leading
@@ -140,6 +158,24 @@ export default function ForwardLooking() {
 
   const entryByKpi = useMemo(() => new Map(entries.map((e) => [e.kpi_id, e])), [entries]);
 
+  // Cards that follow a board KPI's daily target: look up that KPI's target
+  // for each card's own date.
+  const [followed, setFollowed] = useState<Map<string, FollowedTarget>>(new Map());
+  useEffect(() => {
+    const cards = kpis.flatMap((k) => {
+      const e = entryByKpi.get(k.id);
+      return k.has_target && k.target_kpi_id && e ? [{ kpiId: k.id, followsKpiId: k.target_kpi_id, date: e.entry_date }] : [];
+    });
+    if (cards.length === 0) return;
+    let cancelled = false;
+    fetchFollowedTargets(cards)
+      .then((m) => !cancelled && setFollowed(m))
+      .catch(() => !cancelled && setFollowed(new Map()));
+    return () => {
+      cancelled = true;
+    };
+  }, [kpis, entryByKpi]);
+
   // Group the leading KPI catalog by pillar, in catalog sort order, then
   // reorder the sections themselves to Quality, Delivery, Cost.
   const groups = useMemo(() => {
@@ -254,8 +290,8 @@ export default function ForwardLooking() {
                 <div className="fl-column-body">
                   {g.kpis.map((k) => {
                     const entry = entryByKpi.get(k.id);
-                    const target = Number(k.target);
-                    const met = entry && k.has_target ? metTarget(k, target, entry.value) : null;
+                    const t = cardTarget(k, followed);
+                    const met = entry && t ? metTarget({ is_higher_better: t.isHigherBetter }, t.target, entry.value) : null;
                     return (
                       <div key={k.id} className="fl-card" style={{ borderLeftColor: colors.base }}>
                         <div className="fl-card-kpi">{k.name}</div>
@@ -267,7 +303,7 @@ export default function ForwardLooking() {
                               {met !== null && <span className="sr-only">{met ? ' — target met' : ' — target missed'}</span>}
                             </div>
                             {met !== null && (
-                              <div className={`fl-card-target ${met ? 'fl-card-target-good' : 'fl-card-target-bad'}`}>{targetGapLine(entry.value, target, k.unit)}</div>
+                              <div className={`fl-card-target ${met ? 'fl-card-target-good' : 'fl-card-target-bad'}`}>{targetGapLine(entry.value, t!.target, k.unit, t!.label)}</div>
                             )}
                             <div className="fl-card-asof">
                               As of {entry.entry_date === todayStr ? 'today' : format(parseISO(entry.entry_date), 'EEE, d MMM')}

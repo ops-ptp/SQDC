@@ -179,9 +179,12 @@ A few modeling decisions worth knowing:
 - Percentage-style KPIs are stored as raw value times 100. The upload reads the Excel
   cell's actual number format first, falling back to a magnitude heuristic only when a
   cell has no explicit format.
-- Moves' target moves day to day - the upload reads the sheet's own Projection column
-  and writes it as that row's snapshot target.
-- Leading KPIs have no target, just a daily projected value.
+- Moves' target moves day to day - it comes from the Target sheet's per-day, per-shift
+  Moves column. It usually equals the Next 24hrs projection but not always (some Night
+  shifts differ).
+- Leading KPIs (Next 24 Hours) have a Target setting in Admin → KPIs: none, a fixed
+  number, or follow a board KPI's daily target (kpis.has_target + kpis.target_kpi_id).
+  With a target, the card turns green or red and shows "Target X · N above/below".
 
 ---
 

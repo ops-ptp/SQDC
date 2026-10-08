@@ -251,6 +251,44 @@ export async function fetchKpiDailyTargetsForDate(kpiIds: string[], date: string
   return new Map((data as { kpi_id: string; target: number }[]).map((r) => [r.kpi_id, r.target]));
 }
 
+/** What a Next 24 Hours card is compared with when it follows a board KPI:
+ * that KPI's daily target on the card's date (Target sheet), else its
+ * standard target. Keyed by the Next 24 Hours KPI's id. */
+export interface FollowedTarget {
+  target: number;
+  isHigherBetter: boolean;
+  /** 'daily' = from the Target sheet for that date; 'standard' = fallback. */
+  source: 'daily' | 'standard';
+  kpiName: string;
+}
+
+export async function fetchFollowedTargets(cards: { kpiId: string; followsKpiId: string; date: string }[]): Promise<Map<string, FollowedTarget>> {
+  const out = new Map<string, FollowedTarget>();
+  if (cards.length === 0) return out;
+  const linkedIds = Array.from(new Set(cards.map((c) => c.followsKpiId)));
+  const dates = Array.from(new Set(cards.map((c) => c.date)));
+  const [{ data: kpiData, error: kErr }, { data: tData, error: tErr }] = await Promise.all([
+    supabase.from('kpis').select('id, name, target, is_higher_better').in('id', linkedIds),
+    supabase.from('kpi_daily_targets').select('kpi_id, entry_date, target').in('kpi_id', linkedIds).in('entry_date', dates),
+  ]);
+  if (kErr) throw kErr;
+  if (tErr) throw tErr;
+  const linked = new Map((kpiData as Pick<Kpi, 'id' | 'name' | 'target' | 'is_higher_better'>[]).map((k) => [k.id, k]));
+  const daily = new Map((tData as { kpi_id: string; entry_date: string; target: number }[]).map((t) => [`${t.kpi_id}|${t.entry_date}`, Number(t.target)]));
+  for (const c of cards) {
+    const k = linked.get(c.followsKpiId);
+    if (!k) continue;
+    const d = daily.get(`${c.followsKpiId}|${c.date}`);
+    out.set(c.kpiId, {
+      target: d ?? Number(k.target),
+      isHigherBetter: k.is_higher_better,
+      source: d === undefined ? 'standard' : 'daily',
+      kpiName: k.name,
+    });
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // Admin KPI catalog management — combined lagging + leading list, show/hide,
 // and auto-creating a KPI when the upload detects a brand-new spreadsheet
@@ -344,6 +382,7 @@ interface NewKpiInput {
   track_weekly?: boolean;
   weekly_agg?: 'avg' | 'sum';
   has_target?: boolean;
+  target_kpi_id?: string | null;
 }
 
 /** Auto-creates a catalog row for a brand-new spreadsheet column detected
@@ -583,7 +622,7 @@ export async function removeDepartmentMember(id: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export type KpiSettingsPatch = Partial<
-  Pick<Kpi, 'unit' | 'target' | 'is_higher_better' | 'active' | 'manual_entry' | 'track_weekly' | 'weekly_agg' | 'info' | 'has_target'>
+  Pick<Kpi, 'unit' | 'target' | 'is_higher_better' | 'active' | 'manual_entry' | 'track_weekly' | 'weekly_agg' | 'info' | 'has_target' | 'target_kpi_id'>
 >;
 
 /** Saves a new display order (see src/lib/kpiOrder.ts) — one small update
