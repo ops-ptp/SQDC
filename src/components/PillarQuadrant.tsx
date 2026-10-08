@@ -225,6 +225,17 @@ export default function PillarQuadrant({
   const latestAvailableDate = latestAvailableDateProp ?? referenceDate;
   const latestAvailableDay = latestAvailableDate.getDate();
   const referenceDateStr = format(referenceDate, 'yyyy-MM-dd');
+  // Daily view's Pareto window: the 7 days ending on the reviewed day — the
+  // same window as the Trend chart, in the Weekly Pareto's period shape.
+  const dailyParetoPeriod = useMemo<ParetoPeriod>(() => {
+    const from = subDays(referenceDate, 6);
+    return {
+      from: format(from, 'yyyy-MM-dd'),
+      to: referenceDateStr,
+      label: `Last 7 days · ${format(from, 'd MMM')} – ${format(referenceDate, 'd MMM')}`,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [referenceDateStr]);
   const referenceDay = referenceDate.getDate();
   const paretoPeriod = paretoPeriodProp ?? computeParetoPeriod(referenceDate, 2, 0);
 
@@ -864,28 +875,24 @@ export default function PillarQuadrant({
           {(granularity === 'weekly' || showParetoActions) && (
             <>
               <div className="quadrant-section">
-                {granularity === 'weekly' ? (
-                  <>
-                    <div className="quadrant-block-title">Pareto — {paretoPeriod.label}</div>
-                    <CategoryPareto
-                      pillarId={pillar.id}
-                      kpiBaseName={selectedGroup.label}
-                      kpiIds={primaryKpiIds(selectedGroup)}
-                      dayKpiId={selectedGroup.day?.id}
-                      nightKpiId={selectedGroup.night?.id}
-                      unit={selectedGroup.unit}
-                      period={paretoPeriod}
-                      color={colors.base}
-                      employeeId={employee?.id ?? null}
-                      fallback={<ParetoChart data={paretoData} barColor={colors.base} />}
-                    />
-                  </>
-                ) : (
-                  <>
-                    <div className="quadrant-block-title">Pareto of reasons — last 7 days</div>
-                    <ParetoChart data={paretoData} barColor={colors.base} />
-                  </>
-                )}
+                {/* Daily and Weekly share one Pareto: the KPI's tags, with a tab per
+                    angle (Cause, Equipment, …). The reasons chart is the fallback
+                    for a KPI nobody has tagged yet. */}
+                <div className="quadrant-block-title">
+                  Pareto — {granularity === 'weekly' ? paretoPeriod.label : dailyParetoPeriod.label}
+                </div>
+                <CategoryPareto
+                  pillarId={pillar.id}
+                  kpiBaseName={selectedGroup.label}
+                  kpiIds={primaryKpiIds(selectedGroup)}
+                  dayKpiId={selectedGroup.day?.id}
+                  nightKpiId={selectedGroup.night?.id}
+                  unit={selectedGroup.unit}
+                  period={granularity === 'weekly' ? paretoPeriod : dailyParetoPeriod}
+                  color={colors.base}
+                  employeeId={employee?.id ?? null}
+                  fallback={<ParetoChart data={paretoData} barColor={colors.base} />}
+                />
               </div>
 
               <div className="quadrant-section">
