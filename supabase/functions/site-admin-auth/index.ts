@@ -108,7 +108,7 @@ Deno.serve(async (req) => {
       {
         error: exists ? 'account_exists' : 'auth_error',
         message: exists
-          ? `A sign-in account for ${target.name} already exists but isn't linked. Link it in the SQL Editor (README → Site-admin passwords) or delete it under Authentication → Users and try again.`
+          ? `A sign-in account for ${target.name} already exists but isn't linked to them — someone may have created it themselves. Delete it under Authentication → Users, then set the password again.`
           : (createErr?.message ?? 'Could not create the sign-in account.'),
       },
       400,

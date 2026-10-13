@@ -446,9 +446,12 @@ boundary. Phase 2 is the same password sign-in for department admins.
 
 **First password ever (or if every site admin is locked out)** — needs the Supabase dashboard:
 
+0. Make sure "Allow new users to sign up" is off (see above).
 1. SQL Editor: `select id from employees where employee_code = '011955';` (your ID)
 2. Authentication → Users → Add user → Create new user: email `<that id>@sqdc.local`,
-   your password, tick **Auto Confirm User**.
+   your password, tick **Auto Confirm User**. If it says the address already exists,
+   **delete that user first** (someone else may have created it) and add it again —
+   never link an account you didn't just create.
 3. SQL Editor (links the account to you):
    ```sql
    update employees e set auth_user_id = u.id
