@@ -97,6 +97,8 @@ export function TextField({
   inputMode,
   ariaLabel,
   disabled,
+  type,
+  autoComplete,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -106,9 +108,13 @@ export function TextField({
   inputMode?: 'numeric' | 'text';
   ariaLabel?: string;
   disabled?: boolean;
+  type?: 'text' | 'password';
+  autoComplete?: string;
 }) {
   return (
     <Input
+      type={type}
+      autoComplete={autoComplete}
       value={value}
       onChange={(e) => onChange(String(e.value ?? ''))}
       placeholder={placeholder}

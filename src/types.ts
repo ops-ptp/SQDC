@@ -13,6 +13,9 @@ export interface Employee {
   /** Site admins create/archive departments and appoint department admins,
    * and can do everything a department admin can in every department. */
   is_site_admin: boolean;
+  /** The site admin's password sign-in account (Supabase Auth user id);
+   * null until a password has been set. Only site admins have one. */
+  auth_user_id: string | null;
 }
 
 /** How a department's performance values get into the app:

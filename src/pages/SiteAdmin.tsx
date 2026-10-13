@@ -15,6 +15,7 @@ import {
   type EmployeeSiteUpdate,
 } from '../lib/data';
 import { slugify } from '../lib/slug';
+import { MIN_PASSWORD_LENGTH, setSiteAdminPassword } from '../lib/siteAdminAuth';
 import { ENTRY_MODE_LABELS, errorMessage, normalizeEmployeeCode, type Department, type DepartmentMember, type Employee, type EntryMode } from '../types';
 import Modal from '../components/Modal';
 import { Button, CheckField, InfoTip, InlineLoader, Select, TextField } from '../components/ui';
@@ -312,6 +313,7 @@ function EmployeesCard({
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<Employee | null>(null);
+  const [settingPassword, setSettingPassword] = useState<Employee | null>(null);
 
   const original = useMemo(() => new Map(employees.map((e) => [e.id, e])), [employees]);
   const deptById = useMemo(() => new Map(departments.map((d) => [d.id, d])), [departments]);
@@ -335,7 +337,11 @@ function EmployeesCard({
     try {
       const updates: EmployeeSiteUpdate[] = dirty.map((r) => ({ id: r.id, active: r.active, is_site_admin: r.is_site_admin }));
       await saveEmployeeSiteUpdates(updates);
-      onChanged(`Saved ${updates.length} change${updates.length === 1 ? '' : 's'}.`);
+      const needPassword = dirty.filter((r) => r.is_site_admin && r.active && !r.auth_user_id).map((r) => r.name);
+      onChanged(
+        `Saved ${updates.length} change${updates.length === 1 ? '' : 's'}.` +
+          (needPassword.length > 0 ? ` Set a password for ${needPassword.join(', ')} so they can sign in as site admin.` : '')
+      );
       if (updates.some((u) => u.id === me?.id)) await refresh();
     } catch (e) {
       setError(errorMessage(e, 'Failed to save'));
@@ -382,6 +388,13 @@ function EmployeesCard({
                 Site admin <InfoTip>Can create/archive departments and act as admin in every department.</InfoTip>
               </th>
               <th>Active</th>
+              <th>
+                Password{' '}
+                <InfoTip>
+                  Site admins sign in with Employee ID + password; everyone else uses their Employee ID only. Forgotten passwords are reset
+                  here by another site admin — there's no reset email.
+                </InfoTip>
+              </th>
               <th />
             </tr>
           </thead>
@@ -413,6 +426,20 @@ function EmployeesCard({
                   <td>
                     <CheckField checked={r.active} onChange={(v) => patch(r.id, { active: v })} />
                   </td>
+                  <td className="site-admin-password">
+                    {!original.get(r.id)?.is_site_admin ? (
+                      r.is_site_admin ? <span className="muted">Save first</span> : <span className="muted">—</span>
+                    ) : (
+                      <>
+                        <span className={`pill admin-kpi-tag ${r.auth_user_id ? '' : 'tag-warn'}`}>{r.auth_user_id ? 'Set' : 'Not set'}</span>
+                        {r.active && (
+                          <Button size="small" fillMode="flat" onClick={() => setSettingPassword(r)}>
+                            {r.id === me?.id ? 'Change mine' : r.auth_user_id ? 'Reset' : 'Set password'}
+                          </Button>
+                        )}
+                      </>
+                    )}
+                  </td>
                   <td>
                     <Button size="small" fillMode="flat" svgIcon={pencilIcon} onClick={() => setEditing(r)}>
                       Edit
@@ -433,6 +460,17 @@ function EmployeesCard({
           }}
         />
       )}
+      {settingPassword && (
+        <SetPasswordModal
+          employee={settingPassword}
+          isSelf={settingPassword.id === me?.id}
+          onCancel={() => setSettingPassword(null)}
+          onSaved={(msg) => {
+            setSettingPassword(null);
+            onChanged(msg);
+          }}
+        />
+      )}
       {editing && (
         <EditIdentityModal
           employee={editing}
@@ -444,6 +482,67 @@ function EmployeesCard({
         />
       )}
     </div>
+  );
+}
+
+/** Sets a site admin's first password, resets a forgotten one, or changes
+ * your own. Runs through the site-admin-auth server function, which checks
+ * that you're a signed-in site admin. */
+function SetPasswordModal({
+  employee,
+  isSelf,
+  onCancel,
+  onSaved,
+}: {
+  employee: Employee;
+  isSelf: boolean;
+  onCancel: () => void;
+  onSaved: (message: string) => void;
+}) {
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (password.length < MIN_PASSWORD_LENGTH) return setError(`Use at least ${MIN_PASSWORD_LENGTH} characters.`);
+    if (password !== confirm) return setError('The two passwords don’t match.');
+    setSaving(true);
+    setError(null);
+    try {
+      await setSiteAdminPassword(employee.id, password);
+      onSaved(isSelf ? 'Your password was changed.' : `Password set for ${employee.name}. Give it to them in person, not by chat or email.`);
+    } catch (err) {
+      setError(errorMessage(err, 'Could not set the password'));
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal title={isSelf ? 'Change my password' : employee.auth_user_id ? `Reset password — ${employee.name}` : `Set password — ${employee.name}`} onClose={onCancel}>
+      <form onSubmit={handleSubmit}>
+        <label className="field-label">New password</label>
+        <TextField autoFocus type="password" autoComplete="new-password" value={password} onChange={setPassword} ariaLabel="New password" />
+        <label className="field-label" style={{ marginTop: 12, display: 'block' }}>
+          Type it again
+        </label>
+        <TextField type="password" autoComplete="new-password" value={confirm} onChange={setConfirm} ariaLabel="Confirm new password" />
+        <p className="muted" style={{ marginTop: 10 }}>
+          At least {MIN_PASSWORD_LENGTH} characters.{' '}
+          {isSelf ? 'You stay signed in here.' : 'They sign in with their Employee ID and this password.'}
+        </p>
+        {error && <div className="alert alert-error">{error}</div>}
+        <div className="modal-actions">
+          <Button type="button" onClick={onCancel} disabled={saving}>
+            Cancel
+          </Button>
+          <Button type="submit" themeColor="primary" disabled={saving}>
+            {saving ? 'Saving…' : 'Save password'}
+          </Button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 

@@ -28,9 +28,11 @@
 //
 // Who may call it: the caller sends the logged-in Employee ID, and the
 // function checks (with the service role, server-side) that it belongs to an
-// active department admin of that department, or a site admin. Like the rest
-// of this app's Employee-ID login it is a guard against casual misuse of the
-// paid API quota, not real authentication.
+// active department admin of that department, or a site admin. A site admin
+// only counts as one when the request carries their signed-in session
+// (password sign-in); department admins are still Employee ID only, so for
+// them this is a guard against casual misuse of the paid API quota, not real
+// authentication.
 //
 // Request:  { employeeCode, departmentId, instruction, items: [{id, text}],
 //             angles: [{ name, categories: string[], allowNew, multi }] }
@@ -353,12 +355,19 @@ Deno.serve(async (req) => {
   const sb = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { persistSession: false } });
   const { data: emp, error: empErr } = await sb
     .from('employees')
-    .select('id, active, is_site_admin')
+    .select('id, active, is_site_admin, auth_user_id')
     .eq('employee_code', String(body.employeeCode))
     .maybeSingle();
   if (empErr) return json({ error: 'server_error', message: empErr.message }, 500);
   if (!emp || !emp.active) return json({ error: 'forbidden', message: 'Unknown or inactive Employee ID.' }, 403);
-  if (!emp.is_site_admin) {
+  // Site-admin rights need the admin's own signed-in session, not just their ID.
+  let signedInSiteAdmin = false;
+  if (emp.is_site_admin && emp.auth_user_id) {
+    const token = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '');
+    const { data: u } = await sb.auth.getUser(token);
+    signedInSiteAdmin = u?.user?.id === emp.auth_user_id;
+  }
+  if (!signedInSiteAdmin) {
     const { data: m } = await sb
       .from('department_members')
       .select('role')

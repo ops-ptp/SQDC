@@ -417,19 +417,45 @@ apart from three upserts, so run it right before deploying the department code.
 
 ## Security - read before relying on this beyond a trusted internal pilot
 
-Employee ID login has no password, and only gates /entry, /admin, and /insights. There
-is no Supabase Auth session - the browser talks to Postgres using the public anon key,
-and RLS policies allow that key to read everything and write to most tables. This is
-intentional for a trusted shop-floor terminal/network, but it means anyone with the app
-URL can log an entry as any employee for any KPI, anyone with the anon key (visible in
-browser dev tools, meant to be public) can read/write those tables directly via the API,
-and the site admin / department admin / member gates are client-side convenience, not
-a security boundary — one department can't see another's admin pages in the app, but
-nothing in the database stops a determined person with the anon key from writing to
-another department's rows.
+**Site admins sign in with a password** (Employee ID + password, real Supabase Auth
+session). The database itself — not just the app — only lets a *signed-in* site admin:
+appoint or remove site admins, activate/deactivate people, edit a site admin's record,
+and create, archive, reorder or delete departments (`supabase/migrations_site_admin_auth.sql`).
+The AI tagging function also checks the session before treating a caller as a site admin.
 
-Before relying on this beyond an internal pilot, consider real Supabase Auth with RLS
-policies checking auth.uid() against employees/department_members.
+**Everyone else still logs in with their Employee ID only.** For department admins and
+members there is no password, and RLS still lets the public anon key (visible in browser
+dev tools) read everything and write to most tables: KPIs (including deleting one, which
+deletes its history), entries, actions, department membership and department settings.
+The department admin / member gates are client-side convenience, not a security
+boundary. Phase 2 is the same password sign-in for department admins.
+
+### Site-admin passwords
+
+- Each site admin has one Supabase Auth account, `<employees.id>@sqdc.local` — a
+  placeholder address nobody receives mail at, so there is **no forgot-password email**.
+- A signed-in site admin sets or resets any site admin's password, or changes their own,
+  under **Site Admin → Employees → Password** (runs the `site-admin-auth` Edge Function,
+  deploy with Verify JWT on). Keep at least two site admins with passwords; the database
+  refuses to remove or deactivate the last one.
+- Sessions last until the person clicks **Switch user** (by choice). Anyone else logging
+  in on the same browser ends the admin session automatically.
+- Turn **off** "Allow new users to sign up" (Authentication → Sign In / Providers).
+  Nothing depends on it — a self-made account is never linked to an employee — but there
+  is no reason to leave it on.
+
+**First password ever (or if every site admin is locked out)** — needs the Supabase dashboard:
+
+1. SQL Editor: `select id from employees where employee_code = '011955';` (your ID)
+2. Authentication → Users → Add user → Create new user: email `<that id>@sqdc.local`,
+   your password, tick **Auto Confirm User**.
+3. SQL Editor (links the account to you):
+   ```sql
+   update employees e set auth_user_id = u.id
+   from auth.users u
+   where u.email = e.id || '@sqdc.local' and e.employee_code = '011955';
+   ```
+4. Sign in on the app, then set the other site admins' passwords from Site Admin.
 
 ## What's intentionally out of scope
 

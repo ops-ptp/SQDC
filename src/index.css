@@ -2230,6 +2230,22 @@ textarea {
   color: var(--primary-dark);
 }
 
+/* "Not set" password — neutral, since red/green mean pass/fail on this app. */
+.tag-warn {
+  background: transparent;
+  border: 1px dashed currentColor;
+  font-style: italic;
+}
+
+.site-admin-password {
+  white-space: nowrap;
+}
+
+.site-admin-password .admin-kpi-tag {
+  margin-left: 0;
+  margin-right: 4px;
+}
+
 .field-title {
   display: inline-flex;
   align-items: center;
