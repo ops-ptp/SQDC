@@ -156,6 +156,20 @@ function isKnownBase(kpis: Kpi[], header: string): boolean {
   return kpis.some((k) => k.name === header || k.name === `${header} (Day)` || k.name === `${header} (Night)`);
 }
 
+/** Catalog base name (as spelled in Admin → KPIs, without " (Day)"/
+ * " (Night)") for a sheet heading, ignoring capitals and extra spaces —
+ * so "Yard density (open block)" still finds "Yard Density (Open Block)".
+ * Returns undefined when no KPI matches. */
+function catalogBaseFor(kpis: Kpi[], header: string): string | undefined {
+  const key = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
+  const want = key(header);
+  for (const k of kpis) {
+    const base = k.name.replace(/ \((Day|Night)\)$/, '');
+    if (key(base) === want) return base;
+  }
+  return undefined;
+}
+
 /** Finds a representative kpis row for a base name — tries the exact name
  * first, then the " (Day)"/" (Night)" variants. Used to pull unit/target/
  * direction/pillar for a base name that itself has no un-suffixed row. */
@@ -464,10 +478,18 @@ export async function parseWeeklyWorkbook(buffer: ArrayBuffer, kpis: Kpi[], uplo
 
   const headerRow = sheet.getRow(headerRowNum);
   const colCount = sheet.columnCount;
+  // The fixed map covers the original 7 columns; any other column whose
+  // heading matches a KPI already in the catalog (e.g. one the Daily upload
+  // created) is read too — same idea as parseDailyWorkbook's isKnownBase
+  // fallback. Before this, a new Weekly column was skipped silently.
   const cols: { col: number; base: string }[] = [];
+  const unmatchedHeaders: { col: number; header: string }[] = [];
   for (let c = 1; c <= colCount; c++) {
-    const base = WEEKLY_HEADER_TO_BASE[norm(headerRow.getCell(c).value)];
+    const header = norm(headerRow.getCell(c).value);
+    if (!header) continue;
+    const base = WEEKLY_HEADER_TO_BASE[header] ?? catalogBaseFor(kpis, header);
     if (base) cols.push({ col: c, base });
+    else unmatchedHeaders.push({ col: c, header });
   }
 
   // Optional explicit "Year" column (any header cell reading exactly
@@ -598,6 +620,12 @@ export async function parseWeeklyWorkbook(buffer: ArrayBuffer, kpis: Kpi[], uplo
       inferredYearsUsed.size > 1
         ? `Week labels have no year in this sheet — inferred years ${Math.min(...inferredYearsUsed)}–${Math.max(...inferredYearsUsed)} from where week numbers reset (e.g. 52 -> 01) and today's date. Add a "Year" column to the left of "Week" to make this exact instead of inferred.`
         : `Week labels have no year in this sheet — assumed ISO year ${[...inferredYearsUsed][0]}. Add a "Year" column to the left of "Week" to make this exact instead of inferred.`
+    );
+  }
+  const skippedHeaders = unmatchedHeaders.filter(({ col }) => col !== weekCol && col !== yearCol).map(({ header }) => `"${header}"`);
+  if (skippedHeaders.length > 0) {
+    warnings.push(
+      `Column(s) ${skippedHeaders.join(', ')} don't match any KPI in Admin → KPIs and were not loaded. Upload the Daily workbook first (it creates new KPIs), or make the heading match the KPI name exactly.`
     );
   }
   const rows: UploadWeeklyRow[] = [];
